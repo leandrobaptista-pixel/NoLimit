@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Photo Viewer - A No Limit Carpentry</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+    <style>
+      body { background: var(--bg); color: var(--text); }
+      .viewer-wrap { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+      .viewer-header { display: flex; justify-content: center; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); background: rgba(247, 238, 231, .85); }
+      .viewer-header .brand { display: flex; align-items: center; gap: 10px; }
+      .viewer-header img { height: 40px; }
+      .viewer-main { display: grid; place-items: center; padding: 16px; }
+      .viewer-main img { max-width: 95vw; max-height: 75vh; border-radius: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); }
+      .viewer-footer { display: flex; justify-content: center; align-items: center; padding: 10px; color: var(--muted); }
+      .viewer-actions { position: fixed; bottom: 16px; right: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      .viewer-actions a,
+      .viewer-actions button { background: var(--brand); color: #fff; border: 1px solid var(--brand-2); padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+      .viewer-actions button[disabled] { opacity: .45; cursor: default; }
+    </style>
+  </head>
+  <body>
+    <div class="viewer-wrap">
+      <header class="viewer-header">
+        <a class="brand" href="index.html">
+          <img src="assets/brand.png" alt="A No Limit Carpentry" />
+          <strong>A No Limit Carpentry</strong>
+        </a>
+      </header>
+      <main class="viewer-main">
+        <img id="photo" alt="Project photo" />
+      </main>
+      <footer class="viewer-footer">
+        <span id="meta"></span>
+      </footer>
+      <div class="viewer-actions">
+        <button id="prevBtn" type="button">Previous</button>
+        <button id="nextBtn" type="button">Next</button>
+        <a id="openRaw" target="_blank" rel="noopener">Open original</a>
+        <a id="backLink">Back to site</a>
+      </div>
+    </div>
+    <script src="assets/gallery-manifest.js"></script>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const raw = decodeURIComponent(params.get('img') || '');
+      const cat = params.get('cat') || '';
+      const initialIndex = Number(params.get('i') || 0);
+
+      const photo = document.getElementById('photo');
+      const meta = document.getElementById('meta');
+      const openRaw = document.getElementById('openRaw');
+      const backLink = document.getElementById('backLink');
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+
+      const toURL = (p) => (p || '').split('/').map(encodeURIComponent).join('/');
+
+      function getStoredList() {
+        if (!cat) return [];
+        try {
+          const rawList = localStorage.getItem(`galleryList:${cat}`);
+          const parsed = JSON.parse(rawList || '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+
+      async function getManifestList() {
+        if (!cat) return [];
+        if (window.GALLERY_MANIFEST && Array.isArray(window.GALLERY_MANIFEST[cat])) {
+          return window.GALLERY_MANIFEST[cat];
+        }
+        try {
+          const resp = await fetch(`assets/gallery-manifest.json?t=${Date.now()}`, { cache: 'no-store' });
+          if (!resp.ok) return [];
+          const data = await resp.json();
+          const list = data?.[cat];
+          return Array.isArray(list) ? list : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function updateBackLink() {
+        const url = new URL('index.html', location.href);
+        if (cat) url.searchParams.set('cat', cat);
+        url.hash = 'gallery';
+        backLink.href = url.toString();
+      }
+
+      function render(list, index) {
+        const safeIndex = Math.max(0, Math.min(index, list.length - 1));
+        const current = list[safeIndex] || raw;
+
+        photo.src = toURL(current);
+        photo.onerror = () => { photo.src = 'assets/placeholder.svg'; };
+        openRaw.href = toURL(current);
+
+        const posText = list.length ? ` (${safeIndex + 1}/${list.length})` : '';
+        meta.textContent = cat ? `Segment: ${cat}${posText}` : `Photo${posText}`;
+        document.title = `Photo Viewer - ${cat || 'A No Limit'}`;
+
+        prevBtn.disabled = list.length <= 1;
+        nextBtn.disabled = list.length <= 1;
+
+        const url = new URL(location.href);
+        url.searchParams.set('img', current);
+        if (cat) url.searchParams.set('cat', cat);
+        url.searchParams.set('i', String(safeIndex));
+        history.replaceState({ i: safeIndex }, '', url.toString());
+
+        return safeIndex;
+      }
+
+      (async function init() {
+        updateBackLink();
+
+        let list = getStoredList();
+        if (!list.length) list = await getManifestList();
+        if (!list.length && raw) list = [raw];
+
+        let currentIndex = initialIndex;
+        if (raw) {
+          const found = list.indexOf(raw);
+          if (found >= 0) currentIndex = found;
+        }
+
+        currentIndex = render(list, currentIndex);
+
+        prevBtn.addEventListener('click', () => {
+          if (list.length <= 1) return;
+          currentIndex = (currentIndex - 1 + list.length) % list.length;
+          currentIndex = render(list, currentIndex);
+        });
+
+        nextBtn.addEventListener('click', () => {
+          if (list.length <= 1) return;
+          currentIndex = (currentIndex + 1) % list.length;
+          currentIndex = render(list, currentIndex);
+        });
+
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'ArrowLeft') prevBtn.click();
+          if (event.key === 'ArrowRight') nextBtn.click();
+        });
+      })();
+    </script>
+  </body>
+</html>

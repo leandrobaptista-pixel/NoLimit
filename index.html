@@ -14,7 +14,12 @@
           <img class="logo" src="assets/brand.png" onerror="this.src='assets/logo.svg'" alt="A No Limit Carpentry logo">
           <span>Trim - Decks - Kitchens & Custom Work</span>
         </a>
-        <nav>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primaryNav" aria-label="Toggle navigation">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <nav id="primaryNav">
           <a href="#about">About</a>
           <a href="#services">Services</a>
           <a href="#gallery">Gallery</a>
@@ -29,7 +34,7 @@
       <section id="home" class="hero">
         <div class="container hero-inner">
           <div class="hero-brand">
-            <img src="assets/brand-hero.png" alt="No Limit Carpentry" loading="lazy">
+            <img src="assets/brand-hero.png" alt="No Limit Carpentry" fetchpriority="high" decoding="async">
           </div>
           <h1>Premium Finish Carpentry, Built to Last</h1>
           <p>
@@ -249,7 +254,7 @@
     <noscript>
       Please enable JavaScript for the best experience.
     </noscript>
-    <script src="assets/gallery-manifest.js"></script>
+    <script src="assets/gallery-manifest.js" defer></script>
     <script src="assets/script.js" defer></script>
   </body>
   </html>

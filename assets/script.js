@@ -1,8 +1,44 @@
 const yearEl = document.getElementById('year');
 if (yearEl) yearEl.textContent = new Date().getFullYear();
 
+const header = document.querySelector('.site-header');
+const navWrap = document.querySelector('.nav');
+const navMenu = document.getElementById('primaryNav');
+const navToggle = document.querySelector('.menu-toggle');
 const form = document.getElementById('visitForm');
 const note = document.getElementById('formNote');
+
+function syncHeaderHeight() {
+  if (!header) return;
+  const height = Math.ceil(header.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--header-h', `${height}px`);
+}
+
+syncHeaderHeight();
+window.addEventListener('resize', syncHeaderHeight);
+
+navToggle?.addEventListener('click', () => {
+  const expanded = navToggle.getAttribute('aria-expanded') === 'true';
+  navToggle.setAttribute('aria-expanded', String(!expanded));
+  navWrap?.classList.toggle('nav-open', !expanded);
+  syncHeaderHeight();
+});
+
+navMenu?.querySelectorAll('a').forEach((link) => {
+  link.addEventListener('click', () => {
+    if (window.innerWidth > 980) return;
+    navToggle?.setAttribute('aria-expanded', 'false');
+    navWrap?.classList.remove('nav-open');
+    syncHeaderHeight();
+  });
+});
+
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  navToggle?.setAttribute('aria-expanded', 'false');
+  navWrap?.classList.remove('nav-open');
+  syncHeaderHeight();
+});
 
 function encodeMailto(fields) {
   const to = form?.dataset?.to || 'info@your-company.com';
@@ -145,6 +181,34 @@ function bindCategoryButtons(categories, onChange) {
   });
 }
 
+function buildGalleryItem(src, cat, index) {
+  const fig = document.createElement('figure');
+  const link = document.createElement('a');
+  link.href = `viewer.html?img=${encodeURIComponent(src)}&cat=${encodeURIComponent(cat)}&i=${index}`;
+  link.target = '_blank';
+  link.rel = 'noopener';
+
+  const img = document.createElement('img');
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.fetchPriority = 'low';
+  img.src = toURL(src);
+  img.alt = `${cat} project`;
+  img.onerror = () => {
+    img.src = 'assets/placeholder.svg';
+  };
+
+  const cap = document.createElement('figcaption');
+  const fileName = decodeURIComponent(src.split('/').pop() || 'photo');
+  const baseName = fileName.replace(/\.[^.]+$/, '');
+  cap.textContent = baseName;
+
+  link.appendChild(img);
+  fig.appendChild(link);
+  fig.appendChild(cap);
+  return fig;
+}
+
 function renderGallery(cat, manifest) {
   const container = document.getElementById('galleryContent');
   if (!container) return;
@@ -153,37 +217,18 @@ function renderGallery(cat, manifest) {
 
   const raw = Array.isArray(manifest[cat]) ? manifest[cat] : [];
   const list = dedupeByBase(raw);
+
   try {
     localStorage.setItem(`galleryList:${cat}`, JSON.stringify(list));
   } catch {
     // Ignore storage errors and continue with regular links.
   }
 
+  const fragment = document.createDocumentFragment();
   list.forEach((src, index) => {
-    const fig = document.createElement('figure');
-    const link = document.createElement('a');
-    link.href = `viewer.html?img=${encodeURIComponent(src)}&cat=${encodeURIComponent(cat)}&i=${index}`;
-    link.target = '_blank';
-    link.rel = 'noopener';
-
-    const img = document.createElement('img');
-    img.loading = 'lazy';
-    img.src = toURL(src);
-    img.alt = `${cat} project`;
-    img.onerror = () => {
-      img.src = 'assets/placeholder.svg';
-    };
-
-    const cap = document.createElement('figcaption');
-    const fileName = decodeURIComponent(src.split('/').pop() || 'photo');
-    const baseName = fileName.replace(/\.[^.]+$/, '');
-    cap.textContent = baseName;
-
-    link.appendChild(img);
-    fig.appendChild(link);
-    fig.appendChild(cap);
-    container.appendChild(fig);
+    fragment.appendChild(buildGalleryItem(src, cat, index));
   });
+  container.appendChild(fragment);
 }
 
 (async function initGallery() {

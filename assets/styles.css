@@ -178,3 +178,4 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--brand)}
 .catalog-links{display:flex;flex-direction:column;gap:6px}
 .catalog-links a{color:var(--text);opacity:.9}
 .catalog-links a:hover{opacity:1;text-decoration:underline}
+

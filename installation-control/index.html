@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,31 +16,97 @@
         <h1>Cabinets Control</h1>
       </div>
       <div class="header-actions">
-        <span id="connectionBadge" class="badge">Verificando conexao...</span>
+        <label class="lang-control">
+          <span>Language</span>
+          <select id="languageSelect" aria-label="Language">
+            <option value="en" selected>English</option>
+          </select>
+        </label>
+        <span id="connectionBadge" class="badge">Checking connection...</span>
         <span id="userBadge" class="badge hidden"></span>
-        <button id="logoutBtn" class="secondary hidden">Sair</button>
-        <button id="installBtn" class="secondary hidden">Instalar App</button>
+        <button id="editProfileBtn" class="secondary hidden">Edit</button>
+        <button id="logoutBtn" class="secondary hidden">Logout</button>
+        <button id="installBtn" class="secondary hidden">Install App</button>
       </div>
     </header>
 
     <section id="authView" class="auth-wrap">
+      <article id="bootErrorPanel" class="panel auth-panel hidden">
+        <h2>App startup failed</h2>
+        <p id="bootErrorMessage" class="hint"></p>
+      </article>
+
       <article id="setupPanel" class="panel hidden auth-panel">
-        <h2>Primeiro acesso: criar administrador</h2>
+        <h2>First access: create developer</h2>
         <form id="setupForm" class="grid-form compact">
-          <label>Nome completo<input required name="name" placeholder="Ex: Gabriel Reinhardt" /></label>
-          <label>Usuario<input required name="username" placeholder="Ex: admin" /></label>
-          <label>Senha<input required type="password" name="password" /></label>
-          <button class="primary" type="submit">Criar admin</button>
+          <label>Full Name<input required name="name" placeholder="Ex: Gabriel Reinhardt" /></label>
+          <label>Username<input required name="username" placeholder="Ex: developer" /></label>
+          <label>Password<input required type="password" name="password" /></label>
+          <button class="primary" type="submit">Create developer</button>
         </form>
       </article>
 
-      <article id="loginPanel" class="panel hidden auth-panel">
-        <h2>Entrar no sistema</h2>
+      <article id="loginPanel" class="panel auth-panel">
+        <h2>Sign in</h2>
         <form id="loginForm" class="grid-form compact">
-          <label>Usuario<input required name="username" /></label>
-          <label>Senha<input required type="password" name="password" /></label>
-          <button class="primary" type="submit">Entrar</button>
+          <label>Username<input required name="username" /></label>
+          <label>Password<input required type="password" name="password" /></label>
+          <button class="primary" type="submit">Sign in</button>
         </form>
+        <p class="hint">New to the system? <button id="openSignupBtn" class="secondary" type="button">Create Account</button></p>
+      </article>
+
+      <article id="signupPanel" class="panel hidden auth-panel">
+        <h2>Create Account</h2>
+        <form id="signupForm" class="grid-form compact signup-grid">
+          <label>Photo
+            <input required name="photo" type="file" accept="image/*" capture="user" />
+          </label>
+          <label>Name<input required name="firstName" /></label>
+          <label>Last Name<input required name="lastName" /></label>
+          <label>Company Name<input required name="companyName" /></label>
+          <label>Role<input required name="jobTitle" /></label>
+          <label>Team Type
+            <select required name="employmentType" id="signupEmploymentType">
+              <option value="tag">TAG Employee</option>
+              <option value="subcontractor">Sub Contractor</option>
+              <option value="supplier">Supplier</option>
+            </select>
+          </label>
+          <fieldset class="full contractor-extra hidden" data-subcontractor-fields="signup">
+            <legend>Additional Sub Contractor Data</legend>
+            <div class="grid-form compact signup-grid">
+              <label>COI<input name="contractorCoi" placeholder="COI Document" /></label>
+              <label>COI Expiration<input name="contractorCoiExpiry" type="date" /></label>
+              <label>W9<input name="contractorW9" placeholder="W9 Document" /></label>
+              <label>COI File (PDF/JPG)
+                <input name="contractorCoiFile" type="file" accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg" />
+              </label>
+              <label class="full">Work Areas</label>
+              <div class="checkbox-group full">
+                <label><input type="checkbox" name="contractorAreas" value="Kitchen Installation" /> Kitchen Installation</label>
+                <label><input type="checkbox" name="contractorAreas" value="Millworking" /> Millworking</label>
+                <label><input type="checkbox" name="contractorAreas" value="Countertop Installation" /> Countertop Installation</label>
+                <label><input type="checkbox" name="contractorAreas" value="Wood Flooring" /> Wood Flooring</label>
+                <label><input type="checkbox" name="contractorAreas" value="Tile" /> Tile</label>
+                <label><input type="checkbox" name="contractorAreas" value="Carpet tile installation" /> Carpet tile installation</label>
+              </div>
+            </div>
+          </fieldset>
+          <label class="full">Address<input required name="address" /></label>
+          <label>Phone
+            <input id="signupPhone" name="phone" type="tel" inputmode="numeric" pattern="\d{2}-\d{3}-\d{3}-\d{4}" placeholder="00-000-000-0000" title="Use format 00-000-000-0000" />
+          </label>
+          <label>Cell Phone
+            <input id="signupCellPhone" required name="cellPhone" type="tel" inputmode="numeric" pattern="\d{2}-\d{3}-\d{3}-\d{4}" placeholder="00-000-000-0000" title="Use format 00-000-000-0000" />
+          </label>
+          <label>Email<input required type="email" name="email" /></label>
+          <label>Username<input required name="username" /></label>
+          <label>Password<input required type="password" name="password" /></label>
+          <button class="primary" type="submit">Register</button>
+          <button id="backToLoginBtn" class="secondary" type="button">Back to login</button>
+        </form>
+        <p class="hint">New users start as visitors. Admins and developer can grant functions and access.</p>
       </article>
     </section>
 
@@ -50,85 +116,143 @@
         <small id="permissionLine"></small>
       </section>
 
+      <section id="quickNavPanel" class="panel quick-nav">
+        <div class="row">
+          <button class="secondary nav-btn" type="button" data-nav-action="developer"><span class="nav-icon">DV</span>Developer</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="users"><span class="nav-icon">U</span>Users</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="clients"><span class="nav-icon">C</span>Clients</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="projects"><span class="nav-icon">P</span>Projects</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="subcontractors"><span class="nav-icon">SC</span>Sub Contractors</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="partners"><span class="nav-icon">FP</span>Suppliers &amp; Partners</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="warehouse"><span class="nav-icon">WH</span>Warehouse</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="delivery"><span class="nav-icon">DS</span>Delivery's Schedule</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="distribution"><span class="nav-icon">DI</span>Distribution</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="installation"><span class="nav-icon">IN</span>Installation</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="changeOrders"><span class="nav-icon">CO</span>Change Orders</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="projectReports"><span class="nav-icon">RP</span>Project Reports</button>
+        </div>
+      </section>
+
+      <section id="homePanel" class="panel">
+        <h2>Dashboard</h2>
+        <p class="hint">Use the top menu to navigate between system sections.</p>
+        <div id="coiReminderPanel" class="subpanel reminder-panel hidden"></div>
+      </section>
+
       <section id="masterDataPanel" class="panel">
-        <h2>Cadastro base (clientes, projetos e pessoas)</h2>
-        <p class="hint">Na abertura do sistema voce monta a estrutura do cliente e seus projetos; depois relaciona as pessoas envolvidas em cada projeto.</p>
+        <h2>Master data (clients, projects and people)</h2>
+        <p class="hint">At startup you define the client structure and projects, then link people involved in each project.</p>
         <div class="master-grid">
-          <article class="subpanel">
-            <h3>Clientes</h3>
+          <article id="clientsSubpanel" class="subpanel">
+            <h3>Clients</h3>
+            <h4>Client Quick List</h4>
+            <label class="client-search-label">Search by name
+              <input id="clientSearchInput" type="search" placeholder="Type client name..." autocomplete="off" />
+            </label>
+            <div id="clientsSummaryScroll" class="clients-summary-scroll"></div>
+            <div id="clientDetailsPanel" class="client-details-panel"></div>
+            <h4>Client Registration</h4>
+            <p id="clientAdminTarget" class="hint">Creating a new client.</p>
             <form id="clientForm" class="grid-form compact">
-              <label>Nome do cliente<input required name="name" /></label>
-              <label>Contato principal<input name="contactPerson" /></label>
-              <label>Telefone<input name="phone" /></label>
-              <label>Email<input name="email" type="email" /></label>
-              <button class="primary" type="submit">Adicionar cliente</button>
+              <input type="hidden" name="clientId" />
+              <label>Company Full Name<input required name="name" /></label>
+              <label>Company Address<input name="address" /></label>
+              <label>Office Phone<input name="officePhone" /></label>
+              <label>Email (General)<input name="email" type="email" /></label>
+              <label>Owner<input name="ownerName" /></label>
+              <label>Owner Contact<input name="contactOwner" /></label>
+              <label>Senior Project Manager<input name="contactSeniorProjectManager" /></label>
+              <label>Senior Project Manager Phone<input name="seniorProjectManagerPhone" /></label>
+              <label>Years in Business<input name="yearsInBusiness" placeholder="Ex: 18 years" /></label>
+              <label class="full">Offices (multiple)<textarea name="offices" rows="2" placeholder="One office per line"></textarea></label>
+              <label>Company Logo
+                <input name="logo" type="file" accept="image/*" />
+              </label>
+              <label>Current Logo
+                <img id="clientLogoPreview" class="client-logo-thumb hidden" alt="Client logo preview" />
+              </label>
+              <div class="row full client-form-actions">
+                <button id="clientFormNewBtn" class="secondary" type="button">New client</button>
+                <button class="primary" type="submit">Save client</button>
+                <button id="clientFormDeleteBtn" class="danger" type="button">Delete selected</button>
+              </div>
+              <div class="row full client-shortcuts">
+                <button id="goProjectsFromClientBtn" class="secondary" type="button">Register Project</button>
+                <button id="goPeopleFromClientBtn" class="secondary" type="button">Register People in Project</button>
+              </div>
             </form>
-            <div id="clientsTable" class="table-wrap"></div>
           </article>
 
-          <article class="subpanel">
-            <h3>Projetos por cliente</h3>
+          <article id="projectsSubpanel" class="subpanel">
+            <h3>Projects by client</h3>
             <form id="projectForm" class="grid-form compact">
-              <label>Cliente
+              <label>Client
                 <select id="projectClientSelect" name="clientId" required></select>
               </label>
-              <label>Nome do projeto<input required name="name" /></label>
-              <label>Codigo do projeto<input name="code" placeholder="Ex: TAG-U0602" /></label>
-              <label>Endereco / Job Site<input name="address" /></label>
-              <button class="primary" type="submit">Adicionar projeto</button>
+              <label>Project Name<input required name="name" /></label>
+              <label>Project Code<input name="code" placeholder="Ex: TAG-U0602" /></label>
+              <label>Address / Job Site<input name="address" /></label>
+              <button class="primary" type="submit">Add project</button>
             </form>
             <div id="projectsTable" class="table-wrap"></div>
           </article>
 
-          <article class="subpanel">
-            <h3>Pessoas no projeto</h3>
+          <article id="contactsSubpanel" class="subpanel">
+            <h3>People in project</h3>
             <form id="contactForm" class="grid-form compact">
-              <label>Nome<input required name="name" /></label>
-              <label>Funcao
+              <label>Name<input required name="name" /></label>
+              <label>Role
                 <select name="role" required>
                   <option value="subcontractor">Sub Contractor</option>
                   <option value="foreman">Foreman</option>
                   <option value="project-manager">Project Manager</option>
-                  <option value="client">Cliente</option>
+                  <option value="client">Client</option>
                   <option value="other">Other</option>
                 </select>
               </label>
-              <label>Empresa<input name="company" /></label>
-              <label>Cliente
+              <label>Company<input name="company" /></label>
+              <label>Client
                 <select id="contactClientSelect" name="clientId"></select>
               </label>
-              <label>Projeto
+              <label>Project
                 <select id="contactProjectSelect" name="projectId"></select>
               </label>
-              <label>Telefone<input name="phone" /></label>
+              <label>Phone<input name="phone" /></label>
               <label>Email<input type="email" name="email" /></label>
-              <button class="primary" type="submit">Adicionar pessoa</button>
+              <button class="primary" type="submit">Add person</button>
             </form>
             <div id="contactsTable" class="table-wrap"></div>
           </article>
+
         </div>
       </section>
 
       <section id="containerPanel" class="panel">
-        <h2>Containers do fabricante e schedule de chegada</h2>
-        <p class="hint">Este modulo abastece o warehouse: manifesto de materiais do container, ETA de chegada e controle de envio/retencao por destino para evitar entrega errada ou excesso.</p>
+        <h2>Manufacturer containers and arrival schedule</h2>
+        <p class="hint">This module supports warehouse flow with container manifest, ETA, and dispatch/hold control by destination.</p>
         <form id="containerForm" class="grid-form">
+          <label>Supplier
+            <input required name="supplier" placeholder="Ex: TAG - Abadi Group" />
+          </label>
           <label>Container ID
             <input required name="containerCode" placeholder="Ex: MSKU-448993-2" />
           </label>
-          <label>Fabricante
+          <label>Manufacturer
             <input name="manufacturer" placeholder="Ex: TAG - Abadi Group" />
           </label>
-          <label>Cliente
+          <label>Client
             <select id="containerClientSelect" name="clientId" required></select>
           </label>
-          <label>Projeto
+          <label>Project
             <select id="containerProjectSelect" name="projectId" required></select>
           </label>
-          <label>ETA de chegada
+          <label>ETA
             <input type="date" name="etaDate" required />
           </label>
-          <label>Status de chegada
+          <label>Port Departure (counter start)
+            <input type="datetime-local" name="departureAt" />
+          </label>
+          <label>Arrival Status
             <select name="arrivalStatus">
               <option value="scheduled">Scheduled</option>
               <option value="in-transit">In Transit</option>
@@ -136,30 +260,53 @@
               <option value="delayed">Delayed</option>
             </select>
           </label>
-          <label>Cozinhas no container
+          <label>Kitchens in container
             <input type="number" min="0" name="qtyKitchens" value="0" />
           </label>
-          <label>Vanities no container
+          <label>Vanities in container
             <input type="number" min="0" name="qtyVanities" value="0" />
           </label>
-          <label>Med Cabinets no container
+          <label>Med Cabinets in container
             <input type="number" min="0" name="qtyMedCabinets" value="0" />
           </label>
-          <label>Countertops no container
+          <label>Countertops in container
             <input type="number" min="0" name="qtyCountertops" value="0" />
           </label>
-          <label class="full">Notas
+          <label class="full">Notes
             <textarea name="notes" rows="2" placeholder="Ex: arrival window, prioridade de descarga"></textarea>
           </label>
-          <button class="primary" type="submit">Adicionar container</button>
+          <label class="full">Loose parts / notes
+            <textarea name="loosePartsNotes" rows="2" placeholder="Liste itens avulsos, caixas soltas, pallets especiais..."></textarea>
+          </label>
+          <button class="primary" type="submit">Add container</button>
         </form>
+        <article id="materialsSubpanel" class="subpanel" data-sectors="warehouse">
+          <h3>Catalogo de materiais (QR)</h3>
+          <form id="materialForm" class="grid-form compact">
+            <label>SKU/Codigo<input required name="sku" placeholder="Ex: KIT-KCH-001" /></label>
+            <label>Descricao<input required name="description" placeholder="Ex: Door panel 24x30" /></label>
+            <label>Categoria
+              <select name="category" required>
+                <option value="kitchen">Kitchen</option>
+                <option value="vanity">Vanity</option>
+                <option value="med-cabinet">Med Cabinet</option>
+                <option value="countertop">Countertop</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>Unit<input required name="unit" placeholder="Ex: pcs" /></label>
+            <label>Kitchen Type<input name="kitchenType" placeholder="Ex: Type A" /></label>
+            <button class="primary" type="submit">Add material</button>
+          </form>
+          <div id="materialsTable" class="table-wrap"></div>
+        </article>
         <div id="containersBoard" class="containers-board"></div>
       </section>
 
       <section class="panel stats" id="statsPanel"></section>
 
       <section class="panel" id="syncPanel">
-        <h2>Sincronizacao na nuvem (multi-dispositivo)</h2>
+        <h2>Cloud Sync (multi-device)</h2>
         <p class="hint">Modo offline-first: dados locais continuam funcionando sem internet. Quando online, use push/pull para sincronizar dispositivos.</p>
         <form id="syncConfigForm" class="grid-form compact">
           <label>Supabase URL
@@ -174,49 +321,164 @@
           <label>
             Auto-sync (quando online)
             <select name="autoSync">
-              <option value="false">Desligado</option>
-              <option value="true">Ligado</option>
+              <option value="false">Off</option>
+              <option value="true">On</option>
             </select>
           </label>
-          <button class="secondary" type="submit">Salvar configuracao</button>
+          <button class="secondary" type="submit">Save settings</button>
         </form>
         <div class="row sync-actions">
-          <button id="pushSyncBtn" class="secondary">Enviar para nuvem (Push)</button>
-          <button id="pullSyncBtn" class="secondary">Baixar da nuvem (Pull)</button>
-          <span id="syncStatus" class="badge">Sem sincronizacao</span>
+          <button id="pushSyncBtn" class="secondary">Push to cloud</button>
+          <button id="pullSyncBtn" class="secondary">Pull from cloud</button>
+          <span id="syncStatus" class="badge">No sync</span>
         </div>
+        <div id="developerAuditPanel" class="subpanel hidden"></div>
       </section>
 
       <section id="usersPanel" class="panel hidden">
-        <h2>Usuarios e perfis</h2>
-        <form id="userForm" class="grid-form compact">
-          <label>Nome<input required name="name" /></label>
-          <label>Usuario<input required name="username" /></label>
-          <label>Senha<input required type="password" name="password" /></label>
+        <h2>Users and Roles (Admin/Developer)</h2>
+        <p id="userAdminTarget" class="hint">Creating a new user.</p>
+        <form id="userForm" class="grid-form compact signup-grid users-admin-form">
+          <label>Photo atual
+            <img id="userAdminPhotoPreview" class="avatar-lg hidden" alt="Foto do usuario" />
+          </label>
+          <label>New Photo
+            <input name="photo" type="file" accept="image/*" capture="user" />
+          </label>
+          <label>Name<input required name="firstName" /></label>
+          <label>Last Name<input required name="lastName" /></label>
+          <label>Company Name<input required name="companyName" /></label>
+          <label>Role<input required name="jobTitle" /></label>
+          <label>Team Type
+            <select required name="employmentType" id="userAdminEmploymentType">
+              <option value="tag">TAG Employee</option>
+              <option value="subcontractor">Sub Contractor</option>
+              <option value="supplier">Supplier</option>
+            </select>
+          </label>
+          <fieldset class="full contractor-extra hidden" data-subcontractor-fields="admin">
+            <legend>Additional Sub Contractor Data</legend>
+            <div class="grid-form compact signup-grid">
+              <label>COI<input name="contractorCoi" placeholder="COI Document" /></label>
+              <label>COI Expiration<input name="contractorCoiExpiry" type="date" /></label>
+              <label>W9<input name="contractorW9" placeholder="W9 Document" /></label>
+              <label>COI File (PDF/JPG)
+                <input name="contractorCoiFile" type="file" accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg" />
+              </label>
+              <p id="userAdminCoiFileStatus" class="hint full">No COI file attached.</p>
+              <button id="openUserAdminCoiFileBtn" class="secondary xs-btn hidden" type="button">Open current COI</button>
+              <label class="full">Work Areas</label>
+              <div class="checkbox-group full">
+                <label><input type="checkbox" name="contractorAreas" value="Kitchen Installation" /> Kitchen Installation</label>
+                <label><input type="checkbox" name="contractorAreas" value="Millworking" /> Millworking</label>
+                <label><input type="checkbox" name="contractorAreas" value="Countertop Installation" /> Countertop Installation</label>
+                <label><input type="checkbox" name="contractorAreas" value="Wood Flooring" /> Wood Flooring</label>
+                <label><input type="checkbox" name="contractorAreas" value="Tile" /> Tile</label>
+                <label><input type="checkbox" name="contractorAreas" value="Carpet tile installation" /> Carpet tile installation</label>
+              </div>
+            </div>
+          </fieldset>
+          <label class="full">Address<input required name="address" /></label>
+          <label>Phone
+            <input id="userAdminPhone" name="phone" type="tel" inputmode="numeric" pattern="\d{2}-\d{3}-\d{3}-\d{4}" placeholder="00-000-000-0000" />
+          </label>
+          <label>Cell Phone
+            <input id="userAdminCellPhone" required name="cellPhone" type="tel" inputmode="numeric" pattern="\d{2}-\d{3}-\d{3}-\d{4}" placeholder="00-000-000-0000" />
+          </label>
+          <label>Email<input required type="email" name="email" /></label>
+          <label>Username<input required name="username" /></label>
+          <label>Password (required for create, optional for edit)<input name="password" type="password" /></label>
           <label>Perfil
             <select name="role" required>
               <option value="warehouse">Warehouse</option>
               <option value="transport">Transport</option>
               <option value="qa">QA</option>
               <option value="installer">Installer</option>
+              <option value="visitor">Visitor</option>
               <option value="admin">Admin</option>
+              <option value="developer">Developer</option>
             </select>
           </label>
-          <button class="primary" type="submit">Adicionar usuario</button>
+          <div class="row full">
+            <button id="userFormNewBtn" class="secondary" type="button">New user</button>
+            <button class="primary" type="submit">Save user</button>
+            <button id="userFormDeleteBtn" class="danger" type="button">Delete selected</button>
+          </div>
         </form>
-        <div id="usersTable" class="table-wrap"></div>
+        <div class="users-directory">
+          <aside id="usersNameRail" class="users-name-rail"></aside>
+          <div id="usersTable" class="table-wrap"></div>
+        </div>
+      </section>
+
+      <section id="userEditPanel" class="panel hidden">
+        <h2>Edit user profile</h2>
+        <p id="userEditTarget" class="hint"></p>
+        <form id="userEditForm" class="grid-form compact signup-grid">
+          <label>Photo atual
+            <img id="userEditPhotoPreview" class="avatar-lg hidden" alt="Foto do usuario" />
+          </label>
+          <label>Nova Photo
+            <input name="photo" type="file" accept="image/*" capture="user" />
+          </label>
+          <label>Name<input required name="firstName" /></label>
+          <label>Last Name<input required name="lastName" /></label>
+          <label>Company Name<input required name="companyName" /></label>
+          <label>Role<input required name="jobTitle" /></label>
+          <label>Team Type
+            <select required name="employmentType" id="userEditEmploymentType">
+              <option value="tag">TAG Employee</option>
+              <option value="subcontractor">Sub Contractor</option>
+              <option value="supplier">Supplier</option>
+            </select>
+          </label>
+          <fieldset class="full contractor-extra hidden" data-subcontractor-fields="edit">
+            <legend>Additional Sub Contractor Data</legend>
+            <div class="grid-form compact signup-grid">
+              <label>COI<input name="contractorCoi" placeholder="COI Document" /></label>
+              <label>COI Expiration<input name="contractorCoiExpiry" type="date" /></label>
+              <label>W9<input name="contractorW9" placeholder="W9 Document" /></label>
+              <label>COI File (PDF/JPG)
+                <input name="contractorCoiFile" type="file" accept=".pdf,.jpg,.jpeg,application/pdf,image/jpeg" />
+              </label>
+              <p id="userEditCoiFileStatus" class="hint full">No COI file attached.</p>
+              <button id="openUserEditCoiFileBtn" class="secondary xs-btn hidden" type="button">Abrir COI atual</button>
+              <label class="full">Work Areas</label>
+              <div class="checkbox-group full">
+                <label><input type="checkbox" name="contractorAreas" value="Kitchen Installation" /> Kitchen Installation</label>
+                <label><input type="checkbox" name="contractorAreas" value="Millworking" /> Millworking</label>
+                <label><input type="checkbox" name="contractorAreas" value="Countertop Installation" /> Countertop Installation</label>
+                <label><input type="checkbox" name="contractorAreas" value="Wood Flooring" /> Wood Flooring</label>
+                <label><input type="checkbox" name="contractorAreas" value="Tile" /> Tile</label>
+                <label><input type="checkbox" name="contractorAreas" value="Carpet tile installation" /> Carpet tile installation</label>
+              </div>
+            </div>
+          </fieldset>
+          <label class="full">Address<input required name="address" /></label>
+          <label>Phone
+            <input id="userEditPhone" name="phone" type="tel" inputmode="numeric" pattern="\d{2}-\d{3}-\d{3}-\d{4}" placeholder="00-000-000-0000" />
+          </label>
+          <label>Cell Phone
+            <input id="userEditCellPhone" required name="cellPhone" type="tel" inputmode="numeric" pattern="\d{2}-\d{3}-\d{3}-\d{4}" placeholder="00-000-000-0000" />
+          </label>
+          <label>Email<input required type="email" name="email" /></label>
+          <div class="row full">
+            <button class="primary" type="submit">Save changes</button>
+            <button id="cancelUserEditBtn" class="secondary" type="button">Cancelar</button>
+          </div>
+        </form>
       </section>
 
       <section class="panel" id="unitEntryPanel">
         <h2>Novo registro por unidade</h2>
         <form id="unitForm" class="grid-form">
-          <label>Projeto
+          <label>Project
             <select id="unitProjectSelect" required name="projectId"></select>
           </label>
-          <label>Cliente<input id="unitClientName" readonly name="clientName" /></label>
-          <label>Nome do projeto<input id="unitProjectName" readonly name="projectName" /></label>
-          <label>Job Site<input required id="unitJobSite" name="jobSite" placeholder="Endereco da obra" /></label>
-          <label>Unidade<input required name="unitCode" placeholder="Ex: 1204" /></label>
+          <label>Client<input id="unitClientName" readonly name="clientName" /></label>
+          <label>Project Name<input id="unitProjectName" readonly name="projectName" /></label>
+          <label>Job Site<input required id="unitJobSite" name="jobSite" placeholder="Address da obra" /></label>
+          <label>Unit<input required name="unitCode" placeholder="Ex: 1204" /></label>
           <label>Building/Tower<input name="building" placeholder="Ex: Torre B" /></label>
           <label>Pavimento<input name="floor" placeholder="Ex: 12" /></label>
           <label>Categoria
@@ -232,7 +494,7 @@
           <label>Shopdrawing (referencia/link)
             <input name="shopdrawingRef" placeholder="Numero, URL ou caminho" />
           </label>
-          <label class="full">Scope Work do projeto
+          <label class="full">Project Scope Work
             <textarea name="scopeWork" rows="3" placeholder="Escopo resumido para conferencia em campo"></textarea>
           </label>
           <button class="primary" type="submit">Salvar unidade</button>
@@ -240,24 +502,33 @@
         <p id="unitProjectHint" class="hint"></p>
       </section>
 
-      <section class="panel toolbar">
+      <section id="unitsToolbarPanel" class="panel toolbar">
         <h2>Controle operacional</h2>
         <div class="row">
-          <input id="searchInput" placeholder="Buscar por cliente, projeto, unidade, tipo, modelo..." />
+          <input id="searchInput" placeholder="Search by client, project, unit, type, model..." />
           <select id="filterSelect">
             <option value="all">Todas</option>
             <option value="pending">Pendentes</option>
             <option value="qualityIssues">Com problema de qualidade</option>
-            <option value="blockedInstall">Instalacao bloqueada</option>
+            <option value="blockedInstall">Installation blocked</option>
           </select>
           <select id="projectReportSelect"></select>
-          <button id="projectReportBtn" class="secondary">Relatorio PDF (Projeto)</button>
+          <button id="projectReportBtn" class="secondary">Project PDF Report</button>
           <button id="exportBtn" class="secondary">Exportar backup</button>
           <label class="file-label secondary">
             Importar backup
             <input id="importInput" type="file" accept="application/json" />
           </label>
         </div>
+      </section>
+
+      <section id="qrLookupPanel" class="panel">
+        <h2>Busca por QR e historico</h2>
+        <form id="qrLookupForm" class="row">
+          <input id="qrLookupInput" placeholder="Escaneie/cole o QR para buscar historico completo" />
+          <button class="secondary" type="submit">Buscar QR</button>
+        </form>
+        <div id="qrLookupResult" class="table-wrap"></div>
       </section>
 
       <section id="unitsContainer" class="units"></section>
@@ -270,15 +541,16 @@
             <h3 class="container-title"></h3>
             <p class="container-meta"></p>
           </div>
-          <button class="danger container-delete-btn">Excluir</button>
+          <button class="danger container-delete-btn">Delete</button>
         </div>
 
         <div class="container-kpi"></div>
         <p class="hint container-alert"></p>
 
-        <div class="checklist-block">
+        <div class="checklist-block" data-sectors="fabrica">
           <h4>Manifesto de materiais do fabricante</h4>
           <form class="manifest-form row">
+            <select class="mf-material"></select>
             <input class="mf-code" placeholder="Cod. item" />
             <input class="mf-desc" placeholder="Descricao" />
             <select class="mf-category">
@@ -289,13 +561,13 @@
               <option value="other">Other</option>
             </select>
             <input class="mf-qty" type="number" min="0" placeholder="Qtd" />
-            <input class="mf-unit" placeholder="Unidade (pcs/box)" />
-            <button class="secondary" type="submit">Adicionar no manifesto</button>
+            <input class="mf-unit" placeholder="Unit (pcs/box)" />
+            <button class="secondary" type="submit">Add to manifest</button>
           </form>
           <div class="table-wrap manifest-table"></div>
         </div>
 
-        <div class="checklist-block">
+        <div class="checklist-block" data-sectors="warehouse">
           <h4>Controle warehouse: envio ou retencao por destino</h4>
           <form class="release-form row">
             <select class="rf-unit"></select>
@@ -313,6 +585,27 @@
           </form>
           <div class="table-wrap release-table"></div>
         </div>
+
+        <div class="checklist-block" data-sectors="warehouse">
+          <h4>QR Dispatch por item</h4>
+          <form class="qr-dispatch-form row">
+            <select class="qd-unit"></select>
+            <input class="qd-kitchen" placeholder="Kitchen Type (opcional)" />
+            <input class="qd-scan" placeholder="Escaneie/cole o QR do item" />
+            <button class="secondary" type="submit">Direcionar item</button>
+          </form>
+          <div class="table-wrap qr-track-table"></div>
+        </div>
+
+        <div class="checklist-block" data-sectors="warehouse,punchlist">
+          <h4>Lista de substituicao (warehouse)</h4>
+          <div class="table-wrap replace-queue-table"></div>
+        </div>
+
+        <div class="checklist-block" data-sectors="fabrica,punchlist">
+          <h4>Lista de faltantes da fabrica</h4>
+          <div class="table-wrap factory-queue-table"></div>
+        </div>
       </article>
     </template>
 
@@ -325,7 +618,7 @@
           </div>
           <div class="unit-actions">
             <button class="secondary report-btn">PDF unidade</button>
-            <button class="danger delete-btn">Excluir</button>
+            <button class="danger delete-btn">Delete</button>
           </div>
         </div>
 
@@ -336,35 +629,66 @@
 
         <div class="stage-grid"></div>
 
-        <div class="field-row">
-          <label>Qualidade da entrega
+        <div class="field-row quality-install-row" data-sectors="distribuicao,instalacao,punchlist">
+          <label>Delivery quality
             <select class="quality-status">
-              <option value="pending">Pendente</option>
-              <option value="approved">Aprovada</option>
-              <option value="rejected">Rejeitada</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
             </select>
           </label>
           <label>Status da instalacao
             <select class="install-status">
-              <option value="not-started">Nao iniciada</option>
+              <option value="not-started">Not started</option>
               <option value="in-progress">Em andamento</option>
-              <option value="completed">Concluida</option>
+              <option value="completed">Completed</option>
               <option value="blocked">Bloqueada</option>
             </select>
           </label>
         </div>
 
-        <label>Notas de qualidade/instalacao
-          <textarea class="delivery-notes" rows="2" placeholder="Inspecao, observacoes e pendencias"></textarea>
+        <label class="delivery-notes-wrap" data-sectors="distribuicao,instalacao,punchlist">Notes de qualidade/instalacao
+          <textarea class="delivery-notes" rows="2" placeholder="Inspection, notes, and pending items"></textarea>
         </label>
 
-        <div class="field-row">
+        <div class="field-row issues-row" data-sectors="punchlist,instalacao">
           <label class="full">Material faltante / defeituoso / ajuste
             <textarea class="issues-text" rows="2" placeholder="Ex: 2 portas faltantes; ajuste no shopdrawing do modulo ilha; parede fora de prumo"></textarea>
           </label>
         </div>
 
-        <div class="checklist-block">
+        <div class="checklist-block" data-sectors="warehouse,delivery">
+          <h4>Warehouse dispatch (tarefas + assinatura)</h4>
+          <form class="dispatch-form row">
+            <input class="df-item" placeholder="Item do delivery" />
+            <input class="df-qty" type="number" min="1" placeholder="Qtd" />
+            <button class="secondary" type="submit">Add task</button>
+            <button class="secondary sign-dispatch-btn" type="button">Assinar envio (warehouse)</button>
+          </form>
+          <div class="table-wrap dispatch-table"></div>
+        </div>
+
+        <div class="checklist-block" data-sectors="delivery,punchlist">
+          <h4>Recebimento no site job (separado do delivery)</h4>
+          <form class="site-receive-form row">
+            <input class="sr-qr" placeholder="QR code do item" />
+            <input class="sr-item" placeholder="Received item" />
+            <input class="sr-qty" type="number" min="1" placeholder="Qtd" />
+            <select class="sr-issue">
+              <option value="ok">OK</option>
+              <option value="nao-chegou">Not received</option>
+              <option value="quebrado">Quebrado</option>
+              <option value="faltando-pecas">Faltando pecas</option>
+              <option value="medida-diferente">Medida diferente</option>
+              <option value="cor-errada">Cor errada</option>
+            </select>
+            <input class="sr-note" placeholder="Detalhe do problema" />
+            <button class="secondary" type="submit">Lancar recebimento</button>
+          </form>
+          <div class="table-wrap site-receive-table"></div>
+        </div>
+
+        <div class="checklist-block" data-sectors="punchlist,delivery,warehouse">
           <h4>Checklist detalhado de saida/recebimento</h4>
           <form class="check-item-form row">
             <input class="ci-code" placeholder="Cod." />
@@ -377,25 +701,25 @@
               <option value="damaged">Defeito</option>
               <option value="adjustment">Ajuste</option>
             </select>
-            <button class="secondary add-item-btn" type="submit">Adicionar item</button>
+            <button class="secondary add-item-btn" type="submit">Add item</button>
           </form>
           <div class="table-wrap checklist-table"></div>
           <p class="checklist-summary"></p>
         </div>
 
-        <div class="photo-tools">
+        <div class="photo-tools" data-sectors="instalacao,punchlist">
           <label class="secondary file-label photo-label">
             Anexar fotos
             <input class="photo-input" type="file" accept="image/*" multiple capture="environment" />
           </label>
         </div>
-        <div class="photo-gallery"></div>
+        <div class="photo-gallery" data-sectors="instalacao,punchlist"></div>
 
         <p class="scope-line"></p>
         <p class="shop-line"></p>
       </article>
     </template>
 
-    <script src="app.js" type="module"></script>
+    <script src="app.js?v=20260307aa" defer></script>
   </body>
 </html>

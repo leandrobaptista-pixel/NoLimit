@@ -1,9 +1,9 @@
-const CACHE_NAME = "cabinets-control-v4";
+const CACHE_NAME = "cabinets-control-v45";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js",
+  "./app.js?v=20260307aa",
   "./manifest.webmanifest",
   "./icon.svg",
 ];
@@ -23,16 +23,34 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+          return response;
+        })
+        .catch(() => caches.match("./index.html"))
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
+      const fromNetwork = fetch(event.request)
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           return response;
         })
-        .catch(() => caches.match("./index.html"));
+        .catch(() => cached);
+
+      return cached || fromNetwork;
     })
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });

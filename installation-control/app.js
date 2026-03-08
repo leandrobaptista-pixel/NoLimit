@@ -1415,30 +1415,35 @@ function isPrimaryDeveloperUser(user) {
 async function ensureDeveloperRolePresence() {
   const preferredDeveloper = users.find((user) => isPrimaryDeveloperUser(user));
 
-  if (preferredDeveloper && preferredDeveloper.role !== "developer") {
-    await put(
-      USER_STORE,
+  if (!preferredDeveloper) return;
+
+  const now = new Date().toISOString();
+  const usersToUpdate = [];
+
+  if (preferredDeveloper.role !== "developer") {
+    usersToUpdate.push(
       normalizeUser({
         ...preferredDeveloper,
         role: "developer",
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       })
     );
-    await loadAll();
-    return;
   }
 
-  if (users.some((user) => user.role === "developer")) return;
-  const fallbackAdmin = users.find((user) => user.role === "admin");
-  if (!fallbackAdmin) return;
-  await put(
-    USER_STORE,
-    normalizeUser({
-      ...fallbackAdmin,
-      role: "developer",
-      updatedAt: new Date().toISOString(),
-    })
-  );
+  users
+    .filter((user) => user.id !== preferredDeveloper.id && user.role === "developer")
+    .forEach((user) => {
+      usersToUpdate.push(
+        normalizeUser({
+          ...user,
+          role: "admin",
+          updatedAt: now,
+        })
+      );
+    });
+
+  if (!usersToUpdate.length) return;
+  await Promise.all(usersToUpdate.map((user) => put(USER_STORE, user)));
   await loadAll();
 }
 
@@ -1991,7 +1996,8 @@ function canOpenView(view) {
 }
 
 function allowedProjectSectorsForRole(role) {
-  if (role === "developer" || role === "admin" || role === "visitor") return PROJECT_SECTORS;
+  if (role === "developer" || role === "admin") return PROJECT_SECTORS;
+  if (role === "visitor") return ["delivery", "distribuicao"];
   if (role === "warehouse") return ["warehouse"];
   if (role === "transport") return ["delivery"];
   if (role === "installer") return ["distribuicao", "instalacao"];
@@ -4390,6 +4396,7 @@ function renderHomePanel() {
   const canProjects = canOpenView("projects");
   const canReports = can("report");
   const isDev = isDeveloper();
+  const visibleSectors = new Set(allowedProjectSectors());
 
   const toggleNav = (action, visible) => {
     document.querySelectorAll(`[data-nav-action="${action}"]`).forEach((el) => {
@@ -4403,11 +4410,11 @@ function renderHomePanel() {
   toggleNav("partners", canManageUsers);
   toggleNav("clients", isCatalogAdmin);
   toggleNav("projects", canProjects);
-  toggleNav("warehouse", canProjects);
-  toggleNav("delivery", canProjects);
-  toggleNav("distribution", canProjects);
-  toggleNav("installation", canProjects);
-  toggleNav("changeOrders", canProjects);
+  toggleNav("warehouse", canProjects && visibleSectors.has("warehouse"));
+  toggleNav("delivery", canProjects && visibleSectors.has("delivery"));
+  toggleNav("distribution", canProjects && visibleSectors.has("distribuicao"));
+  toggleNav("installation", canProjects && visibleSectors.has("instalacao"));
+  toggleNav("changeOrders", canProjects && visibleSectors.has("punchlist"));
   toggleNav("projectReports", canProjects && canReports);
   renderCoiReminderPanel();
 }

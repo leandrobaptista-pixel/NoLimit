@@ -1,0 +1,41 @@
+name: Deploy Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: pages-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Cloudflare file limit (25 MiB)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t oversized < <(find . -type f -size +25M ! -path './.git/*')
+          if [ "${#oversized[@]}" -gt 0 ]; then
+            echo "Cloudflare Pages limit is 25 MiB per file."
+            echo "Reduce these files before deploy:"
+            printf ' - %s\n' "${oversized[@]}"
+            exit 1
+          fi
+
+      - name: Install Wrangler
+        run: npm install -g wrangler@4.71.0
+
+      - name: Deploy to Cloudflare Pages
+        run: wrangler pages deploy . --project-name=nolimitcontractor --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 47f6c1dee23ca2adee98043a07a5cd23

@@ -2082,6 +2082,7 @@ function applyMasterSubpanelMode() {
   if (!clientsSubpanel || !projectsSubpanel || !contactsSubpanel) return;
   const showClients = currentView === "clients";
   const showProjects = currentView === "projects";
+  masterDataPanel?.classList.toggle("clients-mode", showClients);
 
   if (showClients) {
     clientsSubpanel.classList.remove("hidden-view");
@@ -2272,6 +2273,32 @@ function openProjectWarehouse(projectId) {
   renderUnits();
   pushAppAudit(`Navigation to warehouse from project link: ${project.name}`, "navigation", project.name || "-");
   unitEntryPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function openProjectCatalog(projectId) {
+  const project = projects.find((entry) => entry.id === projectId);
+  if (!project || !canOpenView("projects")) {
+    setView("home");
+    return;
+  }
+
+  selectedProjectId = project.id;
+  selectedClientId = project.clientId || selectedClientId;
+  projectsViewMode = "overview";
+  setUsersViewFilter("all");
+  setView("projects");
+
+  if (projectClientSelect) projectClientSelect.value = project.clientId || "";
+  if (contactClientSelect) {
+    contactClientSelect.value = project.clientId || "";
+    syncContactProjectSelect();
+    if (contactProjectSelect) contactProjectSelect.value = project.id;
+  }
+  populateProjectForm(project);
+  renderProjectsTable();
+  renderContactsTable();
+  projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
+  pushAppAudit(`Navigation to projects catalog: ${project.name}`, "navigation", project.name || "-");
 }
 
 function handleQuickNavAction(action) {
@@ -2760,6 +2787,10 @@ function renderClientDetails(client) {
     return;
   }
 
+  const linkedProjects = projects
+    .filter((project) => project.clientId === client.id)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
   const officeLines = splitLines(client.offices);
   const logoBlock = client.logoDataUrl
     ? `<img class="client-logo" src="${escapeHtml(client.logoDataUrl)}" alt="${escapeHtml(client.name)} logo" />`
@@ -2767,6 +2798,23 @@ function renderClientDetails(client) {
   const locationsHtml = officeLines.length
     ? `<ul>${officeLines.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ul>`
     : "<p>-</p>";
+  const linkedProjectsHtml = linkedProjects.length
+    ? `<div class="client-project-list">${linkedProjects
+        .map((project) => {
+          const pmContact =
+            contacts.find((entry) => entry.projectId === project.id && entry.role === "project-manager") ||
+            contacts.find((entry) => entry.projectId === project.id && entry.role === "foreman") ||
+            null;
+          const pmName = pmContact?.name || client.contactSeniorProjectManager || "-";
+          const pmPhone = pmContact?.phone || client.seniorProjectManagerPhone || "-";
+          return `<button class="secondary client-project-item" type="button" data-client-project-open="${escapeHtml(project.id)}">
+            <strong>${escapeHtml(project.name || "-")}</strong>
+            <span>${escapeHtml(project.address || "-")}</span>
+            <small>PM: ${escapeHtml(pmName)} | Phone: ${escapeHtml(pmPhone)}</small>
+          </button>`;
+        })
+        .join("")}</div>`
+    : '<p class="hint">No projects registered for this client.</p>';
 
   clientDetailsPanel.innerHTML = `
     <div class="client-details-head">
@@ -2791,7 +2839,17 @@ function renderClientDetails(client) {
         ${locationsHtml}
       </div>
     </div>
+    <div class="client-projects-quick">
+      <h5>Projects (quick list)</h5>
+      ${linkedProjectsHtml}
+    </div>
   `;
+
+  clientDetailsPanel.querySelectorAll("[data-client-project-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openProjectCatalog(button.dataset.clientProjectOpen || "");
+    });
+  });
 }
 
 function renderProjectsTable() {

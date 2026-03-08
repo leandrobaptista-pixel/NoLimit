@@ -163,6 +163,10 @@ main {
   gap: 0.8rem;
 }
 
+#masterDataPanel.clients-mode .master-grid {
+  grid-template-columns: 1fr;
+}
+
 .master-right-column {
   display: grid;
   gap: 0.8rem;
@@ -609,6 +613,37 @@ select[disabled] {
   margin: 0.25rem 0 0;
   padding-left: 1rem;
   font-size: 0.8rem;
+}
+
+.client-projects-quick {
+  border-top: 1px solid #e3ebde;
+  padding-top: 0.55rem;
+}
+
+.client-project-list {
+  margin-top: 0.35rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.client-project-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 0.18rem;
+  border-color: #d6e2d8;
+  background: #f9fcf9;
+  color: var(--ink);
+}
+
+.client-project-item strong {
+  font-size: 0.83rem;
+}
+
+.client-project-item span,
+.client-project-item small {
+  color: var(--ink-soft);
+  font-size: 0.77rem;
 }
 
 .linked-projects-list {

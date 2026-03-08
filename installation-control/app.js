@@ -2085,8 +2085,8 @@ function applyMasterSubpanelMode() {
 
   if (showClients) {
     clientsSubpanel.classList.remove("hidden-view");
-    projectsSubpanel.classList.remove("hidden-view");
-    contactsSubpanel.classList.remove("hidden-view");
+    projectsSubpanel.classList.add("hidden-view");
+    contactsSubpanel.classList.add("hidden-view");
     return;
   }
 
@@ -2728,11 +2728,12 @@ function populateProjectForm(project) {
 }
 
 function openClientRegistrationShortcut(target = "projects") {
-  if (!canOpenView("clients")) {
+  if (!canOpenView("projects")) {
     setView("home");
     return;
   }
-  setView("clients");
+  projectsViewMode = "overview";
+  setView("projects");
 
   const selectedId = clientForm?.elements?.clientId?.value || selectedClientId || "";
   if (target === "projects") {
@@ -2759,46 +2760,12 @@ function renderClientDetails(client) {
     return;
   }
 
-  const linkedProjects = projects.filter((project) => project.clientId === client.id);
-  const linkedPeople = contacts.filter((contact) => contact.clientId === client.id);
   const officeLines = splitLines(client.offices);
   const logoBlock = client.logoDataUrl
     ? `<img class="client-logo" src="${escapeHtml(client.logoDataUrl)}" alt="${escapeHtml(client.name)} logo" />`
     : '<div class="client-logo placeholder">No logo</div>';
   const locationsHtml = officeLines.length
     ? `<ul>${officeLines.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ul>`
-    : "<p>-</p>";
-  const linkedProjectsHtml = linkedProjects.length
-    ? `<div class="linked-projects-list">${linkedProjects
-        .map((project) => {
-          const scope = projectScopeSummary(project) || "-";
-          return `<article class="linked-project-item">
-            <h6>${escapeHtml(project.name || "-")}</h6>
-            <p class="linked-project-meta">
-              <span>Code: ${escapeHtml(project.code || "-")}</span>
-              <span>Floors: ${escapeHtml(project.floorsCount || "-")}</span>
-              <span>Apartments: ${escapeHtml(project.apartmentsCount || "-")}</span>
-            </p>
-            <p class="linked-project-meta"><span>Scope: ${escapeHtml(scope)}</span></p>
-            <div class="linked-project-actions">
-              <button class="secondary xs-btn" type="button" data-client-project-select="${escapeHtml(project.id)}">Select</button>
-              <button class="secondary xs-btn" type="button" data-client-project-warehouse="${escapeHtml(project.id)}">Open Warehouse</button>
-            </div>
-          </article>`;
-        })
-        .join("")}</div>`
-    : "<p>-</p>";
-  const linkedPeopleHtml = linkedPeople.length
-    ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Role</th><th>Cell</th><th>Email</th></tr></thead><tbody>${linkedPeople
-        .map(
-          (person) => `<tr>
-            <td>${escapeHtml(person.name || "-")}</td>
-            <td>${escapeHtml(contactRoleLabel(person.role || "other"))}</td>
-            <td>${escapeHtml(person.phone || "-")}</td>
-            <td>${escapeHtml(person.email || "-")}</td>
-          </tr>`
-        )
-        .join("")}</tbody></table></div>`
     : "<p>-</p>";
 
   clientDetailsPanel.innerHTML = `
@@ -2818,41 +2785,13 @@ function renderClientDetails(client) {
         <p><strong>Senior Project Manager:</strong> ${escapeHtml(client.contactSeniorProjectManager || "-")}</p>
         <p><strong>Senior PM Phone:</strong> ${escapeHtml(client.seniorProjectManagerPhone || "-")}</p>
         <p><strong>Years in Business:</strong> ${escapeHtml(client.yearsInBusiness || "-")}</p>
-        <h5>Projects by client</h5>
-        ${linkedProjectsHtml}
       </div>
       <div>
         <h5>Other Locations</h5>
         ${locationsHtml}
-        <h5>People in project</h5>
-        ${linkedPeopleHtml}
       </div>
     </div>
   `;
-
-  clientDetailsPanel.querySelectorAll("[data-client-project-select]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const projectId = button.dataset.clientProjectSelect || "";
-      const project = projects.find((entry) => entry.id === projectId);
-      if (!project) return;
-      selectedProjectId = project.id;
-      selectedClientId = project.clientId || selectedClientId;
-      populateProjectForm(project);
-      if (projectClientSelect) projectClientSelect.value = project.clientId || "";
-      if (contactClientSelect) {
-        contactClientSelect.value = project.clientId || "";
-        syncContactProjectSelect();
-        if (contactProjectSelect) contactProjectSelect.value = project.id;
-      }
-      projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  });
-
-  clientDetailsPanel.querySelectorAll("[data-client-project-warehouse]").forEach((button) => {
-    button.addEventListener("click", () => {
-      openProjectWarehouse(button.dataset.clientProjectWarehouse || "");
-    });
-  });
 }
 
 function renderProjectsTable() {

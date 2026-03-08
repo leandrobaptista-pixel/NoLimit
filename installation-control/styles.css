@@ -525,11 +525,15 @@ select[disabled] {
 
 .clients-summary-scroll {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(220px, 240px);
-  gap: 0.55rem;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
+  grid-template-columns: 1fr;
+  gap: 0.3rem;
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 0.2rem;
+  border: 1px solid #dfe7dd;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.35rem;
 }
 
 .client-search-label {
@@ -537,29 +541,19 @@ select[disabled] {
   max-width: 320px;
 }
 
-.client-summary-card {
+.client-summary-item {
   text-align: left;
-  border: 1px solid #d8e3da;
-  border-radius: 10px;
-  background: #f8fcf9;
+  border: 1px solid #e3eadf;
+  border-radius: 8px;
+  background: #fcfdfa;
   color: var(--ink);
-  padding: 0.5rem 0.55rem;
-  display: grid;
-  gap: 0.2rem;
-  min-height: 98px;
+  padding: 0.38rem 0.52rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
-.client-summary-card strong {
-  font-size: 0.83rem;
-}
-
-.client-summary-card span,
-.client-summary-card small {
-  font-size: 0.75rem;
-  color: var(--ink-soft);
-}
-
-.client-summary-card.active {
+.client-summary-item.active {
   border-color: #1f4f3e;
   background: #eef8f1;
   box-shadow: inset 3px 0 0 #1f4f3e;
@@ -573,6 +567,7 @@ select[disabled] {
   background: #fdfefc;
   display: grid;
   gap: 0.55rem;
+  overflow: hidden;
 }
 
 .client-details-head {
@@ -615,6 +610,12 @@ select[disabled] {
   font-size: 0.8rem;
 }
 
+.client-details-main p,
+.client-details-grid p,
+.client-details-grid li {
+  overflow-wrap: anywhere;
+}
+
 .client-projects-quick {
   border-top: 1px solid #e3ebde;
   padding-top: 0.55rem;
@@ -644,6 +645,7 @@ select[disabled] {
 .client-project-item small {
   color: var(--ink-soft);
   font-size: 0.77rem;
+  overflow-wrap: anywhere;
 }
 
 .linked-projects-list {
@@ -763,6 +765,11 @@ select[disabled] {
 
 .client-form-actions {
   margin-top: 0.35rem;
+}
+
+.client-form-grid {
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 0.58rem 0.72rem;
 }
 
 table.data-table {
@@ -1230,10 +1237,14 @@ table.data-table th {
   }
 
   .clients-summary-scroll {
-    grid-auto-columns: minmax(190px, 220px);
+    max-height: 170px;
   }
 
   .client-details-head {
+    grid-template-columns: 1fr;
+  }
+
+  .client-form-grid {
     grid-template-columns: 1fr;
   }
 }

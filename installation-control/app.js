@@ -2564,20 +2564,15 @@ function renderClientsTable() {
   }
   if (!selectedClientId && visibleClients.length) selectedClientId = visibleClients[0].id;
 
-  const cards = visibleClients
+  const listRows = visibleClients
     .map((client) => {
-      const officePhone = client.officePhone || client.phone || "-";
-      return `<button class="client-summary-card${client.id === selectedClientId ? " active" : ""}" type="button" data-client-summary="${
-        client.id
-      }">
-        <strong>${escapeHtml(client.name || "-")}</strong>
-        <span>${escapeHtml(client.address || "No address")}</span>
-        <small>Office: ${escapeHtml(officePhone)}</small>
+      return `<button class="client-summary-item${client.id === selectedClientId ? " active" : ""}" type="button" data-client-summary="${client.id}">
+        ${escapeHtml(client.name || "-")}
       </button>`;
     })
     .join("");
 
-  clientsSummaryScroll.innerHTML = cards || '<p class="hint">No matching clients.</p>';
+  clientsSummaryScroll.innerHTML = listRows || '<p class="hint">No matching clients.</p>';
 
   clientsSummaryScroll.querySelectorAll("[data-client-summary]").forEach((button) => {
     button.addEventListener("click", () => {

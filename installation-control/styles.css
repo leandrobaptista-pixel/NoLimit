@@ -159,8 +159,14 @@ main {
 .master-grid {
   margin-top: 0.8rem;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: minmax(330px, 0.95fr) minmax(0, 1.25fr);
   gap: 0.8rem;
+}
+
+.master-right-column {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
 }
 
 .role-strip {
@@ -176,6 +182,38 @@ main {
   margin: 0.4rem 0 0;
   color: var(--ink-soft);
   font-size: 0.85rem;
+}
+
+.auth-note {
+  margin-top: 0.7rem;
+  line-height: 1.45;
+}
+
+.header-home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.38rem 0.62rem;
+  border: 1px solid #d2d9d3;
+  border-radius: 999px;
+  background: #f4fbf7;
+  color: #1f4f3e;
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(23, 32, 38, 0.09);
+}
+
+.header-home-link:hover {
+  background: #eaf6ef;
+  border-color: #9fb9aa;
+}
+
+.header-home-link svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: currentColor;
 }
 
 .stats {
@@ -573,6 +611,92 @@ select[disabled] {
   font-size: 0.8rem;
 }
 
+.linked-projects-list {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+}
+
+.linked-project-item {
+  border: 1px solid #dde8df;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.5rem 0.58rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.linked-project-item h6 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.linked-project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+.linked-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.linked-project-actions .xs-btn {
+  flex: 0 0 auto;
+}
+
+.inline-entry {
+  margin-top: 0.2rem;
+  align-items: center;
+}
+
+.inline-entry input {
+  flex: 1 1 260px;
+}
+
+.inline-entry button {
+  flex: 0 0 auto;
+}
+
+.pill-list {
+  margin-top: 0.12rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid #d6e2d8;
+  border-radius: 999px;
+  background: #f4fbf7;
+  color: #1f4f3e;
+  padding: 0.22rem 0.52rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pill button {
+  border: 0;
+  background: transparent;
+  color: #1f4f3e;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+#projectsSubpanel .table-wrap,
+#contactsSubpanel .table-wrap {
+  margin-top: 0.5rem;
+}
+
 .client-logo {
   width: 76px;
   height: 76px;
@@ -624,6 +748,14 @@ table.data-table td {
 
 table.data-table th {
   background: #f8f4ee;
+}
+
+#projectsTable tr.selected-row td {
+  background: #eef8f1;
+}
+
+#projectsTable tr.selected-row td:first-child {
+  box-shadow: inset 3px 0 0 #1f4f3e;
 }
 
 #usersTable tr.user-selected td {
@@ -986,7 +1118,19 @@ table.data-table th {
 }
 
 @media (max-width: 760px) {
+  .header-home-link {
+    padding: 0.35rem 0.5rem;
+  }
+
+  .header-home-link span {
+    display: none;
+  }
+
   #appMain {
+    grid-template-columns: 1fr;
+  }
+
+  .master-grid {
     grid-template-columns: 1fr;
   }
 

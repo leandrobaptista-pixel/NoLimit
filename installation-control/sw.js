@@ -1,9 +1,9 @@
-const CACHE_NAME = "cabinets-control-v45";
+const CACHE_NAME = "cabinets-control-v46";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js?v=20260307aa",
+  "./app.js?v=20260308ab",
   "./manifest.webmanifest",
   "./icon.svg",
 ];

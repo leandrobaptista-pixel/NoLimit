@@ -66,6 +66,15 @@ const DEFAULT_LANG = "en";
 const SUPPORTED_LANGS = ["en"];
 const PRIMARY_DEVELOPER_NAME = "leandro baptista";
 const PROJECT_SECTORS = ["fabrica", "warehouse", "delivery", "distribuicao", "instalacao", "punchlist"];
+const PROJECT_SCOPE_LABELS = {
+  kitchens: "Kitchens",
+  vanities: "Vanities",
+  "med-cabinets": "Med Cabinets",
+  "wood-floor": "Wood Floor",
+  millworking: "Millworking",
+  tile: "Tile",
+  painting: "Painting",
+};
 const COI_REMINDER_DAYS = 30;
 const COI_MAX_FILE_SIZE = 8 * 1024 * 1024;
 const SECTOR_STAGE_MAP = {
@@ -734,9 +743,12 @@ let currentProjectSector = "fabrica";
 let usersViewFilter = "all";
 let hasAutoDispatchedCoiReminder = false;
 let selectedClientId = "";
+let selectedProjectId = "";
 let clientSearchQuery = "";
 let projectsViewMode = "overview";
 let appAuditLog = loadAppAuditLog();
+let projectScopeExtrasDraft = [];
+let projectChecklistExtrasDraft = [];
 
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
@@ -782,6 +794,17 @@ const projectsTable = document.getElementById("projectsTable");
 const contactsTable = document.getElementById("contactsTable");
 const materialsTable = document.getElementById("materialsTable");
 const projectClientSelect = document.getElementById("projectClientSelect");
+const projectAdminTarget = document.getElementById("projectAdminTarget");
+const projectFormNewBtn = document.getElementById("projectFormNewBtn");
+const projectFormDeleteBtn = document.getElementById("projectFormDeleteBtn");
+const projectScopeExtraInput = document.getElementById("projectScopeExtraInput");
+const projectScopeExtraAddBtn = document.getElementById("projectScopeExtraAddBtn");
+const projectScopeExtraList = document.getElementById("projectScopeExtraList");
+const projectScopeExtrasJson = document.getElementById("projectScopeExtrasJson");
+const projectChecklistExtraInput = document.getElementById("projectChecklistExtraInput");
+const projectChecklistExtraAddBtn = document.getElementById("projectChecklistExtraAddBtn");
+const projectChecklistExtraList = document.getElementById("projectChecklistExtraList");
+const projectChecklistExtrasJson = document.getElementById("projectChecklistExtrasJson");
 const contactClientSelect = document.getElementById("contactClientSelect");
 const contactProjectSelect = document.getElementById("contactProjectSelect");
 
@@ -799,7 +822,9 @@ const unitProjectSelect = document.getElementById("unitProjectSelect");
 const unitClientName = document.getElementById("unitClientName");
 const unitProjectName = document.getElementById("unitProjectName");
 const unitJobSite = document.getElementById("unitJobSite");
+const unitScopeWorkInput = unitForm?.querySelector('textarea[name="scopeWork"]');
 const unitProjectHint = document.getElementById("unitProjectHint");
+const warehouseProjectSummary = document.getElementById("warehouseProjectSummary");
 
 const unitsContainer = document.getElementById("unitsContainer");
 const unitTemplate = document.getElementById("unitTemplate");
@@ -980,6 +1005,18 @@ function elapsedFrom(startIso) {
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeTextList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean);
+  }
+  return String(value || "")
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function coiReminderWindowUsers() {
@@ -1218,6 +1255,11 @@ function normalizeProject(project) {
     name: project.name || "",
     code: project.code || "",
     address: project.address || "",
+    floorsCount: String(project.floorsCount || "").trim(),
+    apartmentsCount: String(project.apartmentsCount || "").trim(),
+    scopeCategories: ensureArray(project.scopeCategories).filter((entry) => Object.prototype.hasOwnProperty.call(PROJECT_SCOPE_LABELS, entry)),
+    scopeExtras: normalizeTextList(project.scopeExtras),
+    unitChecklistTemplate: normalizeTextList(project.unitChecklistTemplate),
     createdAt: project.createdAt || new Date().toISOString(),
     updatedAt: project.updatedAt || project.createdAt || new Date().toISOString(),
   };
@@ -2043,8 +2085,8 @@ function applyMasterSubpanelMode() {
 
   if (showClients) {
     clientsSubpanel.classList.remove("hidden-view");
-    projectsSubpanel.classList.add("hidden-view");
-    contactsSubpanel.classList.add("hidden-view");
+    projectsSubpanel.classList.remove("hidden-view");
+    contactsSubpanel.classList.remove("hidden-view");
     return;
   }
 
@@ -2194,6 +2236,42 @@ function openProjectReportsView() {
     setProjectSector(visibleSectors[0]);
   }
   projectReportSelect?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function openProjectWarehouse(projectId) {
+  const project = projects.find((entry) => entry.id === projectId);
+  if (!project || !canOpenView("projects")) {
+    setView("home");
+    return;
+  }
+
+  selectedProjectId = project.id;
+  selectedClientId = project.clientId || selectedClientId;
+  projectsViewMode = "operations";
+  setUsersViewFilter("all");
+  setView("projects");
+  setProjectSector("warehouse");
+
+  if (projectReportSelect) projectReportSelect.value = project.id;
+  if (unitProjectSelect) {
+    unitProjectSelect.value = project.id;
+    syncUnitProjectInfo();
+  }
+  if (containerClientSelect) {
+    containerClientSelect.value = project.clientId || "";
+    syncContainerProjectSelect();
+    if (containerProjectSelect) containerProjectSelect.value = project.id;
+  }
+  if (contactClientSelect) {
+    contactClientSelect.value = project.clientId || "";
+    syncContactProjectSelect();
+    if (contactProjectSelect) contactProjectSelect.value = project.id;
+  }
+
+  searchInput.value = project.name || "";
+  renderUnits();
+  pushAppAudit(`Navigation to warehouse from project link: ${project.name}`, "navigation", project.name || "-");
+  unitEntryPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function handleQuickNavAction(action) {
@@ -2350,6 +2428,8 @@ function syncUnitProjectInfo() {
     unitClientName.value = "";
     unitProjectName.value = "";
     unitJobSite.value = "";
+    if (unitScopeWorkInput) unitScopeWorkInput.value = "";
+    if (warehouseProjectSummary) warehouseProjectSummary.textContent = "Select a project to show floors, apartments, and unit checklist template.";
     return;
   }
 
@@ -2358,6 +2438,13 @@ function syncUnitProjectInfo() {
   unitProjectName.value = project?.name || "";
   unitClientName.value = client?.name || "";
   unitJobSite.value = project?.address || "";
+  if (unitScopeWorkInput) unitScopeWorkInput.value = projectScopeSummary(project);
+  if (warehouseProjectSummary) {
+    const templateText = projectChecklistTemplate(project).join(", ");
+    warehouseProjectSummary.textContent = `Project details: Floors ${project?.floorsCount || "-"} | Apartments ${
+      project?.apartmentsCount || "-"
+    } | Unit checklist template: ${templateText || "-"}`;
+  }
 }
 
 function syncContainerProjectSelect() {
@@ -2376,17 +2463,34 @@ function syncContactProjectSelect() {
 }
 
 function renderMasterSelects() {
+  const previousProjectClient = projectClientSelect.value;
+  const previousContactClient = contactClientSelect.value;
+  const previousContactProject = contactProjectSelect.value;
+
   populateSelect(projectClientSelect, clients, {
     includeEmpty: true,
     placeholder: clients.length ? "Select the client" : "Register a client",
   });
+  if (previousProjectClient && clients.some((client) => client.id === previousProjectClient)) {
+    projectClientSelect.value = previousProjectClient;
+  } else if (selectedClientId && clients.some((client) => client.id === selectedClientId)) {
+    projectClientSelect.value = selectedClientId;
+  }
 
   populateSelect(contactClientSelect, clients, {
     includeEmpty: true,
     placeholder: "Client (optional)",
   });
+  if (previousContactClient && clients.some((client) => client.id === previousContactClient)) {
+    contactClientSelect.value = previousContactClient;
+  } else if (selectedClientId && clients.some((client) => client.id === selectedClientId)) {
+    contactClientSelect.value = selectedClientId;
+  }
 
   syncContactProjectSelect();
+  if (previousContactProject && projects.some((project) => project.id === previousContactProject)) {
+    contactProjectSelect.value = previousContactProject;
+  }
 
   populateSelect(unitProjectSelect, projects, {
     includeEmpty: true,
@@ -2406,7 +2510,10 @@ function renderMasterSelects() {
 
   const previousReport = projectReportSelect.value;
   projectReportSelect.innerHTML = `<option value="all">Project for PDF (all)</option>${projects
-    .map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`)
+    .map((project) => {
+      const client = clientById(project.clientId);
+      return `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}${client ? ` - ${escapeHtml(client.name)}` : ""}</option>`;
+    })
     .join("")}`;
   if (projects.some((project) => project.id === previousReport)) projectReportSelect.value = previousReport;
 
@@ -2449,16 +2556,31 @@ function renderClientsTable() {
     button.addEventListener("click", () => {
       selectedClientId = button.dataset.clientSummary || "";
       const selectedClient = clients.find((entry) => entry.id === selectedClientId) || null;
+      const selectedProject = projects.find((entry) => entry.id === selectedProjectId) || null;
+      if (selectedProject && selectedProject.clientId !== selectedClientId) selectedProjectId = "";
       renderClientsTable();
       if (selectedClient) populateClientForm(selectedClient);
+      if (!selectedProjectId) resetProjectForm({ clientId: selectedClientId });
+      if (contactClientSelect) {
+        contactClientSelect.value = selectedClientId;
+        syncContactProjectSelect();
+      }
+      renderProjectsTable();
+      renderContactsTable();
     });
   });
 
   const selectedClient = clients.find((entry) => entry.id === selectedClientId) || null;
+  if (selectedProjectId) {
+    const selectedProject = projects.find((entry) => entry.id === selectedProjectId) || null;
+    if (!selectedProject || selectedProject.clientId !== selectedClientId) selectedProjectId = "";
+  }
   renderClientDetails(selectedClient);
 
   if (!selectedClient) {
+    selectedProjectId = "";
     resetClientForm();
+    resetProjectForm();
     return;
   }
 
@@ -2471,6 +2593,67 @@ function splitLines(value) {
     .split(/\r?\n/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function uniqueTextList(values) {
+  const seen = new Set();
+  const result = [];
+  for (const raw of normalizeTextList(values)) {
+    const key = raw.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(raw);
+  }
+  return result;
+}
+
+function projectScopeSummary(project) {
+  if (!project) return "";
+  const base = ensureArray(project.scopeCategories)
+    .map((key) => PROJECT_SCOPE_LABELS[key] || key)
+    .filter(Boolean);
+  const extras = uniqueTextList(project.scopeExtras);
+  return [...base, ...extras].join(", ");
+}
+
+function projectChecklistTemplate(project) {
+  if (!project) return [];
+  return uniqueTextList(project.unitChecklistTemplate);
+}
+
+function syncProjectDraftHiddenFields() {
+  if (projectScopeExtrasJson) projectScopeExtrasJson.value = JSON.stringify(projectScopeExtrasDraft);
+  if (projectChecklistExtrasJson) projectChecklistExtrasJson.value = JSON.stringify(projectChecklistExtrasDraft);
+}
+
+function renderProjectDraftPills() {
+  if (projectScopeExtraList) {
+    projectScopeExtraList.innerHTML = projectScopeExtrasDraft.length
+      ? projectScopeExtrasDraft
+          .map(
+            (entry, index) =>
+              `<span class="pill">${escapeHtml(entry)}<button type="button" data-project-scope-pill-remove="${index}" aria-label="Remove scope item">x</button></span>`
+          )
+          .join("")
+      : '<p class="hint">No extra scope items.</p>';
+  }
+  if (projectChecklistExtraList) {
+    projectChecklistExtraList.innerHTML = projectChecklistExtrasDraft.length
+      ? projectChecklistExtrasDraft
+          .map(
+            (entry, index) =>
+              `<span class="pill">${escapeHtml(entry)}<button type="button" data-project-checklist-pill-remove="${index}" aria-label="Remove checklist item">x</button></span>`
+          )
+          .join("")
+      : '<p class="hint">No extra checklist items.</p>';
+  }
+  syncProjectDraftHiddenFields();
+}
+
+function setProjectDrafts(scopeExtras = [], checklistExtras = []) {
+  projectScopeExtrasDraft = uniqueTextList(scopeExtras);
+  projectChecklistExtrasDraft = uniqueTextList(checklistExtras);
+  renderProjectDraftPills();
 }
 
 function setClientLogoPreview(dataUrl) {
@@ -2510,22 +2693,59 @@ function populateClientForm(client) {
   setClientLogoPreview(client.logoDataUrl || "");
 }
 
+function resetProjectForm({ clientId = "" } = {}) {
+  if (!projectForm) return;
+  projectForm.reset();
+  if (projectForm.elements.projectId) projectForm.elements.projectId.value = "";
+  if (clientId && projectClientSelect && clients.some((client) => client.id === clientId)) projectClientSelect.value = clientId;
+  setCheckedValues(projectForm, "scopeCategories", []);
+  setCheckedValues(projectForm, "unitChecklistBase", []);
+  setProjectDrafts([], []);
+  if (projectAdminTarget) projectAdminTarget.textContent = "Creating a new project.";
+}
+
+function populateProjectForm(project) {
+  if (!projectForm || !project) return;
+  if (projectForm.elements.projectId) projectForm.elements.projectId.value = project.id;
+  projectForm.elements.clientId.value = project.clientId || "";
+  projectForm.elements.name.value = project.name || "";
+  projectForm.elements.code.value = project.code || "";
+  projectForm.elements.address.value = project.address || "";
+  projectForm.elements.floorsCount.value = project.floorsCount || "";
+  projectForm.elements.apartmentsCount.value = project.apartmentsCount || "";
+  setCheckedValues(projectForm, "scopeCategories", ensureArray(project.scopeCategories));
+
+  const baseChecklist = projectChecklistTemplate(project).filter((item) =>
+    Array.from(projectForm.querySelectorAll('input[name="unitChecklistBase"]')).some((entry) => entry.value === item)
+  );
+  const extraChecklist = projectChecklistTemplate(project).filter(
+    (item) => !Array.from(projectForm.querySelectorAll('input[name="unitChecklistBase"]')).some((entry) => entry.value === item)
+  );
+  setCheckedValues(projectForm, "unitChecklistBase", baseChecklist);
+  setProjectDrafts(project.scopeExtras, extraChecklist);
+
+  if (projectAdminTarget) projectAdminTarget.textContent = `Editing project: ${project.name || "-"}`;
+}
+
 function openClientRegistrationShortcut(target = "projects") {
-  if (!canOpenView("projects")) {
+  if (!canOpenView("clients")) {
     setView("home");
     return;
   }
-  projectsViewMode = "overview";
-  setView("projects");
+  setView("clients");
 
   const selectedId = clientForm?.elements?.clientId?.value || selectedClientId || "";
   if (target === "projects") {
-    if (selectedId && projectClientSelect) projectClientSelect.value = selectedId;
+    if (selectedId) {
+      selectedClientId = selectedId;
+      if (projectClientSelect) projectClientSelect.value = selectedId;
+    }
     projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
 
   if (selectedId && contactClientSelect) {
+    selectedClientId = selectedId;
     contactClientSelect.value = selectedId;
     syncContactProjectSelect();
   }
@@ -2540,6 +2760,7 @@ function renderClientDetails(client) {
   }
 
   const linkedProjects = projects.filter((project) => project.clientId === client.id);
+  const linkedPeople = contacts.filter((contact) => contact.clientId === client.id);
   const officeLines = splitLines(client.offices);
   const logoBlock = client.logoDataUrl
     ? `<img class="client-logo" src="${escapeHtml(client.logoDataUrl)}" alt="${escapeHtml(client.name)} logo" />`
@@ -2547,7 +2768,38 @@ function renderClientDetails(client) {
   const locationsHtml = officeLines.length
     ? `<ul>${officeLines.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ul>`
     : "<p>-</p>";
-  const projectsText = linkedProjects.length ? linkedProjects.map((project) => project.name).join(", ") : "-";
+  const linkedProjectsHtml = linkedProjects.length
+    ? `<div class="linked-projects-list">${linkedProjects
+        .map((project) => {
+          const scope = projectScopeSummary(project) || "-";
+          return `<article class="linked-project-item">
+            <h6>${escapeHtml(project.name || "-")}</h6>
+            <p class="linked-project-meta">
+              <span>Code: ${escapeHtml(project.code || "-")}</span>
+              <span>Floors: ${escapeHtml(project.floorsCount || "-")}</span>
+              <span>Apartments: ${escapeHtml(project.apartmentsCount || "-")}</span>
+            </p>
+            <p class="linked-project-meta"><span>Scope: ${escapeHtml(scope)}</span></p>
+            <div class="linked-project-actions">
+              <button class="secondary xs-btn" type="button" data-client-project-select="${escapeHtml(project.id)}">Select</button>
+              <button class="secondary xs-btn" type="button" data-client-project-warehouse="${escapeHtml(project.id)}">Open Warehouse</button>
+            </div>
+          </article>`;
+        })
+        .join("")}</div>`
+    : "<p>-</p>";
+  const linkedPeopleHtml = linkedPeople.length
+    ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Role</th><th>Cell</th><th>Email</th></tr></thead><tbody>${linkedPeople
+        .map(
+          (person) => `<tr>
+            <td>${escapeHtml(person.name || "-")}</td>
+            <td>${escapeHtml(contactRoleLabel(person.role || "other"))}</td>
+            <td>${escapeHtml(person.phone || "-")}</td>
+            <td>${escapeHtml(person.email || "-")}</td>
+          </tr>`
+        )
+        .join("")}</tbody></table></div>`
+    : "<p>-</p>";
 
   clientDetailsPanel.innerHTML = `
     <div class="client-details-head">
@@ -2566,75 +2818,99 @@ function renderClientDetails(client) {
         <p><strong>Senior Project Manager:</strong> ${escapeHtml(client.contactSeniorProjectManager || "-")}</p>
         <p><strong>Senior PM Phone:</strong> ${escapeHtml(client.seniorProjectManagerPhone || "-")}</p>
         <p><strong>Years in Business:</strong> ${escapeHtml(client.yearsInBusiness || "-")}</p>
-        <p><strong>Projects Involved:</strong> ${escapeHtml(projectsText)}</p>
+        <h5>Projects by client</h5>
+        ${linkedProjectsHtml}
       </div>
       <div>
         <h5>Other Locations</h5>
         ${locationsHtml}
+        <h5>People in project</h5>
+        ${linkedPeopleHtml}
       </div>
     </div>
   `;
+
+  clientDetailsPanel.querySelectorAll("[data-client-project-select]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const projectId = button.dataset.clientProjectSelect || "";
+      const project = projects.find((entry) => entry.id === projectId);
+      if (!project) return;
+      selectedProjectId = project.id;
+      selectedClientId = project.clientId || selectedClientId;
+      populateProjectForm(project);
+      if (projectClientSelect) projectClientSelect.value = project.clientId || "";
+      if (contactClientSelect) {
+        contactClientSelect.value = project.clientId || "";
+        syncContactProjectSelect();
+        if (contactProjectSelect) contactProjectSelect.value = project.id;
+      }
+      projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
+
+  clientDetailsPanel.querySelectorAll("[data-client-project-warehouse]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openProjectWarehouse(button.dataset.clientProjectWarehouse || "");
+    });
+  });
 }
 
 function renderProjectsTable() {
   const canManage = can("manageCatalog");
+  const scopedProjects = (selectedClientId ? projects.filter((project) => project.clientId === selectedClientId) : projects)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
 
-  const rows = projects
+  if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) selectedProjectId = "";
+
+  const rows = scopedProjects
     .map((project) => {
       const client = clientById(project.clientId);
-      return `<tr>
+      const scopeSummary = projectScopeSummary(project) || "-";
+      const unitTemplateCount = projectChecklistTemplate(project).length;
+      return `<tr class="${project.id === selectedProjectId ? "selected-row" : ""}">
         <td>${escapeHtml(project.name)}</td>
         <td>${escapeHtml(client?.name || "-")}</td>
         <td>${escapeHtml(project.code)}</td>
         <td>${escapeHtml(project.address)}</td>
-        <td>${
-          canManage
-            ? `<div class="actions-inline"><button class="secondary xs-btn" data-edit-project="${project.id}">Edit</button><button class="danger xs-btn" data-del-project="${project.id}">Delete</button></div>`
-            : "-"
-        }</td>
+        <td>${escapeHtml(project.floorsCount || "-")}</td>
+        <td>${escapeHtml(project.apartmentsCount || "-")}</td>
+        <td>${escapeHtml(scopeSummary)}</td>
+        <td>${unitTemplateCount}</td>
+        <td>
+          <div class="actions-inline">
+            <button class="secondary xs-btn" data-select-project="${project.id}">Select</button>
+            <button class="secondary xs-btn" data-open-project-warehouse="${project.id}">Warehouse</button>
+            ${canManage ? `<button class="danger xs-btn" data-del-project="${project.id}">Delete</button>` : ""}
+          </div>
+        </td>
       </tr>`;
     })
     .join("");
 
-  projectsTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Client</th><th>Code</th><th>Address</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="5">Nenhum projeto cadastrado.</td></tr>'
+  projectsTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Client</th><th>Code</th><th>Address</th><th>Floors</th><th>Apartments</th><th>Scope</th><th>Unit checklist</th><th>Actions</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="9">No projects for the selected client.</td></tr>'
   }</tbody></table>`;
 
-  if (!canManage) return;
-
-  projectsTable.querySelectorAll("[data-edit-project]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const id = button.dataset.editProject;
-      const project = projects.find((entry) => entry.id === id);
+  projectsTable.querySelectorAll("[data-select-project]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const project = projects.find((entry) => entry.id === button.dataset.selectProject);
       if (!project) return;
-      const name = prompt("Project name:", project.name)?.trim();
-      if (!name) return;
-      const code = prompt("Codigo do projeto:", project.code || "")?.trim() || "";
-      const address = prompt("Endereco / Job Site:", project.address || "")?.trim() || "";
-      const updatedProject = normalizeProject({
-        ...project,
-        name,
-        code,
-        address,
-        updatedAt: new Date().toISOString(),
-      });
-      await put(PROJECT_STORE, updatedProject);
-      const changes = collectAuditChanges(project, updatedProject, [
-        { key: "name", label: "Project name" },
-        { key: "code", label: "Project code" },
-        { key: "address", label: "Project address" },
-      ]);
-      pushEntityAudit(
-        "Projects",
-        "updated",
-        `${updatedProject.name}${changes.length ? ` | ${changes.join("; ")}` : " | no field changes"}`,
-        "projects"
-      );
-      await loadAll();
+      selectedProjectId = project.id;
+      selectedClientId = project.clientId || selectedClientId;
+      populateProjectForm(project);
       render();
-      queueAutoSync();
+      projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
   });
+
+  projectsTable.querySelectorAll("[data-open-project-warehouse]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openProjectWarehouse(button.dataset.openProjectWarehouse || "");
+    });
+  });
+
+  if (!canManage) return;
 
   projectsTable.querySelectorAll("[data-del-project]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -2652,8 +2928,11 @@ function renderProjectsTable() {
         return;
       }
       const targetProject = projects.find((entry) => entry.id === id);
-      if (targetProject) pushEntityAudit("Projects", "deleted", `${targetProject.name}`, "projects");
+      if (!targetProject) return;
+      pushEntityAudit("Projects", "deleted", `${targetProject.name}`, "projects");
       await del(PROJECT_STORE, id);
+      if (projectForm?.elements?.projectId?.value === id) resetProjectForm({ clientId: selectedClientId });
+      if (selectedProjectId === id) selectedProjectId = "";
       await loadAll();
       render();
       queueAutoSync();
@@ -2663,8 +2942,9 @@ function renderProjectsTable() {
 
 function renderContactsTable() {
   const canManage = can("manageCatalog");
+  const scopedContacts = selectedClientId ? contacts.filter((contact) => contact.clientId === selectedClientId) : contacts;
 
-  const rows = contacts
+  const rows = scopedContacts
     .map((contact) => {
       const client = clientById(contact.clientId);
       const project = projectById(contact.projectId);
@@ -2686,7 +2966,7 @@ function renderContactsTable() {
     .join("");
 
   contactsTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Role</th><th>Company</th><th>Client</th><th>Project</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="8">Nenhuma pessoa cadastrada.</td></tr>'
+    rows || '<tr><td colspan="8">No people registered for the selected client.</td></tr>'
   }</tbody></table>`;
 
   if (!canManage) return;
@@ -2835,7 +3115,17 @@ function renderMasterData() {
   setFormEnabled(contactForm, canManage);
   setFormEnabled(materialForm, canManage);
 
+  if (selectedClientId && !clients.some((client) => client.id === selectedClientId)) selectedClientId = "";
+  if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) selectedProjectId = "";
+
   renderMasterSelects();
+  if (projectForm?.elements?.projectId?.value) {
+    const editingProject = projects.find((entry) => entry.id === projectForm.elements.projectId.value) || null;
+    if (!editingProject) resetProjectForm({ clientId: selectedClientId });
+  } else if (projectClientSelect && selectedClientId && clients.some((client) => client.id === selectedClientId)) {
+    projectClientSelect.value = selectedClientId;
+  }
+  renderProjectDraftPills();
   if (!canManage) return;
   renderClientsTable();
   renderProjectsTable();
@@ -4596,6 +4886,21 @@ function toUnit(formData) {
   const projectId = formData.get("projectId")?.toString();
   const project = projectById(projectId);
   const client = project ? clientById(project.clientId) : null;
+  const now = new Date().toISOString();
+  const projectScope = projectScopeSummary(project);
+  const manualScope = formData.get("scopeWork")?.toString().trim() || "";
+  const scopeWork = manualScope || projectScope;
+  const checkItems = projectChecklistTemplate(project).map((description) => ({
+    id: uid(),
+    code: "",
+    description,
+    expectedQty: 1,
+    checkedQty: 0,
+    status: "ok",
+    note: "",
+    createdAt: now,
+    updatedAt: now,
+  }));
 
   return normalizeUnit({
     id: uid(),
@@ -4611,27 +4916,27 @@ function toUnit(formData) {
     unitType: formData.get("unitType")?.toString().trim(),
     kitchenModel: formData.get("kitchenModel")?.toString().trim(),
     shopdrawingRef: formData.get("shopdrawingRef")?.toString().trim(),
-    scopeWork: formData.get("scopeWork")?.toString().trim(),
+    scopeWork,
     deliveryQuality: "pending",
     installationStatus: "not-started",
     deliveryNotes: "",
     issuesText: "",
-    checkItems: [],
+    checkItems,
     dispatchTasks: [],
     siteReceipts: [],
     dispatchSignature: null,
     auditLog: [
       {
         id: uid(),
-        at: new Date().toISOString(),
+        at: now,
         byUserId: currentUser?.id || "",
         byName: currentUser?.name || "System",
         message: "Unit created",
       },
     ],
     stages: Object.fromEntries(STAGES.map((stage) => [stage.key, { done: false, at: null }])),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   });
 }
 
@@ -5613,6 +5918,18 @@ clientForm.addEventListener("submit", async (event) => {
   await loadAll();
   const refreshed = clients.find((client) => client.id === selectedClientId) || null;
   if (refreshed) populateClientForm(refreshed);
+  const currentEditingProjectId = projectForm?.elements?.projectId?.value || "";
+  if (currentEditingProjectId) {
+    const project = projects.find((entry) => entry.id === currentEditingProjectId) || null;
+    if (project) populateProjectForm(project);
+    else resetProjectForm({ clientId: selectedClientId });
+  } else {
+    resetProjectForm({ clientId: selectedClientId });
+  }
+  if (contactClientSelect) {
+    contactClientSelect.value = selectedClientId;
+    syncContactProjectSelect();
+  }
   render();
   queueAutoSync();
 });
@@ -5630,9 +5947,71 @@ goPeopleFromClientBtn?.addEventListener("click", () => {
   openClientRegistrationShortcut("people");
 });
 
+function addProjectScopeExtraDraft(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) return;
+  projectScopeExtrasDraft = uniqueTextList([...projectScopeExtrasDraft, value]);
+  renderProjectDraftPills();
+}
+
+function addProjectChecklistExtraDraft(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) return;
+  projectChecklistExtrasDraft = uniqueTextList([...projectChecklistExtrasDraft, value]);
+  renderProjectDraftPills();
+}
+
+projectScopeExtraAddBtn?.addEventListener("click", () => {
+  addProjectScopeExtraDraft(projectScopeExtraInput?.value || "");
+  if (projectScopeExtraInput) projectScopeExtraInput.value = "";
+  projectScopeExtraInput?.focus();
+});
+
+projectChecklistExtraAddBtn?.addEventListener("click", () => {
+  addProjectChecklistExtraDraft(projectChecklistExtraInput?.value || "");
+  if (projectChecklistExtraInput) projectChecklistExtraInput.value = "";
+  projectChecklistExtraInput?.focus();
+});
+
+projectScopeExtraInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  addProjectScopeExtraDraft(projectScopeExtraInput.value);
+  projectScopeExtraInput.value = "";
+});
+
+projectChecklistExtraInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  addProjectChecklistExtraDraft(projectChecklistExtraInput.value);
+  projectChecklistExtraInput.value = "";
+});
+
+projectScopeExtraList?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-project-scope-pill-remove]");
+  if (!btn) return;
+  const index = Number(btn.dataset.projectScopePillRemove);
+  if (!Number.isInteger(index) || index < 0 || index >= projectScopeExtrasDraft.length) return;
+  projectScopeExtrasDraft = projectScopeExtrasDraft.filter((_, idx) => idx !== index);
+  renderProjectDraftPills();
+});
+
+projectChecklistExtraList?.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-project-checklist-pill-remove]");
+  if (!btn) return;
+  const index = Number(btn.dataset.projectChecklistPillRemove);
+  if (!Number.isInteger(index) || index < 0 || index >= projectChecklistExtrasDraft.length) return;
+  projectChecklistExtrasDraft = projectChecklistExtrasDraft.filter((_, idx) => idx !== index);
+  renderProjectDraftPills();
+});
+
 clientFormNewBtn?.addEventListener("click", () => {
   if (!can("manageCatalog")) return;
+  selectedClientId = "";
+  selectedProjectId = "";
   resetClientForm();
+  resetProjectForm();
+  render();
 });
 
 clientFormDeleteBtn?.addEventListener("click", async () => {
@@ -5655,7 +6034,41 @@ clientFormDeleteBtn?.addEventListener("click", async () => {
   if (targetClient) pushEntityAudit("Clients", "deleted", `${targetClient.name}`, "clients");
   await del(CLIENT_STORE, targetId);
   selectedClientId = "";
+  selectedProjectId = "";
   resetClientForm();
+  resetProjectForm();
+  await loadAll();
+  render();
+  queueAutoSync();
+});
+
+projectFormNewBtn?.addEventListener("click", () => {
+  if (!can("manageCatalog")) return;
+  resetProjectForm({ clientId: selectedClientId || projectClientSelect?.value || "" });
+});
+
+projectFormDeleteBtn?.addEventListener("click", async () => {
+  if (!can("manageCatalog")) return;
+  const targetId = projectForm?.elements?.projectId?.value || "";
+  if (!targetId) return;
+  if (units.some((unit) => unit.projectId === targetId)) {
+    alert(t("Nao e possivel excluir projeto com unidades vinculadas."));
+    return;
+  }
+  if (contacts.some((contact) => contact.projectId === targetId)) {
+    alert(t("Nao e possivel excluir projeto com pessoas vinculadas."));
+    return;
+  }
+  if (containers.some((container) => container.projectId === targetId)) {
+    alert(t("Nao e possivel excluir projeto com containers vinculados."));
+    return;
+  }
+  const targetProject = projects.find((entry) => entry.id === targetId);
+  if (!targetProject) return;
+  pushEntityAudit("Projects", "deleted", `${targetProject.name}`, "projects");
+  await del(PROJECT_STORE, targetId);
+  if (selectedProjectId === targetId) selectedProjectId = "";
+  resetProjectForm({ clientId: selectedClientId || targetProject.clientId || "" });
   await loadAll();
   render();
   queueAutoSync();
@@ -5666,40 +6079,84 @@ projectForm.addEventListener("submit", async (event) => {
   if (!can("manageCatalog")) return;
 
   const data = new FormData(projectForm);
+  const projectId = data.get("projectId")?.toString() || "";
+  const targetProject = projectId ? projects.find((entry) => entry.id === projectId) : null;
   const clientId = data.get("clientId")?.toString();
   const name = data.get("name")?.toString().trim();
+  const code = data.get("code")?.toString().trim() || "";
+  const address = data.get("address")?.toString().trim() || "";
+  const floorsCount = data.get("floorsCount")?.toString().trim() || "";
+  const apartmentsCount = data.get("apartmentsCount")?.toString().trim() || "";
+  const scopeCategories = collectCheckedValues(projectForm, "scopeCategories");
+  const scopeExtras = uniqueTextList(projectScopeExtrasDraft);
+  const checklistBase = collectCheckedValues(projectForm, "unitChecklistBase");
+  const unitChecklistTemplate = uniqueTextList([...checklistBase, ...projectChecklistExtrasDraft]);
 
   if (!clientId || !name) {
     alert(t("Cliente e nome do projeto sao obrigatorios."));
     return;
   }
 
-  if (projects.some((project) => project.clientId === clientId && project.name.toLowerCase() === name.toLowerCase())) {
+  if (
+    projects.some(
+      (project) => project.clientId === clientId && project.name.toLowerCase() === name.toLowerCase() && project.id !== targetProject?.id
+    )
+  ) {
     alert(t("Projeto ja cadastrado para este cliente."));
     return;
   }
 
-  const createdProject = normalizeProject({
-    id: uid(),
+  const savedProject = normalizeProject({
+    ...(targetProject || {}),
+    id: targetProject?.id || uid(),
     clientId,
     name,
-    code: data.get("code")?.toString().trim(),
-    address: data.get("address")?.toString().trim(),
-    createdAt: new Date().toISOString(),
+    code,
+    address,
+    floorsCount,
+    apartmentsCount,
+    scopeCategories,
+    scopeExtras,
+    unitChecklistTemplate,
+    createdAt: targetProject?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
 
-  await put(PROJECT_STORE, createdProject);
-  const linkedClient = clientById(createdProject.clientId);
-  pushEntityAudit(
-    "Projects",
-    "created",
-    `${createdProject.name} | client "${auditValue(linkedClient?.name || "-")}" | code "${auditValue(createdProject.code)}"`,
-    "projects"
-  );
+  await put(PROJECT_STORE, savedProject);
+  const linkedClient = clientById(savedProject.clientId);
+  if (!targetProject) {
+    pushEntityAudit(
+      "Projects",
+      "created",
+      `${savedProject.name} | client "${auditValue(linkedClient?.name || "-")}" | code "${auditValue(savedProject.code)}" | scope "${auditValue(
+        projectScopeSummary(savedProject)
+      )}"`,
+      "projects"
+    );
+  } else {
+    const changes = collectAuditChanges(targetProject, savedProject, [
+      { key: "name", label: "Project name" },
+      { key: "code", label: "Project code" },
+      { key: "address", label: "Project address" },
+      { key: "floorsCount", label: "Floors" },
+      { key: "apartmentsCount", label: "Apartments" },
+      { key: "scopeCategories", label: "Scope categories", map: (value) => ensureArray(value).join(", ") },
+      { key: "scopeExtras", label: "Scope extras", map: (value) => ensureArray(value).join(", ") },
+      { key: "unitChecklistTemplate", label: "Unit checklist template", map: (value) => ensureArray(value).join(", ") },
+    ]);
+    pushEntityAudit(
+      "Projects",
+      "updated",
+      `${savedProject.name}${changes.length ? ` | ${changes.join("; ")}` : " | no field changes"}`,
+      "projects"
+    );
+  }
 
-  projectForm.reset();
+  selectedClientId = clientId;
+  selectedProjectId = savedProject.id;
   await loadAll();
+  const refreshedProject = projects.find((entry) => entry.id === selectedProjectId) || null;
+  if (refreshedProject) populateProjectForm(refreshedProject);
   render();
   queueAutoSync();
 });
@@ -5711,14 +6168,27 @@ contactForm.addEventListener("submit", async (event) => {
   const data = new FormData(contactForm);
   const name = data.get("name")?.toString().trim();
   if (!name) return;
+  const clientId = data.get("clientId")?.toString() || selectedClientId || "";
+  const projectId = data.get("projectId")?.toString() || "";
+  if (!clientId) {
+    alert("Select a client before adding people to project.");
+    return;
+  }
+  if (projectId) {
+    const linkedProject = projectById(projectId);
+    if (linkedProject && linkedProject.clientId !== clientId) {
+      alert("Selected project does not belong to the selected client.");
+      return;
+    }
+  }
 
   const createdContact = normalizeContact({
     id: uid(),
     name,
     role: data.get("role")?.toString(),
     company: data.get("company")?.toString().trim(),
-    clientId: data.get("clientId")?.toString() || "",
-    projectId: data.get("projectId")?.toString() || "",
+    clientId,
+    projectId,
     phone: data.get("phone")?.toString().trim(),
     email: data.get("email")?.toString().trim(),
     createdAt: new Date().toISOString(),
@@ -5733,7 +6203,10 @@ contactForm.addEventListener("submit", async (event) => {
     "contacts"
   );
 
+  selectedClientId = clientId;
   contactForm.reset();
+  if (contactClientSelect) contactClientSelect.value = selectedClientId;
+  syncContactProjectSelect();
   await loadAll();
   render();
   queueAutoSync();
@@ -5779,7 +6252,20 @@ materialForm.addEventListener("submit", async (event) => {
 });
 
 containerClientSelect.addEventListener("change", syncContainerProjectSelect);
-contactClientSelect.addEventListener("change", syncContactProjectSelect);
+projectClientSelect.addEventListener("change", () => {
+  selectedClientId = projectClientSelect.value || selectedClientId;
+  if (contactClientSelect && projectClientSelect.value) {
+    contactClientSelect.value = projectClientSelect.value;
+    syncContactProjectSelect();
+  }
+  renderProjectsTable();
+  renderContactsTable();
+});
+contactClientSelect.addEventListener("change", () => {
+  if (contactClientSelect.value) selectedClientId = contactClientSelect.value;
+  syncContactProjectSelect();
+  renderContactsTable();
+});
 unitProjectSelect.addEventListener("change", syncUnitProjectInfo);
 
 containerForm.addEventListener("submit", async (event) => {
@@ -5848,7 +6334,11 @@ unitForm.addEventListener("submit", async (event) => {
 
   const unit = toUnit(new FormData(unitForm));
   await put(UNIT_STORE, unit);
-  pushAppAudit(`[Unit ${unit.unitCode || unit.id}] Unit created`, "unit-change", unit.projectName || "-");
+  pushAppAudit(
+    `[Unit ${unit.unitCode || unit.id}] Unit created${unit.checkItems.length ? ` with ${unit.checkItems.length} checklist template item(s)` : ""}`,
+    "unit-change",
+    unit.projectName || "-"
+  );
   unitForm.reset();
   unitProjectSelect.value = projectId;
   syncUnitProjectInfo();

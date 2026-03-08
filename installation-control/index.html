@@ -16,6 +16,12 @@
         <h1>Cabinets Control</h1>
       </div>
       <div class="header-actions">
+        <a class="header-home-link" href="/" aria-label="Back to main website" title="Back to main website">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 3.2 3.2 10.6l1.3 1.6L6 11v9.8h5.4v-5.4h1.2v5.4H18V11l1.5 1.2 1.3-1.6L12 3.2z"></path>
+          </svg>
+          <span>Main Website</span>
+        </a>
         <label class="lang-control">
           <span>Language</span>
           <select id="languageSelect" aria-label="Language">
@@ -53,6 +59,11 @@
           <label>Password<input required type="password" name="password" /></label>
           <button class="primary" type="submit">Sign in</button>
         </form>
+        <p class="hint auth-note">
+          This secure portal is intended for everyone who works with our company. To better support our partners,
+          clients, and team members, please complete your registration details accurately so we can provide protected
+          access to the system. Thank you for your cooperation, and welcome.
+        </p>
         <p class="hint">New to the system? <button id="openSignupBtn" class="secondary" type="button">Create Account</button></p>
       </article>
 
@@ -183,46 +194,91 @@
             </form>
           </article>
 
-          <article id="projectsSubpanel" class="subpanel">
-            <h3>Projects by client</h3>
-            <form id="projectForm" class="grid-form compact">
-              <label>Client
-                <select id="projectClientSelect" name="clientId" required></select>
-              </label>
-              <label>Project Name<input required name="name" /></label>
-              <label>Project Code<input name="code" placeholder="Ex: TAG-U0602" /></label>
-              <label>Address / Job Site<input name="address" /></label>
-              <button class="primary" type="submit">Add project</button>
-            </form>
-            <div id="projectsTable" class="table-wrap"></div>
-          </article>
+          <div class="master-right-column">
+            <article id="projectsSubpanel" class="subpanel">
+              <h3>Projects by client</h3>
+              <p id="projectAdminTarget" class="hint">Creating a new project.</p>
+              <form id="projectForm" class="grid-form compact">
+                <input type="hidden" name="projectId" />
+                <label>Client
+                  <select id="projectClientSelect" name="clientId" required></select>
+                </label>
+                <label>Project Name<input required name="name" /></label>
+                <label>Project Code<input name="code" placeholder="Ex: TAG-U0602" /></label>
+                <label>Address / Job Site<input name="address" /></label>
+                <label>Number of Floors<input type="number" min="0" name="floorsCount" placeholder="Ex: 18" /></label>
+                <label>Number of Apartments<input type="number" min="0" name="apartmentsCount" placeholder="Ex: 220" /></label>
+                <label class="full">Scope of Work (base)</label>
+                <div class="checkbox-group full project-scope-checkboxes">
+                  <label><input type="checkbox" name="scopeCategories" value="kitchens" /> Kitchens</label>
+                  <label><input type="checkbox" name="scopeCategories" value="vanities" /> Vanities</label>
+                  <label><input type="checkbox" name="scopeCategories" value="med-cabinets" /> Med Cabinets</label>
+                  <label><input type="checkbox" name="scopeCategories" value="wood-floor" /> Wood Floor</label>
+                  <label><input type="checkbox" name="scopeCategories" value="millworking" /> Millworking</label>
+                  <label><input type="checkbox" name="scopeCategories" value="tile" /> Tile</label>
+                  <label><input type="checkbox" name="scopeCategories" value="painting" /> Painting</label>
+                </div>
+                <label class="full">Scope of Work (extra products)</label>
+                <div class="row full inline-entry">
+                  <input id="projectScopeExtraInput" placeholder="Add extra scope product" />
+                  <button id="projectScopeExtraAddBtn" class="secondary" type="button">Add scope item</button>
+                </div>
+                <div id="projectScopeExtraList" class="pill-list full"></div>
+                <input id="projectScopeExtrasJson" type="hidden" name="scopeExtrasJson" />
+                <label class="full">Unit checklist template</label>
+                <div class="checkbox-group full project-checklist-checkboxes">
+                  <label><input type="checkbox" name="unitChecklistBase" value="Kitchen Cabinets" /> Kitchen Cabinets</label>
+                  <label><input type="checkbox" name="unitChecklistBase" value="Vanities" /> Vanities</label>
+                  <label><input type="checkbox" name="unitChecklistBase" value="Med Cabinets" /> Med Cabinets</label>
+                  <label><input type="checkbox" name="unitChecklistBase" value="Fillers" /> Fillers</label>
+                  <label><input type="checkbox" name="unitChecklistBase" value="Refrigerator Panels" /> Refrigerator Panels</label>
+                  <label><input type="checkbox" name="unitChecklistBase" value="Islands" /> Islands</label>
+                  <label><input type="checkbox" name="unitChecklistBase" value="ADA" /> ADA</label>
+                  <label><input type="checkbox" name="unitChecklistBase" value="Removable Cabinets" /> Removable Cabinets</label>
+                </div>
+                <div class="row full inline-entry">
+                  <input id="projectChecklistExtraInput" placeholder="Add checklist item for all units" />
+                  <button id="projectChecklistExtraAddBtn" class="secondary" type="button">Add checklist item</button>
+                </div>
+                <div id="projectChecklistExtraList" class="pill-list full"></div>
+                <input id="projectChecklistExtrasJson" type="hidden" name="unitChecklistExtrasJson" />
+                <div class="row full client-form-actions">
+                  <button id="projectFormNewBtn" class="secondary" type="button">New project</button>
+                  <button class="primary" type="submit">Save project</button>
+                  <button id="projectFormDeleteBtn" class="danger" type="button">Delete selected</button>
+                </div>
+              </form>
+              <div id="projectsTable" class="table-wrap"></div>
+            </article>
 
-          <article id="contactsSubpanel" class="subpanel">
-            <h3>People in project</h3>
-            <form id="contactForm" class="grid-form compact">
-              <label>Name<input required name="name" /></label>
-              <label>Role
-                <select name="role" required>
-                  <option value="subcontractor">Sub Contractor</option>
-                  <option value="foreman">Foreman</option>
-                  <option value="project-manager">Project Manager</option>
-                  <option value="client">Client</option>
-                  <option value="other">Other</option>
-                </select>
-              </label>
-              <label>Company<input name="company" /></label>
-              <label>Client
-                <select id="contactClientSelect" name="clientId"></select>
-              </label>
-              <label>Project
-                <select id="contactProjectSelect" name="projectId"></select>
-              </label>
-              <label>Phone<input name="phone" /></label>
-              <label>Email<input type="email" name="email" /></label>
-              <button class="primary" type="submit">Add person</button>
-            </form>
-            <div id="contactsTable" class="table-wrap"></div>
-          </article>
+            <article id="contactsSubpanel" class="subpanel">
+              <h3>People in project</h3>
+              <p class="hint">Client-linked list. Select a client above to manage only that client scope.</p>
+              <form id="contactForm" class="grid-form compact">
+                <label>Name<input required name="name" /></label>
+                <label>Role
+                  <select name="role" required>
+                    <option value="subcontractor">Sub Contractor</option>
+                    <option value="foreman">Foreman</option>
+                    <option value="project-manager">Project Manager</option>
+                    <option value="client">Client</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label>Company<input name="company" /></label>
+                <label>Client
+                  <select id="contactClientSelect" name="clientId"></select>
+                </label>
+                <label>Project
+                  <select id="contactProjectSelect" name="projectId"></select>
+                </label>
+                <label>Phone<input name="phone" /></label>
+                <label>Email<input type="email" name="email" /></label>
+                <button class="primary" type="submit">Add person</button>
+              </form>
+              <div id="contactsTable" class="table-wrap"></div>
+            </article>
+          </div>
 
         </div>
       </section>
@@ -471,6 +527,7 @@
 
       <section class="panel" id="unitEntryPanel">
         <h2>Novo registro por unidade</h2>
+        <p id="warehouseProjectSummary" class="hint"></p>
         <form id="unitForm" class="grid-form">
           <label>Project
             <select id="unitProjectSelect" required name="projectId"></select>
@@ -720,6 +777,6 @@
       </article>
     </template>
 
-    <script src="app.js?v=20260307aa" defer></script>
+    <script src="app.js?v=20260308ab" defer></script>
   </body>
 </html>

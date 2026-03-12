@@ -1,11 +1,18 @@
-const CACHE_NAME = "cabinets-control-v46";
+const CACHE_NAME = "cabinets-control-v110";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js?v=20260308ab",
+  "./styles.css?v=20260309-mobileqr4",
+  "./cloud-sync-config.js?v=20260309-deliverysku3",
+  "./delivery-sku-seed.js?v=20260309-deliverysku3",
+  "./app.js?v=20260312-deleteguard1",
   "./manifest.webmanifest",
   "./icon.svg",
+  "./avatar-male.svg",
+  "./avatar-female.svg",
+  "./avatar-neutral.svg",
+  "./tag-logo.svg",
 ];
 
 self.addEventListener("install", (event) => {

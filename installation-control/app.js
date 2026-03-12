@@ -1,5 +1,5 @@
 const DB_NAME = "cabinets-control-db";
-const DB_VERSION = 5;
+const DB_VERSION = 8;
 const UNIT_STORE = "units";
 const PHOTO_STORE = "photos";
 const USER_STORE = "users";
@@ -7,11 +7,16 @@ const SETTINGS_STORE = "settings";
 const CLIENT_STORE = "clients";
 const PROJECT_STORE = "projects";
 const CONTACT_STORE = "contacts";
+const CONTRACT_STORE = "contracts";
 const CONTAINER_STORE = "containers";
 const MATERIAL_STORE = "materials";
+const DELIVERY_SKU_STORE = "deliverySkuItems";
+const TRASH_STORE = "deletedRecords";
 const SESSION_KEY = "cc-session-user-id";
 const APP_AUDIT_KEY = "cc-app-audit-log";
 const APP_AUDIT_MAX = 3000;
+const DELETE_RETENTION_MS = 48 * 60 * 60 * 1000;
+const RESTORE_WINDOW_LABEL = "48 hours";
 
 const STAGES = [
   { key: "warehouse", label: "Warehouse" },
@@ -25,8 +30,11 @@ const STAGES = [
 const ROLE_LABEL = {
   developer: "Developer",
   admin: "Admin",
+  "project-manager": "Project Manager",
   warehouse: "Warehouse",
   transport: "Transport",
+  distribution: "Distribution",
+  foreman: "Foreman",
   qa: "QA",
   installer: "Installer",
   visitor: "Visitor",
@@ -50,6 +58,8 @@ const CONTAINER_STATUS_LABEL = {
 const STAGE_ROLE_ACCESS = {
   warehouse: ["warehouse"],
   transport: ["transportation", "siteDelivery"],
+  distribution: ["distribution"],
+  foreman: ["distribution", "installation"],
   qa: ["quality"],
   installer: ["distribution", "installation"],
 };
@@ -60,11 +70,38 @@ const DEFAULT_SYNC = {
   tenant: "",
   autoSync: false,
   lastSyncAt: null,
+  lastPullCursor: null,
 };
+
+const PRESET_SYNC = (() => {
+  const runtime = window.CABINETS_SYNC || {};
+  return {
+    supabaseUrl: String(runtime.supabaseUrl || "").trim(),
+    supabaseAnonKey: String(runtime.supabaseAnonKey || "").trim(),
+    tenant: String(runtime.tenant || "").trim(),
+    autoSync: typeof runtime.autoSync === "boolean" ? runtime.autoSync : true,
+  };
+})();
+
+function hasPresetSyncConfig() {
+  return Boolean(PRESET_SYNC.supabaseUrl && PRESET_SYNC.supabaseAnonKey && PRESET_SYNC.tenant);
+}
+
+function applyPresetSyncConfig(config) {
+  if (!hasPresetSyncConfig()) return config;
+  return {
+    ...config,
+    supabaseUrl: PRESET_SYNC.supabaseUrl,
+    supabaseAnonKey: PRESET_SYNC.supabaseAnonKey,
+    tenant: PRESET_SYNC.tenant,
+    autoSync: PRESET_SYNC.autoSync,
+  };
+}
 
 const DEFAULT_LANG = "en";
 const SUPPORTED_LANGS = ["en"];
 const PRIMARY_DEVELOPER_NAME = "leandro baptista";
+const PRIMARY_DEVELOPER_PASSWORD = "0000";
 const PROJECT_SECTORS = ["fabrica", "warehouse", "delivery", "distribuicao", "instalacao", "punchlist"];
 const PROJECT_SCOPE_LABELS = {
   kitchens: "Kitchens",
@@ -75,6 +112,55 @@ const PROJECT_SCOPE_LABELS = {
   tile: "Tile",
   painting: "Painting",
 };
+const QR_WORKFLOW_STAGES = ["warehouse", "delivery", "distribution", "installation", "punchlist"];
+const QR_WORKFLOW_STAGE_LABELS = {
+  warehouse: "Warehouse",
+  delivery: "Delivery",
+  distribution: "Distribution",
+  installation: "Installation",
+  punchlist: "Punch List",
+};
+const QR_WORKFLOW_STATUS_OPTIONS = ["generated", "in-progress", "completed", "hold", "issue"];
+const UNIT_DEFAULT_QR_MATERIALS = [
+  "Kitchen cabinet module",
+  "Fridge panel",
+  "Island panel",
+  "DW panel",
+  "Side panel",
+  "Wall filler",
+  "Base filler",
+  "Handle",
+  "Pin shelf",
+  "Door bumper",
+  "Med cabinet",
+  "Vanity piece",
+  "Wood floor pallet",
+  "Tile box",
+  "Wood trim",
+  "Door",
+  "Self-level pallet",
+];
+const DEFAULT_AVATAR_BY_GENDER = {
+  male: "avatar-male.svg",
+  female: "avatar-female.svg",
+  unspecified: "",
+};
+const DELIVERY_SKU_SEED = Array.isArray(window.DELIVERY_SKU_SEED) ? window.DELIVERY_SKU_SEED : [];
+const DELIVERY_IMPORT_FIELD_ALIASES = {
+  sku: ["sku", "item", "itemcode", "materialcode", "code", "productcode"],
+  description: ["description", "desc", "itemdescription", "material", "product", "name"],
+  finish: ["finish", "color", "colour", "variant", "model", "style"],
+  qty: ["qty", "quantity", "totalqty", "count", "pieces", "pcs", "units"],
+  category: ["category", "type", "group", "family"],
+  unit: ["unit", "uom", "measure"],
+  kitchenType: ["kitchentype", "kitchen", "kitchentag", "kitchencategory"],
+  clientName: ["client", "clientname", "customer"],
+  projectName: ["project", "projectname", "job", "jobname"],
+  unitCode: ["unitcode", "unit", "apartment", "apt", "locationunit"],
+  source: ["source", "container", "list", "batch", "origin"],
+};
+const DELIVERY_IMPORT_SUPPORTED_HINT =
+  "Supported auto-import: CSV, TSV, TXT, JSON, XLS, XLSX, PDF, JPG/PNG, DOCX. Legacy .DOC should be converted to DOCX.";
 const COI_REMINDER_DAYS = 30;
 const COI_MAX_FILE_SIZE = 8 * 1024 * 1024;
 const SECTOR_STAGE_MAP = {
@@ -117,8 +203,11 @@ const ROLE_LABELS = {
   en: {
     developer: "Developer",
     admin: "Admin",
+    "project-manager": "Project Manager",
     warehouse: "Warehouse",
     transport: "Transport",
+    distribution: "Distribution",
+    foreman: "Foreman",
     qa: "QA",
     installer: "Installer",
     visitor: "Visitor",
@@ -126,8 +215,11 @@ const ROLE_LABELS = {
   pt: {
     developer: "Desenvolvedor",
     admin: "Admin",
+    "project-manager": "Project Manager",
     warehouse: "Warehouse",
     transport: "Transport",
+    distribution: "Distribution",
+    foreman: "Foreman",
     qa: "QA",
     installer: "Installer",
     visitor: "Visitante",
@@ -135,8 +227,11 @@ const ROLE_LABELS = {
   es: {
     developer: "Desarrollador",
     admin: "Admin",
+    "project-manager": "Project Manager",
     warehouse: "Almacen",
     transport: "Transporte",
+    distribution: "Distribution",
+    foreman: "Foreman",
     qa: "Calidad",
     installer: "Instalador",
     visitor: "Visitante",
@@ -213,7 +308,7 @@ const I18N = {
     "Adicionar projeto": "Add project",
     "Pessoas no projeto": "People in project",
     Name: "Name",
-    Funcao: "Role",
+    Funcao: "Job Title",
     Company: "Company",
     Project: "Project",
     "Adicionar pessoa": "Add person",
@@ -241,7 +336,7 @@ const I18N = {
     "Baixar da nuvem (Pull)": "Download from cloud (Pull)",
     "Sem sincronizacao": "No sync",
     "Usuarios e perfis": "Users and roles",
-    Perfil: "Role",
+    Perfil: "Access Profile",
     "Adicionar usuario": "Add user",
     "Novo registro por unidade": "New unit record",
     "Nome do projeto": "Project name",
@@ -368,9 +463,9 @@ const I18N = {
     "Acesso admin: gestao de dados, sem alterar estrutura do sistema.":
       "Admin access: data management without changing system structure.",
     "Acesso visitante: apenas consulta e relatorios. Aprovacao de funcoes por admin/developer.":
-      "Visitor access: read-only and reports. Role approval by admin/developer.",
+      "Visitor access: read-only and reports. Access profile approval by admin/developer.",
     "Acesso visitante: apenas consulta e relatorios. Aprovacao de funcoes somente por admin.":
-      "Visitor access: read-only and reports. Role approval is admin-only.",
+      "Visitor access: read-only and reports. Access profile approval is admin-only.",
     "Nao ha unidades para gerar o relatorio.": "There are no units to generate the report.",
   },
   es: {
@@ -513,7 +608,7 @@ const PT_EN_REGEX_REPLACEMENTS = [
   [/\\bUsuario\\b/g, "User"],
   [/\\busuarios\\b/gi, "users"],
   [/\\bSenha\\b/g, "Password"],
-  [/\\bPerfil\\b/g, "Role"],
+  [/\\bPerfil\\b/g, "Access Profile"],
   [/\\bCliente\\b/g, "Client"],
   [/\\bclientes\\b/gi, "clients"],
   [/\\bProjeto\\b/g, "Project"],
@@ -525,7 +620,7 @@ const PT_EN_REGEX_REPLACEMENTS = [
   [/\\bEndereco\\b/g, "Address"],
   [/\\bTelefone\\b/g, "Phone"],
   [/\\bNome\\b/g, "Name"],
-  [/\\bFuncao\\b/g, "Role"],
+  [/\\bFuncao\\b/g, "Job Title"],
   [/\\bQualidade\\b/g, "Quality"],
   [/\\bInstalacao\\b/g, "Installation"],
   [/\\bConcluida\\b/g, "Completed"],
@@ -575,6 +670,10 @@ function roleLabel(role) {
   return ROLE_LABELS[currentLang]?.[role] || ROLE_LABEL[role] || role;
 }
 
+function userAccessProfile(user) {
+  return String(user?.accessProfile || user?.role || "visitor").trim() || "visitor";
+}
+
 function contactRoleLabel(role) {
   return CONTACT_ROLE_LABELS[currentLang]?.[role] || CONTACT_ROLE_LABEL[role] || role;
 }
@@ -592,7 +691,7 @@ function translateDynamicText(text) {
 
   const lineUser = text.match(/^Usuario:\s(.+)\s\|\sPerfil:\s(.+)$/);
   if (lineUser) {
-    return `User: ${lineUser[1]} | Role: ${lineUser[2]}`;
+    return `User: ${lineUser[1]} | Access Profile: ${lineUser[2]}`;
   }
 
   const lineSimple = text.match(/^(Cliente|Projeto|Fornecedor|Fabricante|ETA|Saida porto):\s(.+)$/);
@@ -727,28 +826,58 @@ let users = [];
 let clients = [];
 let projects = [];
 let contacts = [];
+let contracts = [];
 let containers = [];
 let materials = [];
+let deliverySkuItems = [];
+let trashRecords = [];
+let deliveryImportDraft = null;
+let ocrImportDraft = null;
 let syncConfig = { ...DEFAULT_SYNC };
 let photosByUnit = new Map();
 let currentUser = null;
 let deferredPrompt = null;
 let autoSyncTimer = null;
+let autoPullTimer = null;
+let autoPullInFlight = false;
+let autoPullBlockedUntil = 0;
+const AUTO_PULL_INTERVAL_MS = 30 * 1000;
+const AUTO_PULL_SUBMIT_GRACE_MS = 12 * 1000;
+const AUTO_PULL_KINDS = ["unit", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "trash"];
 let currentView = "home";
 let editingUserId = "";
 let userEditReturnView = "home";
 let adminEditingUserId = "";
+let userAdminFormOpen = false;
+let usersSubView = "directory";
 let lastQrLookupCode = "";
 let currentProjectSector = "fabrica";
 let usersViewFilter = "all";
 let hasAutoDispatchedCoiReminder = false;
 let selectedClientId = "";
 let selectedProjectId = "";
+let selectedContractId = "";
+let selectedClientDetailsProjectId = "";
+let keepClientFormBlank = false;
 let clientSearchQuery = "";
 let projectsViewMode = "overview";
+let clientsWorkspaceMode = "newClients";
+let manufactureSubView = "schedule";
+let warehouseSubView = "operations";
 let appAuditLog = loadAppAuditLog();
 let projectScopeExtrasDraft = [];
 let projectChecklistExtrasDraft = [];
+let xlsxLoaderPromise = null;
+let tesseractLoaderPromise = null;
+let pdfjsLoaderPromise = null;
+let mammothLoaderPromise = null;
+let cameraScanStream = null;
+let cameraScanFrameId = 0;
+let cameraScanResolver = null;
+let cameraScanCanvas = null;
+let jsQrLoaderPromise = null;
+let scanFeedbackAudioCtx = null;
+let legacyUserRoleKeyDetected = false;
 
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
@@ -759,6 +888,7 @@ const signupPanel = document.getElementById("signupPanel");
 const setupForm = document.getElementById("setupForm");
 const loginForm = document.getElementById("loginForm");
 const signupForm = document.getElementById("signupForm");
+const signupGenderSelect = document.getElementById("signupGender");
 const openSignupBtn = document.getElementById("openSignupBtn");
 const backToLoginBtn = document.getElementById("backToLoginBtn");
 const signupPhoneInput = document.getElementById("signupPhone");
@@ -771,18 +901,31 @@ const permissionLine = document.getElementById("permissionLine");
 const homePanel = document.getElementById("homePanel");
 const coiReminderPanel = document.getElementById("coiReminderPanel");
 const quickNavPanel = document.getElementById("quickNavPanel");
+const ocrImporterPanel = document.getElementById("ocrImporterPanel");
 
 const masterDataPanel = document.getElementById("masterDataPanel");
 const clientsSubpanel = document.getElementById("clientsSubpanel");
 const projectsSubpanel = document.getElementById("projectsSubpanel");
 const contactsSubpanel = document.getElementById("contactsSubpanel");
+const contractsSubpanel = document.getElementById("contractsSubpanel");
 const materialsSubpanel = document.getElementById("materialsSubpanel");
+const manufactureScheduleView = document.getElementById("manufactureScheduleView");
+const manufactureCatalogView = document.getElementById("manufactureCatalogView");
+const manufactureSolicitationView = document.getElementById("manufactureSolicitationView");
+const materialsReplacementSummaryTable = document.getElementById("materialsReplacementSummaryTable");
+const materialsFactoryMissingSummaryTable = document.getElementById("materialsFactoryMissingSummaryTable");
 const clientForm = document.getElementById("clientForm");
 const projectForm = document.getElementById("projectForm");
 const contactForm = document.getElementById("contactForm");
+const contractForm = document.getElementById("contractForm");
 const materialForm = document.getElementById("materialForm");
 const clientsSummaryScroll = document.getElementById("clientsSummaryScroll");
+const clientsCreateView = document.getElementById("clientsCreateView");
+const clientDetailsView = document.getElementById("clientDetailsView");
+const clientDetailsBackBtn = document.getElementById("clientDetailsBackBtn");
 const clientDetailsPanel = document.getElementById("clientDetailsPanel");
+const clientProjectsList = document.getElementById("clientProjectsList");
+const clientProjectDetailsTable = document.getElementById("clientProjectDetailsTable");
 const clientAdminTarget = document.getElementById("clientAdminTarget");
 const clientLogoPreview = document.getElementById("clientLogoPreview");
 const clientFormNewBtn = document.getElementById("clientFormNewBtn");
@@ -792,6 +935,7 @@ const goPeopleFromClientBtn = document.getElementById("goPeopleFromClientBtn");
 const clientSearchInput = document.getElementById("clientSearchInput");
 const projectsTable = document.getElementById("projectsTable");
 const contactsTable = document.getElementById("contactsTable");
+const contractsTable = document.getElementById("contractsTable");
 const materialsTable = document.getElementById("materialsTable");
 const projectClientSelect = document.getElementById("projectClientSelect");
 const projectAdminTarget = document.getElementById("projectAdminTarget");
@@ -807,6 +951,11 @@ const projectChecklistExtraList = document.getElementById("projectChecklistExtra
 const projectChecklistExtrasJson = document.getElementById("projectChecklistExtrasJson");
 const contactClientSelect = document.getElementById("contactClientSelect");
 const contactProjectSelect = document.getElementById("contactProjectSelect");
+const contractClientSelect = document.getElementById("contractClientSelect");
+const contractProjectSelect = document.getElementById("contractProjectSelect");
+const contractAdminTarget = document.getElementById("contractAdminTarget");
+const contractFormNewBtn = document.getElementById("contractFormNewBtn");
+const contractFormDeleteBtn = document.getElementById("contractFormDeleteBtn");
 
 const containerPanel = document.getElementById("containerPanel");
 const containerForm = document.getElementById("containerForm");
@@ -825,6 +974,48 @@ const unitJobSite = document.getElementById("unitJobSite");
 const unitScopeWorkInput = unitForm?.querySelector('textarea[name="scopeWork"]');
 const unitProjectHint = document.getElementById("unitProjectHint");
 const warehouseProjectSummary = document.getElementById("warehouseProjectSummary");
+const deliveryInventoryPanel = document.getElementById("deliveryInventoryPanel");
+const deliveryInventoryCatalogBlock = document.getElementById("deliveryInventoryCatalogBlock");
+const deliveryInventoryScanBlock = document.getElementById("deliveryInventoryScanBlock");
+const deliveryInventorySeedBtn = document.getElementById("deliveryInventorySeedBtn");
+const deliveryInventoryResetBtn = document.getElementById("deliveryInventoryResetBtn");
+const deliveryInventoryTable = document.getElementById("deliveryInventoryTable");
+const deliveryInventoryStatus = document.getElementById("deliveryInventoryStatus");
+const deliveryAddForm = document.getElementById("deliveryAddForm");
+const deliveryAddSkuInput = document.getElementById("deliveryAddSkuInput");
+const deliveryAddDescriptionInput = document.getElementById("deliveryAddDescriptionInput");
+const deliveryAddFinishInput = document.getElementById("deliveryAddFinishInput");
+const deliveryAddQtyInput = document.getElementById("deliveryAddQtyInput");
+const deliveryScanForm = document.getElementById("deliveryScanForm");
+const deliveryScanQrInput = document.getElementById("deliveryScanQrInput");
+const deliveryScanBtn = document.getElementById("deliveryScanBtn");
+const deliveryScanQtyInput = document.getElementById("deliveryScanQtyInput");
+const deliveryAssignClientSelect = document.getElementById("deliveryAssignClientSelect");
+const deliveryAssignProjectSelect = document.getElementById("deliveryAssignProjectSelect");
+const deliveryAssignUnitSelect = document.getElementById("deliveryAssignUnitSelect");
+const deliveryDestinationNoteInput = document.getElementById("deliveryDestinationNoteInput");
+const deliverySaveDestinationBtn = document.getElementById("deliverySaveDestinationBtn");
+const deliveryImportForm = document.getElementById("deliveryImportForm");
+const deliveryImportFileInput = document.getElementById("deliveryImportFileInput");
+const deliveryImportTargetSelect = document.getElementById("deliveryImportTargetSelect");
+const deliveryImportContainerWrap = document.getElementById("deliveryImportContainerWrap");
+const deliveryImportContainerSelect = document.getElementById("deliveryImportContainerSelect");
+const deliveryImportAnalyzeBtn = document.getElementById("deliveryImportAnalyzeBtn");
+const deliveryImportApplyBtn = document.getElementById("deliveryImportApplyBtn");
+const deliveryImportClearBtn = document.getElementById("deliveryImportClearBtn");
+const deliveryImportStatus = document.getElementById("deliveryImportStatus");
+const deliveryImportPreview = document.getElementById("deliveryImportPreview");
+const ocrImportForm = document.getElementById("ocrImportForm");
+const ocrImportFileInput = document.getElementById("ocrImportFileInput");
+const ocrImportTargetSelect = document.getElementById("ocrImportTargetSelect");
+const ocrImportContainerWrap = document.getElementById("ocrImportContainerWrap");
+const ocrImportContainerSelect = document.getElementById("ocrImportContainerSelect");
+const ocrImportAnalyzeBtn = document.getElementById("ocrImportAnalyzeBtn");
+const ocrImportApplyBtn = document.getElementById("ocrImportApplyBtn");
+const ocrImportClearBtn = document.getElementById("ocrImportClearBtn");
+const ocrImportStatus = document.getElementById("ocrImportStatus");
+const ocrImportTextPreview = document.getElementById("ocrImportTextPreview");
+const ocrImportRowsPreview = document.getElementById("ocrImportRowsPreview");
 
 const unitsContainer = document.getElementById("unitsContainer");
 const unitTemplate = document.getElementById("unitTemplate");
@@ -836,6 +1027,19 @@ const qrLookupPanel = document.getElementById("qrLookupPanel");
 const qrLookupForm = document.getElementById("qrLookupForm");
 const qrLookupInput = document.getElementById("qrLookupInput");
 const qrLookupResult = document.getElementById("qrLookupResult");
+const qrLookupScanBtn = document.getElementById("qrLookupScanBtn");
+const qrFlowForm = document.getElementById("qrFlowForm");
+const qrFlowCodeInput = document.getElementById("qrFlowCodeInput");
+const qrFlowStageSelect = document.getElementById("qrFlowStageSelect");
+const qrFlowStageCustomWrap = document.getElementById("qrFlowStageCustomWrap");
+const qrFlowStageCustomInput = document.getElementById("qrFlowStageCustomInput");
+const qrFlowStatusSelect = document.getElementById("qrFlowStatusSelect");
+const qrFlowIssueTypeSelect = document.getElementById("qrFlowIssueTypeSelect");
+const qrFlowUnitSelect = document.getElementById("qrFlowUnitSelect");
+const qrFlowNoteInput = document.getElementById("qrFlowNoteInput");
+const qrFlowScanBtn = document.getElementById("qrFlowScanBtn");
+const qrFlowAccessHint = document.getElementById("qrFlowAccessHint");
+const qrFlowResult = document.getElementById("qrFlowResult");
 
 const exportBtn = document.getElementById("exportBtn");
 const importInput = document.getElementById("importInput");
@@ -850,22 +1054,36 @@ const syncStatus = document.getElementById("syncStatus");
 const developerAuditPanel = document.getElementById("developerAuditPanel");
 
 const usersPanel = document.getElementById("usersPanel");
+const usersRegistrationTabBtn = document.getElementById("usersRegistrationTabBtn");
+const usersDirectoryTabBtn = document.getElementById("usersDirectoryTabBtn");
+const usersDirectoryView = document.getElementById("usersDirectoryView");
+const usersRegistrationView = document.getElementById("usersRegistrationView");
 const userForm = document.getElementById("userForm");
+const userFormPanel = document.getElementById("userFormPanel");
 const usersNameRail = document.getElementById("usersNameRail");
 const usersTable = document.getElementById("usersTable");
 const userAdminTarget = document.getElementById("userAdminTarget");
+const userIdCard = document.getElementById("userIdCard");
+const userIdCardPhoto = document.getElementById("userIdCardPhoto");
+const userIdCardFirstName = document.getElementById("userIdCardFirstName");
+const userIdCardLastName = document.getElementById("userIdCardLastName");
+const userIdCardRole = document.getElementById("userIdCardRole");
 const userAdminPhotoPreview = document.getElementById("userAdminPhotoPreview");
+const userAdminGenderSelect = document.getElementById("userAdminGender");
 const userAdminEmploymentTypeSelect = document.getElementById("userAdminEmploymentType");
 const userAdminPhoneInput = document.getElementById("userAdminPhone");
 const userAdminCellPhoneInput = document.getElementById("userAdminCellPhone");
 const userAdminCoiFileStatus = document.getElementById("userAdminCoiFileStatus");
 const openUserAdminCoiFileBtn = document.getElementById("openUserAdminCoiFileBtn");
 const userFormNewBtn = document.getElementById("userFormNewBtn");
+const userDirectoryEditBtn = document.getElementById("userDirectoryEditBtn");
 const userFormDeleteBtn = document.getElementById("userFormDeleteBtn");
+const userFormCloseBtn = document.getElementById("userFormCloseBtn");
 const userEditPanel = document.getElementById("userEditPanel");
 const userEditForm = document.getElementById("userEditForm");
 const userEditTarget = document.getElementById("userEditTarget");
 const userEditPhotoPreview = document.getElementById("userEditPhotoPreview");
+const userEditGenderSelect = document.getElementById("userEditGender");
 const userEditCoiFileStatus = document.getElementById("userEditCoiFileStatus");
 const openUserEditCoiFileBtn = document.getElementById("openUserEditCoiFileBtn");
 const cancelUserEditBtn = document.getElementById("cancelUserEditBtn");
@@ -880,6 +1098,14 @@ const logoutBtn = document.getElementById("logoutBtn");
 const installBtn = document.getElementById("installBtn");
 const languageSelect = document.getElementById("languageSelect");
 if (languageSelect) languageSelect.disabled = SUPPORTED_LANGS.length === 1;
+const cameraScanModal = document.getElementById("cameraScanModal");
+const cameraScanTitle = document.getElementById("cameraScanTitle");
+const cameraScanVideo = document.getElementById("cameraScanVideo");
+const cameraScanStatus = document.getElementById("cameraScanStatus");
+const cameraScanCloseBtn = document.getElementById("cameraScanCloseBtn");
+const cameraScanManualBtn = document.getElementById("cameraScanManualBtn");
+const cameraScanPhotoBtn = document.getElementById("cameraScanPhotoBtn");
+const cameraScanPhotoInput = document.getElementById("cameraScanPhotoInput");
 
 const fmtDate = (iso) => {
   if (!iso) return "-";
@@ -910,6 +1136,58 @@ function toNumber(value) {
   const num = Number(value || 0);
   return Number.isFinite(num) && num > 0 ? num : 0;
 }
+
+function normalizeLookupText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  const precision = size >= 100 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(precision)} ${units[index]}`;
+}
+
+function normalizeImportKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function parseImportQty(value, fallback = 1) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return fallback;
+  const compact = raw.replace(/\s+/g, "");
+  let normalized = compact.replace(/[^0-9,.\-]/g, "");
+  if (normalized.includes(",") && normalized.includes(".")) {
+    normalized = normalized.replace(/,/g, "");
+  } else if (normalized.includes(",") && !normalized.includes(".")) {
+    normalized = normalized.replace(",", ".");
+  }
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.trunc(parsed));
+}
+
+const DELIVERY_IMPORT_NORMALIZED_ALIASES = Object.fromEntries(
+  Object.entries(DELIVERY_IMPORT_FIELD_ALIASES).map(([field, aliases]) => [field, aliases.map((entry) => normalizeImportKey(entry))])
+);
 
 function maskPhoneValue(raw) {
   const digits = String(raw || "")
@@ -1144,8 +1422,13 @@ function openDB() {
       if (!dbRef.objectStoreNames.contains(CLIENT_STORE)) dbRef.createObjectStore(CLIENT_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(PROJECT_STORE)) dbRef.createObjectStore(PROJECT_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(CONTACT_STORE)) dbRef.createObjectStore(CONTACT_STORE, { keyPath: "id" });
+      if (!dbRef.objectStoreNames.contains(CONTRACT_STORE)) dbRef.createObjectStore(CONTRACT_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(CONTAINER_STORE)) dbRef.createObjectStore(CONTAINER_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(MATERIAL_STORE)) dbRef.createObjectStore(MATERIAL_STORE, { keyPath: "id" });
+      if (!dbRef.objectStoreNames.contains(DELIVERY_SKU_STORE)) {
+        dbRef.createObjectStore(DELIVERY_SKU_STORE, { keyPath: "id" });
+      }
+      if (!dbRef.objectStoreNames.contains(TRASH_STORE)) dbRef.createObjectStore(TRASH_STORE, { keyPath: "id" });
     };
 
     request.onsuccess = () => resolve(request.result);
@@ -1160,7 +1443,7 @@ function showBootError(message) {
   userBadge.classList.add("hidden");
   editProfileBtn?.classList.add("hidden");
   logoutBtn.classList.add("hidden");
-  setupPanel.classList.add("hidden");
+  setupPanel?.classList.add("hidden");
   loginPanel.classList.add("hidden");
   signupPanel?.classList.add("hidden");
   bootErrorPanel.classList.remove("hidden");
@@ -1191,13 +1474,127 @@ async function del(storeName, id) {
   return requestToPromise(tx(storeName, "readwrite").delete(id));
 }
 
+function deepClone(value) {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+function trashExpiresAt(deletedAtIso) {
+  const deletedAtTs = new Date(deletedAtIso || Date.now()).getTime();
+  return new Date(deletedAtTs + DELETE_RETENTION_MS).toISOString();
+}
+
+function normalizeTrashRecord(record) {
+  const deletedAt = record.deletedAt || new Date().toISOString();
+  return {
+    id: record.id || uid(),
+    storeName: String(record.storeName || "").trim(),
+    recordId: String(record.recordId || "").trim(),
+    label: String(record.label || "").trim(),
+    scope: String(record.scope || "-").trim() || "-",
+    restoreType: String(record.restoreType || "record").trim() || "record",
+    payload: deepClone(record.payload),
+    context: deepClone(record.context) || {},
+    relatedRecords: ensureArray(record.relatedRecords).map((entry) => ({
+      storeName: String(entry?.storeName || "").trim(),
+      payload: deepClone(entry?.payload),
+    })),
+    deletedByUserId: record.deletedByUserId || "",
+    deletedByName: record.deletedByName || "",
+    deletedAt,
+    expiresAt: record.expiresAt || trashExpiresAt(deletedAt),
+    updatedAt: record.updatedAt || deletedAt,
+  };
+}
+
+function isTrashRecordExpired(record, nowTs = Date.now()) {
+  const expiresAtTs = new Date(record?.expiresAt || 0).getTime();
+  if (!Number.isFinite(expiresAtTs) || expiresAtTs <= 0) return true;
+  return expiresAtTs <= nowTs;
+}
+
+function normalizeRecordForStore(storeName, payload) {
+  if (!payload) return payload;
+  if (storeName === UNIT_STORE) return normalizeUnit(payload);
+  if (storeName === USER_STORE) return normalizeUser(payload);
+  if (storeName === CLIENT_STORE) return normalizeClient(payload);
+  if (storeName === PROJECT_STORE) return normalizeProject(payload);
+  if (storeName === CONTACT_STORE) return normalizeContact(payload);
+  if (storeName === CONTRACT_STORE) return normalizeContract(payload);
+  if (storeName === CONTAINER_STORE) return normalizeContainer(payload);
+  if (storeName === MATERIAL_STORE) return normalizeMaterial(payload);
+  if (storeName === DELIVERY_SKU_STORE) return normalizeDeliverySkuItem(payload);
+  if (storeName === TRASH_STORE) return normalizeTrashRecord(payload);
+  return payload;
+}
+
+async function saveTrashRecord({
+  storeName = "",
+  recordId = "",
+  label = "",
+  scope = "-",
+  payload = null,
+  restoreType = "record",
+  context = {},
+  relatedRecords = [],
+} = {}) {
+  const record = normalizeTrashRecord({
+    id: uid(),
+    storeName,
+    recordId,
+    label,
+    scope,
+    restoreType,
+    payload,
+    context,
+    relatedRecords,
+    deletedByUserId: currentUser?.id || "",
+    deletedByName: currentUser?.name || "System",
+    deletedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  await put(TRASH_STORE, record);
+  return record;
+}
+
+async function trashDeleteRecord(storeName, record, { label = "", scope = "-", relatedRecords = [] } = {}) {
+  if (!record || !record.id) return false;
+  await saveTrashRecord({
+    storeName,
+    recordId: record.id,
+    label: label || `${storeName}:${record.id}`,
+    scope,
+    payload: record,
+    restoreType: "record",
+    relatedRecords,
+  });
+  await del(storeName, record.id);
+  for (const related of relatedRecords) {
+    const relatedStore = String(related?.storeName || "").trim();
+    const relatedId = String(related?.payload?.id || "").trim();
+    if (!relatedStore || !relatedId) continue;
+    await del(relatedStore, relatedId);
+  }
+  return true;
+}
+
+function confirmDeleteAction(itemLabel = "this item", { restorable = true } = {}) {
+  if (!restorable) {
+    return window.confirm(`Are you sure you want to remove ${itemLabel}?`);
+  }
+  return window.confirm(`Are you sure you want to delete ${itemLabel}?\nYou can restore it from the hidden recovery area for up to ${RESTORE_WINDOW_LABEL}.`);
+}
+
 function normalizeUnit(unit) {
   const normalized = { ...unit };
   normalized.stages = normalized.stages || {};
   for (const stage of STAGES) {
     normalized.stages[stage.key] = normalized.stages[stage.key] || { done: false, at: null };
   }
-  normalized.checkItems = ensureArray(normalized.checkItems);
   normalized.dispatchTasks = ensureArray(normalized.dispatchTasks);
   normalized.siteReceipts = ensureArray(normalized.siteReceipts).map((entry) => ({
     id: entry.id || uid(),
@@ -1221,6 +1618,11 @@ function normalizeUnit(unit) {
   normalized.projectId = normalized.projectId || "";
   normalized.clientName = normalized.clientName || "";
   normalized.projectName = normalized.projectName || "";
+  normalized.unitCode = normalized.unitCode || "";
+  normalized.category = normalized.category || "";
+  normalized.unitType = normalized.unitType || "";
+  normalized.kitchenModel = normalized.kitchenModel || "";
+  normalized.checkItems = ensureArray(normalized.checkItems).map((item, index) => normalizeCheckItem(item, normalized, index));
   normalized.createdAt = normalized.createdAt || new Date().toISOString();
   normalized.updatedAt = normalized.updatedAt || normalized.createdAt;
   return normalized;
@@ -1280,10 +1682,130 @@ function normalizeContact(contact) {
   };
 }
 
+function normalizeContract(contract) {
+  return {
+    id: contract.id,
+    clientId: contract.clientId || "",
+    projectId: contract.projectId || "",
+    title: String(contract.title || "").trim(),
+    contractCode: String(contract.contractCode || "").trim(),
+    status: String(contract.status || "draft").trim() || "draft",
+    signedDate: normalizeDateField(contract.signedDate),
+    startDate: normalizeDateField(contract.startDate),
+    endDate: normalizeDateField(contract.endDate),
+    amount: String(contract.amount || "").trim(),
+    notes: String(contract.notes || "").trim(),
+    createdAt: contract.createdAt || new Date().toISOString(),
+    updatedAt: contract.updatedAt || contract.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeGender(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "male" || raw === "man") return "male";
+  if (raw === "female" || raw === "woman") return "female";
+  return "unspecified";
+}
+
+function normalizeDateField(value) {
+  const raw = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
+}
+
+function defaultAvatarForGender(gender) {
+  const normalized = normalizeGender(gender);
+  return DEFAULT_AVATAR_BY_GENDER[normalized] || "";
+}
+
+function userAvatarSrc(user) {
+  if (user?.photoDataUrl) return user.photoDataUrl;
+  return defaultAvatarForGender(user?.gender);
+}
+
+function setAvatarPreview(previewEl, src) {
+  if (!previewEl) return;
+  if (src) {
+    previewEl.src = src;
+    previewEl.classList.remove("hidden");
+    return;
+  }
+  previewEl.removeAttribute("src");
+  previewEl.classList.add("hidden");
+}
+
+function adminPreviewFallbackSrc() {
+  const targetUser = adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) : null;
+  if (targetUser?.photoDataUrl) return targetUser.photoDataUrl;
+  return defaultAvatarForGender(userAdminGenderSelect?.value || targetUser?.gender);
+}
+
+function userEditPreviewFallbackSrc() {
+  const targetUser = editingUserId ? users.find((entry) => entry.id === editingUserId) : null;
+  if (targetUser?.photoDataUrl) return targetUser.photoDataUrl;
+  return defaultAvatarForGender(userEditGenderSelect?.value || targetUser?.gender);
+}
+
+async function refreshAdminPhotoPreview() {
+  const photoInput = userForm?.querySelector('input[name="photo"]');
+  const pickedFile = photoInput?.files?.[0];
+  if (pickedFile) {
+    setAvatarPreview(userAdminPhotoPreview, await fileToDataUrl(pickedFile));
+    renderUserIdCard(adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null);
+    return;
+  }
+  setAvatarPreview(userAdminPhotoPreview, adminPreviewFallbackSrc());
+  renderUserIdCard(adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null);
+}
+
+async function refreshUserEditPhotoPreview() {
+  const photoInput = userEditForm?.querySelector('input[name="photo"]');
+  const pickedFile = photoInput?.files?.[0];
+  if (pickedFile) {
+    setAvatarPreview(userEditPhotoPreview, await fileToDataUrl(pickedFile));
+    return;
+  }
+  setAvatarPreview(userEditPhotoPreview, userEditPreviewFallbackSrc());
+}
+
+function splitNameParts(user = null) {
+  const firstFromForm = String(userForm?.firstName?.value || "").trim();
+  const lastFromForm = String(userForm?.lastName?.value || "").trim();
+
+  let first = firstFromForm || String(user?.firstName || "").trim();
+  let last = lastFromForm || String(user?.lastName || "").trim();
+  if (first || last) return { first, last };
+
+  const fullName = String(user?.name || "").trim();
+  if (!fullName) return { first: "", last: "" };
+  const parts = fullName.split(/\s+/);
+  first = parts.shift() || "";
+  last = parts.join(" ");
+  return { first, last };
+}
+
+function formPhotoPreviewSrc() {
+  const src = userAdminPhotoPreview?.getAttribute("src") || "";
+  return String(src).trim();
+}
+
+function renderUserIdCard(user = null) {
+  if (!userIdCard || !userIdCardPhoto || !userIdCardFirstName || !userIdCardLastName || !userIdCardRole) return;
+  const { first, last } = splitNameParts(user);
+  const jobTitle = String(userForm?.jobTitle?.value || user?.jobTitle || "").trim();
+  const gender = normalizeGender(userForm?.gender?.value || user?.gender || "unspecified");
+  const photoSrc = formPhotoPreviewSrc() || userAvatarSrc(user) || defaultAvatarForGender(gender) || "avatar-neutral.svg";
+
+  userIdCardPhoto.src = photoSrc;
+  userIdCardFirstName.textContent = first || "First Name";
+  userIdCardLastName.textContent = last || "Last Name";
+  userIdCardRole.textContent = jobTitle || "Job Title";
+}
+
 function normalizeUser(user) {
   const firstName = user.firstName || "";
   const lastName = user.lastName || "";
   const composedName = `${firstName} ${lastName}`.trim();
+  const accessProfile = userAccessProfile(user);
   const normalizedCoiFile =
     user.contractorCoiFile && typeof user.contractorCoiFile === "object"
       ? {
@@ -1298,6 +1820,7 @@ function normalizeUser(user) {
     name: user.name || composedName || "",
     firstName,
     lastName,
+    birthDate: normalizeDateField(user.birthDate),
     companyName: user.companyName || "",
     jobTitle: user.jobTitle || "",
     employmentType: user.employmentType || "",
@@ -1312,10 +1835,12 @@ function normalizeUser(user) {
     phone: user.phone || "",
     cellPhone: user.cellPhone || "",
     email: user.email || "",
+    gender: normalizeGender(user.gender),
     photoDataUrl: user.photoDataUrl || "",
     username: (user.username || "").toLowerCase(),
     passwordHash: user.passwordHash || "",
-    role: user.role || "visitor",
+    legacyPassword: user.legacyPassword || user.password || "",
+    accessProfile,
     createdAt: user.createdAt || new Date().toISOString(),
     updatedAt: user.updatedAt || user.createdAt || new Date().toISOString(),
   };
@@ -1332,6 +1857,85 @@ function normalizeMaterial(material) {
     createdAt: material.createdAt || new Date().toISOString(),
     updatedAt: material.updatedAt || material.createdAt || new Date().toISOString(),
   };
+}
+
+function normalizeFinishValue(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .replace(/M4 STAINED/g, "M4-STAINED")
+    .replace(/M5 WHITE/g, "M5-WHITE")
+    .replace(/\s*-\s*/g, "-");
+}
+
+function normalizeDeliverySkuValue(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/^ВТР15$/i, "BTP15")
+    .replace(/^W1542 Lights SIDE FINISHED$/i, "W1542-Lights SIDE FINISHED")
+    .replace(/^VDB12-3\/ LOCKABLE MIDDLE D$/i, "VDB12-3 / LOCKABLE MIDDLE DRAWER")
+    .replace(/^VDB12-3 - LOCKABLE MIDDLE DRAWER$/i, "VDB12-3 / LOCKABLE MIDDLE DRAWER");
+}
+
+function deliverySkuKey(sku, finish) {
+  return `${normalizeDeliverySkuValue(sku)}||${normalizeFinishValue(finish) || "-"}`;
+}
+
+function makeDeliverySkuQrCode(item) {
+  const skuToken = qrToken(item?.sku, 16) || "SKU";
+  const finishToken = qrToken(item?.finish, 14) || "FINISH";
+  const itemToken = qrToken(item?.id, 8) || qrToken(uid(), 8);
+  return `DSKU|${skuToken}|${finishToken}|${itemToken}`;
+}
+
+function deliverySkuAvailableQty(item) {
+  const totalQty = Math.max(0, Math.trunc(toNumber(item?.totalQty)));
+  const scannedQty = Math.max(0, Math.trunc(toNumber(item?.scannedQty)));
+  return Math.max(0, totalQty - scannedQty);
+}
+
+function normalizeDeliverySkuItem(item) {
+  const normalizedSku = normalizeDeliverySkuValue(item.sku || item.code || "");
+  const normalizedFinish = normalizeFinishValue(item.finish || item.variant || "");
+  const totalQty = Math.max(0, Math.trunc(toNumber(item.totalQty || item.qty || 0)));
+  const scannedQty = Math.min(totalQty, Math.max(0, Math.trunc(toNumber(item.scannedQty || 0))));
+  const sourceRefs = ensureArray(item.sourceRefs).map((entry) => ({
+    source: String(entry?.source || "").trim() || "Unknown source",
+    qty: Math.max(0, Math.trunc(toNumber(entry?.qty || 0))),
+  }));
+  const scanLog = ensureArray(item.scanLog).map((entry) => ({
+    id: entry.id || uid(),
+    qty: Math.max(1, Math.trunc(toNumber(entry.qty || 1))),
+    scannedAt: entry.scannedAt || entry.createdAt || new Date().toISOString(),
+    scannedByUserId: entry.scannedByUserId || "",
+    scannedByName: entry.scannedByName || "",
+    clientId: entry.clientId || "",
+    projectId: entry.projectId || "",
+    unitId: entry.unitId || "",
+    destinationNote: entry.destinationNote || "",
+  }));
+  const destination = item.destination || {};
+  const normalized = {
+    id: item.id || uid(),
+    sku: normalizedSku,
+    description: String(item.description || normalizedSku || "").trim(),
+    finish: normalizedFinish || "UNSPECIFIED",
+    totalQty,
+    scannedQty,
+    qrCode: String(item.qrCode || "").trim(),
+    clientId: item.clientId || destination.clientId || "",
+    projectId: item.projectId || destination.projectId || "",
+    unitId: item.unitId || destination.unitId || "",
+    destinationNote: String(item.destinationNote || destination.note || "").trim(),
+    sourceRefs,
+    scanLog,
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+  };
+  if (!normalized.qrCode) normalized.qrCode = makeDeliverySkuQrCode(normalized);
+  return normalized;
 }
 
 function normalizeContainer(container) {
@@ -1369,9 +1973,28 @@ function normalizeContainer(container) {
     deliveredAt: item.deliveredAt || "",
     issueType: item.issueType || "",
     issueNote: item.issueNote || "",
+    flowStage: normalizeWorkflowStage(item.flowStage || ""),
+    flowStatus: normalizeWorkflowStatus(item.flowStatus || item.status || "generated"),
+    flowUpdatedAt: item.flowUpdatedAt || item.updatedAt || item.createdAt || new Date().toISOString(),
+    flowEvents: ensureArray(item.flowEvents).map((event) => ({
+      id: event.id || uid(),
+      at: event.at || event.createdAt || new Date().toISOString(),
+      byUserId: event.byUserId || "",
+      byName: event.byName || "",
+      byAccessProfile: event.byAccessProfile || event.byRole || "",
+      bySector: event.bySector || "",
+      stage: normalizeWorkflowStage(event.stage || ""),
+      status: normalizeWorkflowStatus(event.status || "in-progress"),
+      issueType: event.issueType || "",
+      note: event.note || "",
+      unitId: event.unitId || "",
+      unitLabel: event.unitLabel || "",
+      source: event.source || "workflow",
+    })),
     updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
     createdAt: item.createdAt || new Date().toISOString(),
   }));
+  qrItems.forEach((entry) => ensureQrItemFlowDefaults(entry));
   return {
     id: container.id,
     containerCode: container.containerCode || "",
@@ -1400,7 +2023,7 @@ function normalizeContainer(container) {
 }
 
 async function loadAll() {
-  const [unitRows, photoRows, userRows, settingsRows, clientRows, projectRows, contactRows, containerRows, materialRows] =
+  const [unitRows, photoRows, userRows, settingsRows, clientRows, projectRows, contactRows, contractRows, containerRows, materialRows, deliverySkuRows, trashRows] =
     await Promise.all([
       getAll(UNIT_STORE),
       getAll(PHOTO_STORE),
@@ -1409,34 +2032,63 @@ async function loadAll() {
       getAll(CLIENT_STORE),
       getAll(PROJECT_STORE),
       getAll(CONTACT_STORE),
+      getAll(CONTRACT_STORE),
       getAll(CONTAINER_STORE),
       getAll(MATERIAL_STORE),
+      getAll(DELIVERY_SKU_STORE),
+      getAll(TRASH_STORE),
     ]);
 
+  legacyUserRoleKeyDetected = userRows.some((row) => Object.prototype.hasOwnProperty.call(row || {}, "role"));
   units = unitRows.map(normalizeUnit).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   photos = photoRows;
   users = userRows.map(normalizeUser).sort((a, b) => a.username.localeCompare(b.username));
   clients = clientRows.map(normalizeClient).sort((a, b) => a.name.localeCompare(b.name));
   projects = projectRows.map(normalizeProject).sort((a, b) => a.name.localeCompare(b.name));
   contacts = contactRows.map(normalizeContact).sort((a, b) => a.name.localeCompare(b.name));
+  contracts = contractRows
+    .map(normalizeContract)
+    .sort((a, b) => a.title.localeCompare(b.title) || a.contractCode.localeCompare(b.contractCode));
   containers = containerRows.map(normalizeContainer).sort((a, b) => {
     const ad = a.etaDate ? new Date(a.etaDate).getTime() : 0;
     const bd = b.etaDate ? new Date(b.etaDate).getTime() : 0;
     return ad - bd;
   });
   materials = materialRows.map(normalizeMaterial).sort((a, b) => a.sku.localeCompare(b.sku));
+  deliverySkuItems = deliverySkuRows
+    .map(normalizeDeliverySkuItem)
+    .sort((a, b) => a.sku.localeCompare(b.sku) || a.finish.localeCompare(b.finish));
+  const normalizedTrash = trashRows.map(normalizeTrashRecord);
+  const expiredTrashIds = normalizedTrash.filter((row) => isTrashRecordExpired(row)).map((row) => row.id);
+  trashRecords = normalizedTrash
+    .filter((row) => !expiredTrashIds.includes(row.id))
+    .sort((a, b) => new Date(b.deletedAt || 0).getTime() - new Date(a.deletedAt || 0).getTime());
+  if (expiredTrashIds.length) {
+    await Promise.all(expiredTrashIds.map((id) => del(TRASH_STORE, id)));
+  }
 
   const savedSync = settingsRows.find((row) => row.id === "syncConfig") || {};
-  syncConfig = {
+  syncConfig = applyPresetSyncConfig({
     ...DEFAULT_SYNC,
     ...savedSync,
     autoSync: Boolean(savedSync.autoSync),
-  };
+  });
 
   photosByUnit = new Map();
   for (const photo of photos) {
     if (!photosByUnit.has(photo.unitId)) photosByUnit.set(photo.unitId, []);
     photosByUnit.get(photo.unitId).push(photo);
+  }
+}
+
+async function migrateLegacyUserRoleKey() {
+  if (!legacyUserRoleKeyDetected || !users.length) return;
+  const normalizedUsers = users.map((user) => normalizeUser(user));
+  await Promise.all(normalizedUsers.map((user) => put(USER_STORE, user)));
+  legacyUserRoleKeyDetected = false;
+  await loadAll();
+  if (syncEndpoint()) {
+    await pushCloud({ silent: true, force: true, kinds: ["user"] });
   }
 }
 
@@ -1460,25 +2112,35 @@ async function ensureDeveloperRolePresence() {
   if (!preferredDeveloper) return;
 
   const now = new Date().toISOString();
+  const developerPasswordHash = await hashPassword(PRIMARY_DEVELOPER_PASSWORD);
   const usersToUpdate = [];
+  let preferredDeveloperDraft = { ...preferredDeveloper };
+  let preferredDeveloperChanged = false;
 
-  if (preferredDeveloper.role !== "developer") {
-    usersToUpdate.push(
-      normalizeUser({
-        ...preferredDeveloper,
-        role: "developer",
-        updatedAt: now,
-      })
-    );
+  if (userAccessProfile(preferredDeveloper) !== "developer") {
+    preferredDeveloperDraft.accessProfile = "developer";
+    preferredDeveloperChanged = true;
+  }
+
+  if (!userPasswordMatches(preferredDeveloper, PRIMARY_DEVELOPER_PASSWORD, developerPasswordHash)) {
+    preferredDeveloperDraft.passwordHash = developerPasswordHash;
+    preferredDeveloperDraft.legacyPassword = "";
+    preferredDeveloperDraft.password = "";
+    preferredDeveloperChanged = true;
+  }
+
+  if (preferredDeveloperChanged) {
+    preferredDeveloperDraft.updatedAt = now;
+    usersToUpdate.push(normalizeUser(preferredDeveloperDraft));
   }
 
   users
-    .filter((user) => user.id !== preferredDeveloper.id && user.role === "developer")
+    .filter((user) => user.id !== preferredDeveloper.id && userAccessProfile(user) === "developer")
     .forEach((user) => {
       usersToUpdate.push(
         normalizeUser({
           ...user,
-          role: "admin",
+          accessProfile: "admin",
           updatedAt: now,
         })
       );
@@ -1487,6 +2149,7 @@ async function ensureDeveloperRolePresence() {
   if (!usersToUpdate.length) return;
   await Promise.all(usersToUpdate.map((user) => put(USER_STORE, user)));
   await loadAll();
+  await pushCloud({ silent: true, force: true, kinds: ["user"] });
 }
 
 function clientById(id) {
@@ -1497,8 +2160,1439 @@ function projectById(id) {
   return projects.find((project) => project.id === id);
 }
 
+function contractById(id) {
+  return contracts.find((contract) => contract.id === id);
+}
+
 function materialById(id) {
   return materials.find((material) => material.id === id);
+}
+
+function deliverySkuById(id) {
+  return deliverySkuItems.find((entry) => entry.id === id);
+}
+
+function deliverySkuByQrCode(qrCode) {
+  const normalized = String(qrCode || "").trim();
+  if (!normalized) return null;
+  return deliverySkuItems.find((entry) => entry.qrCode === normalized) || null;
+}
+
+function trashStoreLabel(storeName) {
+  if (storeName === UNIT_STORE) return "Units";
+  if (storeName === PHOTO_STORE) return "Photos";
+  if (storeName === USER_STORE) return "Users";
+  if (storeName === CLIENT_STORE) return "Clients";
+  if (storeName === PROJECT_STORE) return "Projects";
+  if (storeName === CONTACT_STORE) return "People in Project";
+  if (storeName === CONTRACT_STORE) return "Contracts";
+  if (storeName === CONTAINER_STORE) return "Containers";
+  if (storeName === MATERIAL_STORE) return "Materials";
+  if (storeName === DELIVERY_SKU_STORE) return "Delivery Inventory";
+  return storeName || "Record";
+}
+
+function formatTrashTimeLeft(entry) {
+  const expiresAtTs = new Date(entry?.expiresAt || 0).getTime();
+  if (!Number.isFinite(expiresAtTs) || expiresAtTs <= 0) return "Expired";
+  const remainingMs = expiresAtTs - Date.now();
+  if (remainingMs <= 0) return "Expired";
+  const totalMinutes = Math.ceil(remainingMs / (60 * 1000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes}m`;
+  if (hours < 48) return `${hours}h ${minutes}m`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return `${days}d ${remHours}h`;
+}
+
+async function purgeExpiredTrashRecords() {
+  const expiredIds = trashRecords.filter((entry) => isTrashRecordExpired(entry)).map((entry) => entry.id);
+  if (!expiredIds.length) return 0;
+  await Promise.all(expiredIds.map((id) => del(TRASH_STORE, id)));
+  trashRecords = trashRecords.filter((entry) => !expiredIds.includes(entry.id));
+  return expiredIds.length;
+}
+
+async function permanentlyDeleteTrashRecord(trashId) {
+  const target = trashRecords.find((entry) => entry.id === trashId);
+  if (!target) return false;
+  await del(TRASH_STORE, target.id);
+  trashRecords = trashRecords.filter((entry) => entry.id !== target.id);
+  return true;
+}
+
+async function restoreTrashRecord(trashId) {
+  const target = trashRecords.find((entry) => entry.id === trashId);
+  if (!target) {
+    alert("Deleted record not found.");
+    return false;
+  }
+  if (isTrashRecordExpired(target)) {
+    await permanentlyDeleteTrashRecord(target.id);
+    await loadAll();
+    render();
+    alert("This deleted record has expired and can no longer be restored.");
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const restoreType = String(target.restoreType || "record");
+
+  if (restoreType === "record") {
+    if (!target.storeName || !target.payload?.id) {
+      alert("Restore data is invalid for this record.");
+      return false;
+    }
+    await put(target.storeName, normalizeRecordForStore(target.storeName, target.payload));
+    for (const related of ensureArray(target.relatedRecords)) {
+      const relatedStore = String(related?.storeName || "").trim();
+      const relatedPayload = related?.payload;
+      if (!relatedStore || !relatedPayload?.id) continue;
+      await put(relatedStore, normalizeRecordForStore(relatedStore, relatedPayload));
+    }
+  } else if (restoreType === "container-manifest-item") {
+    const containerId = target.context?.containerId || "";
+    const container = containers.find((entry) => entry.id === containerId);
+    if (!container) {
+      alert("Container no longer exists. Restore this container first.");
+      return false;
+    }
+    if (target.payload?.id && !container.materialItems.some((item) => item.id === target.payload.id)) {
+      container.materialItems.push(target.payload);
+    }
+    const qrItems = ensureArray(target.context?.qrItems);
+    qrItems.forEach((qrItem) => {
+      if (!qrItem?.id) return;
+      if (!container.qrItems.some((entry) => entry.id === qrItem.id)) container.qrItems.push(qrItem);
+    });
+    container.updatedAt = now;
+    await put(CONTAINER_STORE, normalizeContainer(container));
+  } else if (restoreType === "unit-check-item") {
+    const unitId = target.context?.unitId || "";
+    const unit = units.find((entry) => entry.id === unitId);
+    if (!unit) {
+      alert("Unit no longer exists. Restore this unit first.");
+      return false;
+    }
+    if (target.payload?.id && !unit.checkItems.some((entry) => entry.id === target.payload.id)) {
+      unit.checkItems.push(target.payload);
+    }
+    unit.updatedAt = now;
+    await put(UNIT_STORE, normalizeUnit(unit));
+  } else if (restoreType === "unit-dispatch-task") {
+    const unitId = target.context?.unitId || "";
+    const unit = units.find((entry) => entry.id === unitId);
+    if (!unit) {
+      alert("Unit no longer exists. Restore this unit first.");
+      return false;
+    }
+    if (target.payload?.id && !unit.dispatchTasks.some((entry) => entry.id === target.payload.id)) {
+      unit.dispatchTasks.push(target.payload);
+    }
+    unit.updatedAt = now;
+    await put(UNIT_STORE, normalizeUnit(unit));
+  } else if (restoreType === "unit-site-receipt") {
+    const unitId = target.context?.unitId || "";
+    const unit = units.find((entry) => entry.id === unitId);
+    if (!unit) {
+      alert("Unit no longer exists. Restore this unit first.");
+      return false;
+    }
+    if (target.payload?.id && !unit.siteReceipts.some((entry) => entry.id === target.payload.id)) {
+      unit.siteReceipts.push(target.payload);
+    }
+    unit.updatedAt = now;
+    await put(UNIT_STORE, normalizeUnit(unit));
+  } else if (restoreType === "delivery-inventory-reset") {
+    await writeDeliverySkuItems(ensureArray(target.payload), { replace: true });
+  } else {
+    alert("Restore type is not supported for this record.");
+    return false;
+  }
+
+  await permanentlyDeleteTrashRecord(target.id);
+  pushEntityAudit("Deleted Records", "restored", target.label || target.recordId || target.id, target.scope || "trash");
+  await loadAll();
+  if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
+  render();
+  queueAutoSync();
+  return true;
+}
+
+function deliverySkuMergeRows(...lists) {
+  const map = new Map();
+  lists.flat().forEach((raw) => {
+    const normalized = normalizeDeliverySkuItem(raw);
+    if (!normalized.sku) return;
+    const key = deliverySkuKey(normalized.sku, normalized.finish);
+    if (!map.has(key)) {
+      map.set(key, {
+        ...normalized,
+        sourceRefs: [],
+        scanLog: [],
+      });
+    }
+    const existing = map.get(key);
+    existing.totalQty += normalized.totalQty;
+    existing.scannedQty = Math.min(existing.totalQty, existing.scannedQty + normalized.scannedQty);
+    if (!existing.description && normalized.description) existing.description = normalized.description;
+    if (!existing.clientId && normalized.clientId) existing.clientId = normalized.clientId;
+    if (!existing.projectId && normalized.projectId) existing.projectId = normalized.projectId;
+    if (!existing.unitId && normalized.unitId) existing.unitId = normalized.unitId;
+    if (!existing.destinationNote && normalized.destinationNote) existing.destinationNote = normalized.destinationNote;
+    if (!existing.qrCode && normalized.qrCode) existing.qrCode = normalized.qrCode;
+
+    const sourceMap = new Map(existing.sourceRefs.map((entry) => [entry.source, entry.qty]));
+    ensureArray(normalized.sourceRefs).forEach((entry) => {
+      const source = String(entry.source || "").trim() || "Unknown source";
+      sourceMap.set(source, (sourceMap.get(source) || 0) + Math.max(0, Math.trunc(toNumber(entry.qty || 0))));
+    });
+    existing.sourceRefs = Array.from(sourceMap.entries()).map(([source, qty]) => ({ source, qty }));
+    existing.scanLog = [...existing.scanLog, ...ensureArray(normalized.scanLog)];
+    existing.updatedAt = normalized.updatedAt || existing.updatedAt;
+  });
+  return Array.from(map.values())
+    .map((entry) => {
+      const normalized = normalizeDeliverySkuItem(entry);
+      if (!normalized.qrCode) normalized.qrCode = makeDeliverySkuQrCode(normalized);
+      return normalized;
+    })
+    .sort((a, b) => a.sku.localeCompare(b.sku) || a.finish.localeCompare(b.finish));
+}
+
+async function writeDeliverySkuItems(items, { replace = false } = {}) {
+  const transaction = db.transaction([DELIVERY_SKU_STORE], "readwrite");
+  const store = transaction.objectStore(DELIVERY_SKU_STORE);
+  if (replace) store.clear();
+  items.forEach((item) => {
+    store.put(normalizeDeliverySkuItem(item));
+  });
+  await transactionDonePromise(transaction);
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+async function saveDeliverySkuItem(item) {
+  await put(DELIVERY_SKU_STORE, normalizeDeliverySkuItem(item));
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+function deliverySkuSeedRows() {
+  return DELIVERY_SKU_SEED.map((entry) =>
+    normalizeDeliverySkuItem({
+      id: uid(),
+      sku: entry.sku,
+      description: entry.description || entry.sku,
+      finish: entry.finish,
+      totalQty: Math.max(1, Math.trunc(toNumber(entry.totalQty || 1))),
+      scannedQty: 0,
+      sourceRefs: ensureArray(entry.sourceRefs),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+  );
+}
+
+function deliverySelectionProjects(clientId) {
+  if (!clientId) return projects;
+  return projects.filter((project) => project.clientId === clientId);
+}
+
+function deliverySelectionUnits(projectId) {
+  if (!projectId) return units;
+  return units.filter((unit) => unit.projectId === projectId);
+}
+
+function setDeliveryInventoryStatus(message = "", isError = false) {
+  if (!deliveryInventoryStatus) return;
+  deliveryInventoryStatus.textContent = message;
+  deliveryInventoryStatus.style.color = isError ? "#b83232" : "var(--ink-soft)";
+}
+
+function setDeliveryImportStatus(message = "", isError = false) {
+  if (!deliveryImportStatus) return;
+  deliveryImportStatus.textContent = message;
+  deliveryImportStatus.style.color = isError ? "#b83232" : "var(--ink-soft)";
+}
+
+function syncDeliveryImportApplyState() {
+  if (!deliveryImportApplyBtn) return;
+  const hasRows = Boolean(deliveryImportDraft?.supported && ensureArray(deliveryImportDraft?.rows).length > 0);
+  const target = deliveryImportTargetSelect?.value || "deliverySku";
+  deliveryImportApplyBtn.disabled = !hasRows || !canImportRowsByTarget(target);
+}
+
+function syncDeliveryImportContainerSelect() {
+  if (!deliveryImportContainerSelect) return;
+  const current = deliveryImportContainerSelect.value;
+  const rows = containers.map((container) => {
+    const clientName = clientById(container.clientId)?.name || "No client";
+    const projectName = projectById(container.projectId)?.name || "No project";
+    return `<option value="${escapeHtml(container.id)}">${escapeHtml(container.containerCode)} | ${escapeHtml(clientName)} | ${escapeHtml(projectName)}</option>`;
+  });
+  deliveryImportContainerSelect.innerHTML = `<option value="">Select a container</option>${rows.join("")}`;
+  if (containers.some((entry) => entry.id === current)) deliveryImportContainerSelect.value = current;
+}
+
+function refreshDeliveryImportTargetUi() {
+  const target = deliveryImportTargetSelect?.value || "deliverySku";
+  const needsContainer = target === "containerManifest";
+  deliveryImportContainerWrap?.classList.toggle("hidden", !needsContainer);
+  if (deliveryImportApplyBtn) {
+    if (target === "deliverySku") deliveryImportApplyBtn.textContent = "Import to Delivery inventory";
+    else if (target === "containerManifest") deliveryImportApplyBtn.textContent = "Import to Container manifest";
+    else deliveryImportApplyBtn.textContent = "Import to Material catalog";
+  }
+}
+
+function clearDeliveryImportDraft({ clearFile = true, clearStatus = false } = {}) {
+  deliveryImportDraft = null;
+  if (clearFile && deliveryImportFileInput) deliveryImportFileInput.value = "";
+  if (deliveryImportPreview) deliveryImportPreview.innerHTML = "";
+  if (clearStatus) setDeliveryImportStatus("");
+  syncDeliveryImportApplyState();
+}
+
+function detectImportFileKind(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const type = String(file?.type || "").toLowerCase();
+  if (name.endsWith(".csv") || type.includes("csv")) return { key: "csv", label: "CSV" };
+  if (name.endsWith(".tsv")) return { key: "tsv", label: "TSV" };
+  if (name.endsWith(".txt") || type.startsWith("text/")) return { key: "text", label: "Text" };
+  if (name.endsWith(".json") || type.includes("json")) return { key: "json", label: "JSON" };
+  if (
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    type.includes("spreadsheet") ||
+    type.includes("excel")
+  ) {
+    return { key: "spreadsheet", label: "Spreadsheet (XLS/XLSX)" };
+  }
+  if (name.endsWith(".pdf") || type.includes("pdf")) return { key: "pdf", label: "PDF" };
+  if (type.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|bmp|heic)$/i.test(name)) return { key: "image", label: "Image" };
+  if (name.endsWith(".doc") || name.endsWith(".docx") || type.includes("word")) return { key: "word", label: "Word document" };
+  return { key: "other", label: "Unknown format" };
+}
+
+async function ensureXlsxLibrary() {
+  if (window.XLSX) return window.XLSX;
+  if (xlsxLoaderPromise) return xlsxLoaderPromise;
+
+  xlsxLoaderPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    script.onload = () => {
+      if (window.XLSX) resolve(window.XLSX);
+      else reject(new Error("XLSX parser loaded but unavailable."));
+    };
+    script.onerror = () => reject(new Error("Could not load XLSX parser library."));
+    document.head.appendChild(script);
+  });
+
+  return xlsxLoaderPromise;
+}
+
+async function ensureTesseractLibrary() {
+  if (window.Tesseract?.recognize) return window.Tesseract;
+  if (tesseractLoaderPromise) return tesseractLoaderPromise;
+
+  tesseractLoaderPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.onload = () => {
+      if (window.Tesseract?.recognize) resolve(window.Tesseract);
+      else reject(new Error("OCR library loaded but unavailable."));
+    };
+    script.onerror = () => reject(new Error("Could not load OCR library."));
+    document.head.appendChild(script);
+  });
+
+  return tesseractLoaderPromise;
+}
+
+async function ensurePdfJsLibrary() {
+  if (window.pdfjsLib?.getDocument) return window.pdfjsLib;
+  if (pdfjsLoaderPromise) return pdfjsLoaderPromise;
+
+  pdfjsLoaderPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+    script.onload = () => {
+      if (!window.pdfjsLib?.getDocument) {
+        reject(new Error("PDF parser loaded but unavailable."));
+        return;
+      }
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = () => reject(new Error("Could not load PDF parser library."));
+    document.head.appendChild(script);
+  });
+
+  return pdfjsLoaderPromise;
+}
+
+async function ensureMammothLibrary() {
+  if (window.mammoth?.extractRawText) return window.mammoth;
+  if (mammothLoaderPromise) return mammothLoaderPromise;
+
+  mammothLoaderPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js";
+    script.onload = () => {
+      if (window.mammoth?.extractRawText) resolve(window.mammoth);
+      else reject(new Error("DOCX parser loaded but unavailable."));
+    };
+    script.onerror = () => reject(new Error("Could not load DOCX parser library."));
+    document.head.appendChild(script);
+  });
+
+  return mammothLoaderPromise;
+}
+
+async function extractTextFromImageFile(file, progressCb = null) {
+  const Tesseract = await ensureTesseractLibrary();
+  const result = await Tesseract.recognize(file, "eng", {
+    logger: (entry) => {
+      if (!progressCb) return;
+      if (entry?.status === "recognizing text" && Number.isFinite(entry.progress)) {
+        progressCb(`OCR image in progress: ${Math.round(entry.progress * 100)}%`);
+      }
+    },
+  });
+  return String(result?.data?.text || "");
+}
+
+async function extractTextFromPdfFile(file, progressCb = null) {
+  const pdfjsLib = await ensurePdfJsLibrary();
+  const data = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data });
+  const pdf = await loadingTask.promise;
+  const pageLimit = Math.min(pdf.numPages, 12);
+  const chunks = [];
+
+  for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+    if (progressCb) progressCb(`Reading PDF page ${pageNumber}/${pageLimit}...`);
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const line = textContent.items.map((item) => item.str).join(" ");
+    chunks.push(line);
+  }
+
+  return chunks.join("\n");
+}
+
+async function extractTextFromDocxFile(file, progressCb = null) {
+  if (progressCb) progressCb("Reading DOCX content...");
+  const mammoth = await ensureMammothLibrary();
+  const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+  return String(result?.value || "");
+}
+
+function parseImportRowsFromPlainText(text) {
+  const rows = [];
+  const lines = String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const pushParsedRow = (skuRaw, descriptionRaw, finishRaw, qtyRaw) => {
+    const sku = normalizeDeliverySkuValue(skuRaw);
+    if (!sku) return;
+    rows.push({
+      sku,
+      description: String(descriptionRaw || sku).trim() || sku,
+      finish: normalizeFinishValue(finishRaw || "UNSPECIFIED") || "UNSPECIFIED",
+      qty: parseImportQty(qtyRaw, 1),
+      category: "other",
+      unit: "pcs",
+      kitchenType: "",
+      clientName: "",
+      projectName: "",
+      unitCode: "",
+      source: "OCR text",
+    });
+  };
+
+  for (const line of lines) {
+    if (/^(sku|item|code|description|qty|quantity|finish|color)\b/i.test(line)) continue;
+
+    let columns = [];
+    if (line.includes("\t")) columns = line.split("\t");
+    else if (line.includes(";")) columns = line.split(";");
+    else if (line.includes("|")) columns = line.split("|");
+    else if ((line.match(/,/g) || []).length >= 2) columns = parseDelimitedTextRows(line, ",")[0] || [];
+    columns = columns.map((entry) => String(entry || "").trim()).filter(Boolean);
+
+    if (columns.length >= 4) {
+      pushParsedRow(columns[0], columns[1], columns[2], columns[3]);
+      continue;
+    }
+
+    if (columns.length === 3) {
+      pushParsedRow(columns[0], columns[1], "UNSPECIFIED", columns[2]);
+      continue;
+    }
+
+    const basic = line.match(/^([A-Z0-9][A-Z0-9._\-\/]{1,})\s+(.+?)\s+(\d{1,6})$/i);
+    if (basic) {
+      pushParsedRow(basic[1], basic[2], "UNSPECIFIED", basic[3]);
+      continue;
+    }
+
+    const extended = line.match(/^([A-Z0-9][A-Z0-9._\-\/]{1,})\s+(.+?)\s+(M\d[-\w]+|[A-Z][A-Z0-9_-]{1,})\s+(\d{1,6})$/i);
+    if (extended) {
+      pushParsedRow(extended[1], extended[2], extended[3], extended[4]);
+    }
+  }
+
+  return rows;
+}
+
+function detectDelimiterInText(text) {
+  const sampleLine = String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .find((line) => line.trim());
+  if (!sampleLine) return ",";
+  const candidates = [",", ";", "\t", "|"];
+  let best = ",";
+  let bestCount = -1;
+  candidates.forEach((delimiter) => {
+    const count = sampleLine.split(delimiter).length - 1;
+    if (count > bestCount) {
+      bestCount = count;
+      best = delimiter;
+    }
+  });
+  return best;
+}
+
+function parseDelimitedTextRows(text, delimiter) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
+
+    if (ch === '"') {
+      if (inQuotes && text[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && ch === delimiter) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if (!inQuotes && (ch === "\n" || ch === "\r")) {
+      if (ch === "\r" && text[index + 1] === "\n") index += 1;
+      row.push(cell);
+      if (row.some((entry) => String(entry || "").trim())) rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += ch;
+  }
+
+  row.push(cell);
+  if (row.some((entry) => String(entry || "").trim())) rows.push(row);
+  return rows;
+}
+
+function importObjectsFromMatrix(matrix) {
+  const rows = ensureArray(matrix).map((line) => ensureArray(line).map((value) => String(value ?? "").trim()));
+  if (!rows.length) return [];
+
+  const first = rows[0];
+  const knownHeaders = first.filter((header) => {
+    const normalized = normalizeImportKey(header);
+    return Object.values(DELIVERY_IMPORT_NORMALIZED_ALIASES).some((aliases) => aliases.includes(normalized));
+  }).length;
+  const hasHeader = knownHeaders > 0;
+  const headers = hasHeader ? first : first.map((_, index) => `col${index + 1}`);
+  const startIndex = hasHeader ? 1 : 0;
+  const objects = [];
+
+  for (let rowIndex = startIndex; rowIndex < rows.length; rowIndex += 1) {
+    const current = rows[rowIndex];
+    if (!current.some((entry) => String(entry || "").trim())) continue;
+    const obj = {};
+    const size = Math.max(headers.length, current.length);
+    for (let col = 0; col < size; col += 1) {
+      const key = headers[col] || `col${col + 1}`;
+      obj[key] = current[col] ?? "";
+    }
+    objects.push(obj);
+  }
+
+  return objects;
+}
+
+function importObjectsFromJsonPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  if (Array.isArray(payload.rows)) return payload.rows;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.data)) return payload.data;
+  return [payload];
+}
+
+function pickImportValue(map, field) {
+  const aliases = DELIVERY_IMPORT_NORMALIZED_ALIASES[field] || [];
+  for (const alias of aliases) {
+    if (Object.prototype.hasOwnProperty.call(map, alias)) return map[alias];
+  }
+  return "";
+}
+
+function parseImportRowObject(rawObject) {
+  if (!rawObject || typeof rawObject !== "object") return null;
+  const normalizedMap = {};
+  Object.entries(rawObject).forEach(([key, value]) => {
+    const normalizedKey = normalizeImportKey(key);
+    if (!normalizedKey || Object.prototype.hasOwnProperty.call(normalizedMap, normalizedKey)) return;
+    normalizedMap[normalizedKey] = value;
+  });
+
+  const descriptionRaw = String(pickImportValue(normalizedMap, "description") || "").trim();
+  let sku = normalizeDeliverySkuValue(pickImportValue(normalizedMap, "sku"));
+  if (!sku && descriptionRaw) sku = normalizeDeliverySkuValue(descriptionRaw);
+  if (!sku) return null;
+
+  const finish = normalizeFinishValue(pickImportValue(normalizedMap, "finish") || "UNSPECIFIED") || "UNSPECIFIED";
+  const qty = parseImportQty(pickImportValue(normalizedMap, "qty"), 1);
+  const category = String(pickImportValue(normalizedMap, "category") || "other").trim().toLowerCase() || "other";
+  const unit = String(pickImportValue(normalizedMap, "unit") || "pcs").trim() || "pcs";
+
+  return {
+    sku,
+    description: descriptionRaw || sku,
+    finish,
+    qty,
+    category,
+    unit,
+    kitchenType: String(pickImportValue(normalizedMap, "kitchenType") || "").trim(),
+    clientName: String(pickImportValue(normalizedMap, "clientName") || "").trim(),
+    projectName: String(pickImportValue(normalizedMap, "projectName") || "").trim(),
+    unitCode: String(pickImportValue(normalizedMap, "unitCode") || "").trim(),
+    source: String(pickImportValue(normalizedMap, "source") || "").trim(),
+  };
+}
+
+function parseImportRowsFromObjects(objects) {
+  const rows = [];
+  const matrixRows = [];
+
+  ensureArray(objects).forEach((obj) => {
+    if (Array.isArray(obj)) {
+      matrixRows.push(obj);
+      return;
+    }
+    if (!obj || typeof obj !== "object") return;
+    const parsed = parseImportRowObject(obj);
+    if (parsed) rows.push(parsed);
+  });
+
+  if (matrixRows.length) {
+    importObjectsFromMatrix(matrixRows).forEach((rowObj) => {
+      const parsed = parseImportRowObject(rowObj);
+      if (parsed) rows.push(parsed);
+    });
+  }
+
+  return rows;
+}
+
+async function parseRowsFromImportFile(file, { progressCb = null } = {}) {
+  const info = detectImportFileKind(file);
+  const base = {
+    fileName: file.name || "file",
+    fileTypeLabel: info.label,
+    fileSizeLabel: formatBytes(file.size),
+    supported: true,
+    warnings: [],
+    rows: [],
+    rawRowsCount: 0,
+    extractedText: "",
+  };
+
+  if (info.key === "other") {
+    return {
+      ...base,
+      supported: false,
+      warnings: [`Detected: ${info.label}. ${DELIVERY_IMPORT_SUPPORTED_HINT}`],
+    };
+  }
+
+  if (info.key === "word" && !String(file.name || "").toLowerCase().endsWith(".docx")) {
+    return {
+      ...base,
+      supported: false,
+      warnings: ["Legacy .DOC is not parseable in-browser. Convert the file to DOCX and retry."],
+    };
+  }
+
+  if (["pdf", "image", "word"].includes(info.key)) {
+    if (progressCb) progressCb(`Starting ${info.label} extraction...`);
+    let extractedText = "";
+
+    if (info.key === "image") extractedText = await extractTextFromImageFile(file, progressCb);
+    if (info.key === "pdf") extractedText = await extractTextFromPdfFile(file, progressCb);
+    if (info.key === "word") extractedText = await extractTextFromDocxFile(file, progressCb);
+
+    const rows = parseImportRowsFromPlainText(extractedText);
+    const warnings = [];
+    if (!extractedText.trim()) warnings.push(`No readable text found in ${info.label}.`);
+    if (!rows.length) warnings.push("Text was extracted but no SKU/quantity rows were recognized.");
+
+    return {
+      ...base,
+      rows,
+      extractedText,
+      warnings,
+      rawRowsCount: rows.length,
+    };
+  }
+
+  let rowObjects = [];
+  if (info.key === "csv" || info.key === "tsv" || info.key === "text") {
+    const text = await file.text();
+    const delimiter = info.key === "tsv" ? "\t" : detectDelimiterInText(text);
+    rowObjects = importObjectsFromMatrix(parseDelimitedTextRows(text, delimiter));
+    if (!rowObjects.length && text.trim()) {
+      const fallbackRows = parseImportRowsFromPlainText(text);
+      return {
+        ...base,
+        rows: fallbackRows,
+        extractedText: text,
+        rawRowsCount: fallbackRows.length,
+        warnings: fallbackRows.length ? ["Used text-pattern parser fallback."] : ["No recognized rows in text file."],
+      };
+    }
+  } else if (info.key === "json") {
+    const payload = JSON.parse(await file.text());
+    const rows = importObjectsFromJsonPayload(payload);
+    rowObjects = Array.isArray(rows[0]) ? importObjectsFromMatrix(rows) : rows;
+  } else if (info.key === "spreadsheet") {
+    const XLSX = await ensureXlsxLibrary();
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      return {
+        ...base,
+        supported: false,
+        warnings: ["Spreadsheet has no readable sheets."],
+      };
+    }
+    const matrix = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+    rowObjects = importObjectsFromMatrix(matrix);
+  }
+
+  const parsedRows = parseImportRowsFromObjects(rowObjects);
+  return {
+    ...base,
+    rows: parsedRows,
+    rawRowsCount: rowObjects.length,
+  };
+}
+
+function renderDeliveryImportPreview() {
+  if (!deliveryImportPreview) return;
+  if (!deliveryImportDraft) {
+    deliveryImportPreview.innerHTML = "";
+    return;
+  }
+
+  if (!deliveryImportDraft.supported) {
+    deliveryImportPreview.innerHTML = "";
+    return;
+  }
+
+  const previewRows = ensureArray(deliveryImportDraft.rows).slice(0, 12);
+  if (!previewRows.length) {
+    deliveryImportPreview.innerHTML = `<table class="data-table"><tbody><tr><td>No recognized material rows found in this file.</td></tr></tbody></table>`;
+    return;
+  }
+
+  const htmlRows = previewRows
+    .map(
+      (row) => `<tr>
+      <td>${escapeHtml(row.sku)}</td>
+      <td>${escapeHtml(row.description || "-")}</td>
+      <td>${escapeHtml(row.finish || "-")}</td>
+      <td>${row.qty}</td>
+      <td>${escapeHtml(row.clientName || "-")}</td>
+      <td>${escapeHtml(row.projectName || "-")}</td>
+      <td>${escapeHtml(row.unitCode || "-")}</td>
+    </tr>`
+    )
+    .join("");
+
+  const totalRows = ensureArray(deliveryImportDraft.rows).length;
+  const hasMore = totalRows > previewRows.length;
+  deliveryImportPreview.innerHTML = `<table class="data-table"><thead><tr><th>SKU</th><th>Description</th><th>Finish</th><th>Qty</th><th>Client</th><th>Project</th><th>Unit</th></tr></thead><tbody>${htmlRows}</tbody></table>${
+    hasMore ? `<p class="hint">Showing ${previewRows.length} of ${totalRows} rows.</p>` : ""
+  }`;
+}
+
+function findImportMatchByName(list, nameGetter, lookup) {
+  const normalizedLookup = normalizeLookupText(lookup);
+  if (!normalizedLookup) return null;
+  const exact = list.find((entry) => normalizeLookupText(nameGetter(entry)) === normalizedLookup);
+  if (exact) return exact;
+  return (
+    list.find((entry) => {
+      const normalizedName = normalizeLookupText(nameGetter(entry));
+      return normalizedName && (normalizedName.includes(normalizedLookup) || normalizedLookup.includes(normalizedName));
+    }) || null
+  );
+}
+
+function resolveImportDestinationIds(row) {
+  const client = findImportMatchByName(clients, (entry) => entry.name, row.clientName);
+  const clientId = client?.id || "";
+
+  let projectPool = projects;
+  if (clientId) projectPool = projects.filter((entry) => entry.clientId === clientId);
+  const project = findImportMatchByName(projectPool, (entry) => entry.name, row.projectName);
+  const projectId = project?.id || "";
+
+  let unitPool = units;
+  if (projectId) unitPool = units.filter((entry) => entry.projectId === projectId);
+  const unit = findImportMatchByName(unitPool, (entry) => entry.unitCode, row.unitCode);
+  const unitId = unit?.id || "";
+
+  return { clientId, projectId, unitId };
+}
+
+function mergeSourceRefs(sourceRefs, source, qty) {
+  const map = new Map(
+    ensureArray(sourceRefs).map((entry) => [
+      String(entry?.source || "").trim() || "Unknown source",
+      Math.max(0, Math.trunc(toNumber(entry?.qty || 0))),
+    ])
+  );
+  const normalizedSource = String(source || "").trim() || "File import";
+  map.set(normalizedSource, (map.get(normalizedSource) || 0) + Math.max(0, Math.trunc(toNumber(qty || 0))));
+  return Array.from(map.entries()).map(([refSource, refQty]) => ({ source: refSource, qty: refQty }));
+}
+
+function aggregateImportRows(rows) {
+  const map = new Map();
+  ensureArray(rows).forEach((row) => {
+    const key = deliverySkuKey(row.sku, row.finish);
+    if (!map.has(key)) {
+      map.set(key, {
+        ...row,
+        qty: 0,
+      });
+    }
+    const target = map.get(key);
+    target.qty += Math.max(1, Math.trunc(toNumber(row.qty || 1)));
+    if (!target.description && row.description) target.description = row.description;
+    if (!target.category && row.category) target.category = row.category;
+    if (!target.unit && row.unit) target.unit = row.unit;
+    if (!target.kitchenType && row.kitchenType) target.kitchenType = row.kitchenType;
+    if (!target.clientName && row.clientName) target.clientName = row.clientName;
+    if (!target.projectName && row.projectName) target.projectName = row.projectName;
+    if (!target.unitCode && row.unitCode) target.unitCode = row.unitCode;
+    if (!target.source && row.source) target.source = row.source;
+  });
+  return Array.from(map.values());
+}
+
+async function importRowsToDeliveryInventory(rows, fileName) {
+  const aggregated = aggregateImportRows(rows);
+  if (!aggregated.length) return { created: 0, updated: 0, importedRows: 0 };
+
+  const output = deliverySkuItems.map((entry) => normalizeDeliverySkuItem(entry));
+  const byKey = new Map(output.map((entry) => [deliverySkuKey(entry.sku, entry.finish), entry]));
+  const sourceFallback = `File import: ${fileName}`;
+  let created = 0;
+  let updated = 0;
+  const now = new Date().toISOString();
+
+  aggregated.forEach((row) => {
+    const key = deliverySkuKey(row.sku, row.finish);
+    const destinationIds = resolveImportDestinationIds(row);
+    const sourceLabel = row.source || sourceFallback;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.totalQty += row.qty;
+      if (!existing.description && row.description) existing.description = row.description;
+      if (!existing.clientId && destinationIds.clientId) existing.clientId = destinationIds.clientId;
+      if (!existing.projectId && destinationIds.projectId) existing.projectId = destinationIds.projectId;
+      if (!existing.unitId && destinationIds.unitId) existing.unitId = destinationIds.unitId;
+      existing.sourceRefs = mergeSourceRefs(existing.sourceRefs, sourceLabel, row.qty);
+      existing.updatedAt = now;
+      updated += 1;
+      return;
+    }
+
+    const createdItem = normalizeDeliverySkuItem({
+      id: uid(),
+      sku: row.sku,
+      description: row.description || row.sku,
+      finish: row.finish || "UNSPECIFIED",
+      totalQty: row.qty,
+      scannedQty: 0,
+      clientId: destinationIds.clientId,
+      projectId: destinationIds.projectId,
+      unitId: destinationIds.unitId,
+      sourceRefs: [{ source: sourceLabel, qty: row.qty }],
+      scanLog: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    output.push(createdItem);
+    byKey.set(key, createdItem);
+    created += 1;
+  });
+
+  await writeDeliverySkuItems(output, { replace: true });
+  pushEntityAudit(
+    "Delivery Inventory",
+    "imported",
+    `Imported ${aggregated.length} row(s) from ${fileName}. Created: ${created}. Updated: ${updated}.`,
+    "delivery"
+  );
+  return { created, updated, importedRows: aggregated.length };
+}
+
+async function importRowsToMaterialCatalog(rows, fileName) {
+  const aggregated = aggregateImportRows(rows);
+  if (!aggregated.length) return { created: 0, updated: 0, importedRows: 0 };
+
+  const existingBySku = new Map(materials.map((entry) => [normalizeDeliverySkuValue(entry.sku), entry]));
+  const now = new Date().toISOString();
+  let created = 0;
+  let updated = 0;
+  const transaction = db.transaction([MATERIAL_STORE], "readwrite");
+  const store = transaction.objectStore(MATERIAL_STORE);
+
+  aggregated.forEach((row) => {
+    const lookupKey = normalizeDeliverySkuValue(row.sku);
+    const existing = existingBySku.get(lookupKey);
+    if (existing) {
+      store.put(
+        normalizeMaterial({
+          ...existing,
+          description: row.description || existing.description,
+          category: row.category || existing.category || "other",
+          unit: row.unit || existing.unit || "pcs",
+          kitchenType: row.kitchenType || existing.kitchenType || "",
+          updatedAt: now,
+        })
+      );
+      updated += 1;
+      return;
+    }
+
+    store.put(
+      normalizeMaterial({
+        id: uid(),
+        sku: row.sku,
+        description: row.description || row.sku,
+        category: row.category || "other",
+        unit: row.unit || "pcs",
+        kitchenType: row.kitchenType || "",
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+    created += 1;
+  });
+
+  await transactionDonePromise(transaction);
+  await loadAll();
+  render();
+  queueAutoSync();
+  pushEntityAudit(
+    "Materials",
+    "imported",
+    `Imported ${aggregated.length} row(s) from ${fileName}. Created: ${created}. Updated: ${updated}.`,
+    "materials"
+  );
+  return { created, updated, importedRows: aggregated.length };
+}
+
+async function importRowsToContainerManifest(rows, fileName, containerId) {
+  const container = containers.find((entry) => entry.id === containerId);
+  if (!container) throw new Error("Select a valid container before importing.");
+
+  const aggregated = aggregateImportRows(rows);
+  if (!aggregated.length) return { created: 0, qrCreated: 0, importedRows: 0, containerCode: container.containerCode };
+
+  const now = new Date().toISOString();
+  let created = 0;
+  let qrCreated = 0;
+
+  aggregated.forEach((row) => {
+    const matchedMaterial =
+      materials.find((entry) => normalizeDeliverySkuValue(entry.sku) === normalizeDeliverySkuValue(row.sku)) || null;
+    const materialId = matchedMaterial?.id || "";
+    const category = row.category || matchedMaterial?.category || "other";
+    const unit = row.unit || matchedMaterial?.unit || "pcs";
+    const description = row.description || matchedMaterial?.description || row.sku;
+    const code = row.sku || `ITEM-${String(container.materialItems.length + 1).padStart(3, "0")}`;
+    const qty = Math.max(1, Math.trunc(toNumber(row.qty || 1)));
+
+    const manifestItemId = uid();
+    container.materialItems.push({
+      id: manifestItemId,
+      materialId,
+      code,
+      description,
+      category,
+      qty,
+      unit,
+      issueType: "ok",
+      issueNote: "",
+      issueRoute: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    created += 1;
+
+    for (let index = 0; index < qty; index += 1) {
+      container.qrItems.push({
+        id: uid(),
+        manifestItemId,
+        qrCode: makeQrCode(container, code || "ITEM"),
+        materialId,
+        code,
+        description,
+        category,
+        unit,
+        status: "in-warehouse",
+        clientId: "",
+        projectId: "",
+        unitId: "",
+        unitLabel: "",
+        kitchenType: row.kitchenType || matchedMaterial?.kitchenType || "",
+        assignedAt: "",
+        assignedBy: "",
+        deliveredAt: "",
+        issueType: "",
+        issueNote: "",
+        flowStage: "warehouse",
+        flowStatus: "generated",
+        flowUpdatedAt: now,
+        flowEvents: [
+          {
+            id: uid(),
+            at: now,
+            byUserId: currentUser?.id || "",
+            byName: currentUser?.name || "System",
+            stage: "warehouse",
+            status: "generated",
+            issueType: "",
+            note: `QR generated from imported file: ${fileName}`,
+            unitId: "",
+            unitLabel: "",
+            source: "manifest",
+          },
+        ],
+        createdAt: now,
+        updatedAt: now,
+      });
+      qrCreated += 1;
+    }
+  });
+
+  pushContainerAudit(container, `Imported ${aggregated.length} row(s) from file: ${fileName}`);
+  pushContainerAudit(container, `Generated ${qrCreated} QR item(s) from imported rows.`);
+  await saveContainer(container);
+  pushEntityAudit(
+    "Containers",
+    "manifest-imported",
+    `${container.containerCode}: imported ${aggregated.length} row(s), created ${qrCreated} QR item(s) from ${fileName}.`,
+    "containers"
+  );
+  return { created, qrCreated, importedRows: aggregated.length, containerCode: container.containerCode };
+}
+
+function canImportRowsByTarget(target) {
+  const canDeliveryImport = can("manageCatalog") || can("manageContainerRelease") || can("siteReceive") || isAdmin() || isDeveloper();
+  const canMaterialImport = can("manageCatalog") || isAdmin() || isDeveloper();
+  const canManifestImport = can("manageContainerManifest") || isAdmin() || isDeveloper();
+
+  if (target === "deliverySku") return canDeliveryImport;
+  if (target === "materialCatalog") return canMaterialImport;
+  if (target === "containerManifest") return canManifestImport;
+  return false;
+}
+
+async function applyImportRowsByTarget({ rows, target, fileName, containerId }) {
+  if (!ensureArray(rows).length) throw new Error("No recognized rows to import.");
+  if (!canImportRowsByTarget(target)) throw new Error("Your access profile cannot import to this target.");
+
+  if (target === "deliverySku") {
+    const result = await importRowsToDeliveryInventory(rows, fileName);
+    return `Delivery import complete. Created: ${result.created}. Updated: ${result.updated}. Imported rows: ${result.importedRows}.`;
+  }
+
+  if (target === "materialCatalog") {
+    const result = await importRowsToMaterialCatalog(rows, fileName);
+    return `Material catalog import complete. Created: ${result.created}. Updated: ${result.updated}. Imported rows: ${result.importedRows}.`;
+  }
+
+  if (!containerId) throw new Error("Select a container before importing to manifest.");
+  const result = await importRowsToContainerManifest(rows, fileName, containerId);
+  return `Container import complete (${result.containerCode}). Manifest rows: ${result.created}. QR generated: ${result.qrCreated}.`;
+}
+
+function setOcrImportStatus(message = "", isError = false) {
+  if (!ocrImportStatus) return;
+  ocrImportStatus.textContent = message;
+  ocrImportStatus.style.color = isError ? "#b83232" : "var(--ink-soft)";
+}
+
+function syncOcrImportContainerSelect() {
+  if (!ocrImportContainerSelect) return;
+  const current = ocrImportContainerSelect.value;
+  const rows = containers.map((container) => {
+    const clientName = clientById(container.clientId)?.name || "No client";
+    const projectName = projectById(container.projectId)?.name || "No project";
+    return `<option value="${escapeHtml(container.id)}">${escapeHtml(container.containerCode)} | ${escapeHtml(clientName)} | ${escapeHtml(projectName)}</option>`;
+  });
+  ocrImportContainerSelect.innerHTML = `<option value="">Select a container</option>${rows.join("")}`;
+  if (containers.some((entry) => entry.id === current)) ocrImportContainerSelect.value = current;
+}
+
+function refreshOcrImportTargetUi() {
+  const target = ocrImportTargetSelect?.value || "deliverySku";
+  const needsContainer = target === "containerManifest";
+  ocrImportContainerWrap?.classList.toggle("hidden", !needsContainer);
+  if (ocrImportApplyBtn) {
+    if (target === "deliverySku") ocrImportApplyBtn.textContent = "Import to Delivery inventory";
+    else if (target === "containerManifest") ocrImportApplyBtn.textContent = "Import to Container manifest";
+    else ocrImportApplyBtn.textContent = "Import to Material catalog";
+  }
+}
+
+function syncOcrImportApplyState() {
+  if (!ocrImportApplyBtn) return;
+  const target = ocrImportTargetSelect?.value || "deliverySku";
+  const hasRows = Boolean(ocrImportDraft?.supported && ensureArray(ocrImportDraft?.rows).length > 0);
+  ocrImportApplyBtn.disabled = !hasRows || !canImportRowsByTarget(target);
+}
+
+function clearOcrImportDraft({ clearFile = true, clearStatus = false } = {}) {
+  ocrImportDraft = null;
+  if (clearFile && ocrImportFileInput) ocrImportFileInput.value = "";
+  if (ocrImportTextPreview) ocrImportTextPreview.value = "";
+  if (ocrImportRowsPreview) ocrImportRowsPreview.innerHTML = "";
+  if (clearStatus) setOcrImportStatus("");
+  syncOcrImportApplyState();
+}
+
+function renderOcrImportRowsPreview() {
+  if (!ocrImportRowsPreview) return;
+  if (!ocrImportDraft?.supported) {
+    ocrImportRowsPreview.innerHTML = "";
+    return;
+  }
+  const previewRows = ensureArray(ocrImportDraft.rows).slice(0, 12);
+  if (!previewRows.length) {
+    ocrImportRowsPreview.innerHTML = `<table class="data-table"><tbody><tr><td>No recognized material rows found in extracted text.</td></tr></tbody></table>`;
+    return;
+  }
+
+  const body = previewRows
+    .map(
+      (row) => `<tr>
+      <td>${escapeHtml(row.sku)}</td>
+      <td>${escapeHtml(row.description || "-")}</td>
+      <td>${escapeHtml(row.finish || "-")}</td>
+      <td>${row.qty}</td>
+    </tr>`
+    )
+    .join("");
+
+  const totalRows = ensureArray(ocrImportDraft.rows).length;
+  const moreText = totalRows > previewRows.length ? `<p class="hint">Showing ${previewRows.length} of ${totalRows} rows.</p>` : "";
+  ocrImportRowsPreview.innerHTML = `<table class="data-table"><thead><tr><th>SKU</th><th>Description</th><th>Finish</th><th>Qty</th></tr></thead><tbody>${body}</tbody></table>${moreText}`;
+}
+
+async function analyzeOcrImportFile() {
+  const file = ocrImportFileInput?.files?.[0];
+  if (!file) {
+    setOcrImportStatus("Choose a file first.", true);
+    clearOcrImportDraft({ clearFile: false });
+    return;
+  }
+
+  setOcrImportStatus(`Analyzing ${file.name}...`);
+  try {
+    const analysis = await parseRowsFromImportFile(file, {
+      progressCb: (message) => setOcrImportStatus(message),
+    });
+    ocrImportDraft = analysis;
+    if (ocrImportTextPreview) ocrImportTextPreview.value = analysis.extractedText || "";
+    renderOcrImportRowsPreview();
+    syncOcrImportApplyState();
+
+    if (!analysis.supported) {
+      setOcrImportStatus(`${analysis.warnings.join(" ")}`, true);
+      return;
+    }
+
+    const warningText = analysis.warnings.length ? ` ${analysis.warnings.join(" ")}` : "";
+    setOcrImportStatus(
+      `Detected ${analysis.fileTypeLabel} (${analysis.fileSizeLabel}). Parsed rows: ${analysis.rawRowsCount}. Recognized rows: ${analysis.rows.length}.${warningText}`
+    );
+  } catch (error) {
+    clearOcrImportDraft({ clearFile: false });
+    setOcrImportStatus(`OCR analysis failed: ${error?.message || "unknown error"}`, true);
+  }
+}
+
+async function applyOcrImportDraft() {
+  if (!ocrImportDraft?.supported || !ensureArray(ocrImportDraft.rows).length) {
+    setOcrImportStatus("Run OCR/Analyze first and confirm recognized rows.", true);
+    return;
+  }
+  const target = ocrImportTargetSelect?.value || "deliverySku";
+  const fileName = ocrImportDraft.fileName || "ocr-file";
+  const containerId = ocrImportContainerSelect?.value || "";
+  try {
+    const message = await applyImportRowsByTarget({
+      rows: ocrImportDraft.rows,
+      target,
+      fileName,
+      containerId,
+    });
+    setOcrImportStatus(message);
+  } catch (error) {
+    setOcrImportStatus(`Import failed: ${error?.message || "unknown error"}`, true);
+  }
+}
+
+async function analyzeDeliveryImportFile() {
+  const file = deliveryImportFileInput?.files?.[0];
+  if (!file) {
+    setDeliveryImportStatus("Choose a file first.", true);
+    clearDeliveryImportDraft({ clearFile: false });
+    return;
+  }
+
+  setDeliveryImportStatus(`Analyzing ${file.name}...`);
+  try {
+    const analysis = await parseRowsFromImportFile(file, {
+      progressCb: (message) => setDeliveryImportStatus(message),
+    });
+    deliveryImportDraft = analysis;
+    renderDeliveryImportPreview();
+    syncDeliveryImportApplyState();
+
+    if (!analysis.supported) {
+      setDeliveryImportStatus(`${analysis.warnings.join(" ")}`, true);
+      return;
+    }
+
+    const warningText = analysis.warnings.length ? ` ${analysis.warnings.join(" ")}` : "";
+    setDeliveryImportStatus(
+      `Detected ${analysis.fileTypeLabel} (${analysis.fileSizeLabel}). Parsed rows: ${analysis.rawRowsCount}. Recognized material rows: ${analysis.rows.length}.${warningText}`
+    );
+  } catch (error) {
+    clearDeliveryImportDraft({ clearFile: false });
+    setDeliveryImportStatus(`Could not analyze file: ${error?.message || "unknown error"}`, true);
+  }
+}
+
+async function applyDeliveryImportDraft() {
+  if (!deliveryImportDraft?.supported || !ensureArray(deliveryImportDraft.rows).length) {
+    setDeliveryImportStatus("Analyze a supported file with recognized rows before importing.", true);
+    return;
+  }
+
+  const target = deliveryImportTargetSelect?.value || "deliverySku";
+  const fileName = deliveryImportDraft.fileName || "import-file";
+  const containerId = deliveryImportContainerSelect?.value || "";
+
+  try {
+    const message = await applyImportRowsByTarget({
+      rows: deliveryImportDraft.rows,
+      target,
+      fileName,
+      containerId,
+    });
+    setDeliveryImportStatus(message);
+  } catch (error) {
+    setDeliveryImportStatus(`Import failed: ${error?.message || "unknown error"}`, true);
+  }
+}
+
+function syncDeliveryAssignProjectSelect() {
+  if (!deliveryAssignProjectSelect) return;
+  const current = deliveryAssignProjectSelect.value;
+  const clientId = deliveryAssignClientSelect?.value || "";
+  const list = deliverySelectionProjects(clientId);
+  deliveryAssignProjectSelect.innerHTML = `<option value="">Not assigned</option>${list
+    .map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`)
+    .join("")}`;
+  if (list.some((entry) => entry.id === current)) deliveryAssignProjectSelect.value = current;
+}
+
+function syncDeliveryAssignUnitSelect() {
+  if (!deliveryAssignUnitSelect) return;
+  const current = deliveryAssignUnitSelect.value;
+  const projectId = deliveryAssignProjectSelect?.value || "";
+  const list = deliverySelectionUnits(projectId);
+  deliveryAssignUnitSelect.innerHTML = `<option value="">Not assigned</option>${list
+    .map((unit) => `<option value="${escapeHtml(unit.id)}">${escapeHtml(unit.unitCode || "-")} - ${escapeHtml(unit.projectName || "-")}</option>`)
+    .join("")}`;
+  if (list.some((entry) => entry.id === current)) deliveryAssignUnitSelect.value = current;
+}
+
+function resetDeliveryScanDestination() {
+  if (deliveryAssignClientSelect) deliveryAssignClientSelect.value = "";
+  syncDeliveryAssignProjectSelect();
+  if (deliveryAssignProjectSelect) deliveryAssignProjectSelect.value = "";
+  syncDeliveryAssignUnitSelect();
+  if (deliveryAssignUnitSelect) deliveryAssignUnitSelect.value = "";
+  if (deliveryDestinationNoteInput) deliveryDestinationNoteInput.value = "";
+}
+
+function deliveryDestinationLabel(item) {
+  const client = clientById(item.clientId);
+  const project = projectById(item.projectId);
+  const unit = units.find((entry) => entry.id === item.unitId);
+  const parts = [client?.name, project?.name, unit?.unitCode].filter(Boolean);
+  if (item.destinationNote) parts.push(item.destinationNote);
+  return parts.join(" | ") || "-";
+}
+
+function renderDeliveryInventoryTable() {
+  if (!deliveryInventoryTable) return;
+  const rows = deliverySkuItems
+    .map((item) => {
+      const available = deliverySkuAvailableQty(item);
+      const sourceRefs = ensureArray(item.sourceRefs)
+        .filter((entry) => entry.qty > 0)
+        .map((entry) => `${entry.source}: ${entry.qty}`)
+        .join(", ");
+      return `<tr>
+        <td><span class="qr-inline-code">${escapeHtml(item.qrCode)}</span></td>
+        <td>${escapeHtml(item.sku)}</td>
+        <td>${escapeHtml(item.finish || "-")}</td>
+        <td>${escapeHtml(item.description || "-")}</td>
+        <td>${item.totalQty}</td>
+        <td>${item.scannedQty}</td>
+        <td>${available}</td>
+        <td>${escapeHtml(deliveryDestinationLabel(item))}</td>
+        <td>${escapeHtml(sourceRefs || "-")}</td>
+        <td>${escapeHtml(fmtDate(item.updatedAt))}</td>
+        <td>
+          <div class="actions-inline">
+            <button class="secondary xs-btn" type="button" data-delivery-copy-qr="${item.id}">Copy QR</button>
+            <button class="secondary xs-btn" type="button" data-delivery-select="${item.id}">Select</button>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  deliveryInventoryTable.innerHTML = `<table class="data-table"><thead><tr><th>QR</th><th>SKU</th><th>Finish</th><th>Description</th><th>Total</th><th>Scanned</th><th>Available</th><th>Destination</th><th>Source</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="11">No delivery inventory items yet.</td></tr>'
+  }</tbody></table>`;
+
+  deliveryInventoryTable.querySelectorAll("[data-delivery-copy-qr]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const item = deliverySkuById(button.dataset.deliveryCopyQr);
+      if (!item) return;
+      try {
+        await navigator.clipboard.writeText(item.qrCode);
+      } catch {
+        window.prompt("Copy QR code:", item.qrCode);
+      }
+    });
+  });
+
+  deliveryInventoryTable.querySelectorAll("[data-delivery-select]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = deliverySkuById(button.dataset.deliverySelect);
+      if (!item) return;
+      if (deliveryScanQrInput) deliveryScanQrInput.value = item.qrCode;
+      if (deliveryAssignClientSelect) deliveryAssignClientSelect.value = item.clientId || "";
+      syncDeliveryAssignProjectSelect();
+      if (deliveryAssignProjectSelect) deliveryAssignProjectSelect.value = item.projectId || "";
+      syncDeliveryAssignUnitSelect();
+      if (deliveryAssignUnitSelect) deliveryAssignUnitSelect.value = item.unitId || "";
+      if (deliveryDestinationNoteInput) deliveryDestinationNoteInput.value = item.destinationNote || "";
+      setDeliveryInventoryStatus(`Selected ${item.sku} (${item.finish}).`);
+      deliveryScanForm?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
+}
+
+function renderDeliveryInventoryPanel() {
+  if (!deliveryInventoryPanel) return;
+  const visible = currentView === "projects" && currentProjectSector === "delivery";
+  deliveryInventoryPanel.classList.toggle("hidden-view", !visible);
+  if (!visible) return;
+
+  const canEdit = can("manageCatalog") || can("manageContainerRelease") || can("siteReceive") || isAdmin() || isDeveloper();
+  const canImportAny = can("manageCatalog") || can("manageContainerManifest") || can("manageContainerRelease") || can("siteReceive") || isAdmin() || isDeveloper();
+  deliveryInventorySeedBtn.disabled = !canEdit;
+  deliveryInventoryResetBtn.disabled = !canEdit;
+  deliveryAddForm?.querySelectorAll("input,button").forEach((field) => (field.disabled = !canEdit));
+  deliveryScanForm?.querySelectorAll("input,select,button").forEach((field) => (field.disabled = !canEdit));
+  deliveryImportForm?.querySelectorAll("input,select,button").forEach((field) => {
+    if (field === deliveryImportApplyBtn) return;
+    field.disabled = !canImportAny;
+  });
+  if (deliveryImportApplyBtn && !canImportAny) deliveryImportApplyBtn.disabled = true;
+
+  const currentClient = deliveryAssignClientSelect?.value || "";
+  deliveryAssignClientSelect.innerHTML = `<option value="">Not assigned</option>${clients
+    .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.name)}</option>`)
+    .join("")}`;
+  if (clients.some((client) => client.id === currentClient)) deliveryAssignClientSelect.value = currentClient;
+  syncDeliveryAssignProjectSelect();
+  syncDeliveryAssignUnitSelect();
+  syncDeliveryImportContainerSelect();
+  refreshDeliveryImportTargetUi();
+  syncDeliveryImportApplyState();
+  renderDeliveryImportPreview();
+  renderDeliveryInventoryTable();
+}
+
+function renderOcrImporterPanel() {
+  if (!ocrImporterPanel) return;
+  const visible = currentView === "ocrImporter";
+  ocrImporterPanel.classList.toggle("hidden-view", !visible);
+  if (!visible) return;
+
+  const canUse = can("manageCatalog") || can("manageContainerManifest") || can("manageContainerRelease") || can("siteReceive") || isAdmin() || isDeveloper();
+  ocrImportForm?.querySelectorAll("input,select,button").forEach((field) => {
+    if (field === ocrImportApplyBtn) return;
+    field.disabled = !canUse;
+  });
+
+  syncOcrImportContainerSelect();
+  refreshOcrImportTargetUi();
+  syncOcrImportApplyState();
+  renderOcrImportRowsPreview();
 }
 
 function contactsForProject(projectId) {
@@ -1523,6 +3617,894 @@ function qrImageUrl(qrCode, size = 300) {
 function qrLabelFilename(item) {
   const base = String(item?.qrCode || "qr-label").replace(/[^a-zA-Z0-9_-]+/g, "_");
   return `${base}.png`;
+}
+
+function qrToken(value, size = 10) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "")
+    .slice(0, size);
+}
+
+function makeUnitChecklistQrCode(unit, item, index = 1) {
+  const projectToken = qrToken(unit?.projectCode || unit?.projectId || unit?.projectName, 10) || "PROJECT";
+  const unitToken = qrToken(unit?.unitCode || unit?.id, 10) || "UNIT";
+  const itemToken = qrToken(item?.code || item?.description || item?.id, 12) || "ITEM";
+  const itemIdToken = qrToken(item?.id, 8) || "00000000";
+  const seq = String(index).padStart(3, "0");
+  return `UQR|${projectToken}|${unitToken}|${itemToken}|${seq}|${itemIdToken}`;
+}
+
+function normalizeChecklistQrItems(item, unit, expectedQty, now) {
+  const list = ensureArray(item.qrItems)
+    .map((entry, idx) => ({
+      id: entry.id || uid(),
+      qrCode: entry.qrCode || makeUnitChecklistQrCode(unit, item, idx + 1),
+      createdAt: entry.createdAt || now,
+      updatedAt: entry.updatedAt || entry.createdAt || now,
+    }))
+    .filter((entry) => entry.qrCode);
+
+  let index = list.length;
+  while (list.length < expectedQty) {
+    index += 1;
+    list.push({
+      id: uid(),
+      qrCode: makeUnitChecklistQrCode(unit, item, index),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return list;
+}
+
+function normalizeCheckItem(item, unit = null, fallbackIndex = 0) {
+  const now = new Date().toISOString();
+  const expectedQty = Math.max(1, Math.trunc(toNumber(item.expectedQty) || 1));
+  const checkedQty = Math.max(0, Math.trunc(toNumber(item.checkedQty)));
+  const normalized = {
+    id: item.id || uid(),
+    code: String(item.code || "").trim(),
+    description: String(item.description || "").trim(),
+    expectedQty,
+    checkedQty,
+    status: item.status || "ok",
+    note: item.note || "",
+    createdAt: item.createdAt || now,
+    updatedAt: item.updatedAt || item.createdAt || now,
+  };
+  if (!normalized.code) normalized.code = `ITEM-${String(fallbackIndex + 1).padStart(3, "0")}`;
+  if (!normalized.description) normalized.description = normalized.code;
+  normalized.qrItems = normalizeChecklistQrItems(normalized, unit, expectedQty, now);
+  return normalized;
+}
+
+function createCheckItem(payload, unit = null, fallbackIndex = 0) {
+  return normalizeCheckItem(
+    {
+      id: uid(),
+      code: payload.code || "",
+      description: payload.description || "",
+      expectedQty: payload.expectedQty,
+      checkedQty: payload.checkedQty || 0,
+      status: payload.status || "ok",
+      note: payload.note || "",
+      qrItems: [],
+      createdAt: payload.createdAt || new Date().toISOString(),
+      updatedAt: payload.updatedAt || payload.createdAt || new Date().toISOString(),
+    },
+    unit,
+    fallbackIndex
+  );
+}
+
+function addDefaultChecklistItemsToUnit(unit) {
+  const existing = new Set(ensureArray(unit.checkItems).map((entry) => String(entry.description || "").trim().toLowerCase()).filter(Boolean));
+  let added = 0;
+  for (const description of UNIT_DEFAULT_QR_MATERIALS) {
+    const key = description.trim().toLowerCase();
+    if (!key || existing.has(key)) continue;
+    unit.checkItems.push(createCheckItem({ code: "", description, expectedQty: 1, checkedQty: 0, status: "ok" }, unit, unit.checkItems.length));
+    existing.add(key);
+    added += 1;
+  }
+  return added;
+}
+
+function unitChecklistQrCodesText(item) {
+  return ensureArray(item?.qrItems).map((entry) => entry.qrCode).filter(Boolean);
+}
+
+function openUnitChecklistQrLabels(unit, item, { autoPrint = false } = {}) {
+  const labels = unitChecklistQrCodesText(item);
+  if (!labels.length) return;
+  const win = window.open("", "_blank");
+  if (!win) return;
+  const html = `<!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <title>Unit Item QR Labels</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 18px; color: #1f2937; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+        .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 10px; }
+        h1 { margin: 0 0 10px; font-size: 14px; }
+        h2 { margin: 0 0 6px; font-size: 13px; }
+        img { width: 170px; height: 170px; border: 1px solid #e5e7eb; display: block; margin: 8px auto; }
+        p { margin: 4px 0; font-size: 12px; }
+        .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
+        .actions { margin-bottom: 10px; }
+        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
+        @media print { .actions { display: none; } body { margin: 0; } .label { page-break-inside: avoid; } }
+      </style>
+    </head>
+    <body>
+      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      <div class="grid">
+        ${labels
+          .map(
+            (qrCode, idx) => `<div class="label">
+            <h1>${escapeHtml(item.code || "-")} | ${escapeHtml(item.description || "-")}</h1>
+            <h2>Piece ${idx + 1} / ${labels.length}</h2>
+            <img src="${qrImageUrl(qrCode, 280)}" alt="QR ${escapeHtml(qrCode)}" />
+            <p><strong>Unit:</strong> ${escapeHtml(unit?.unitCode || "-")}</p>
+            <p><strong>Project:</strong> ${escapeHtml(unit?.projectName || "-")}</p>
+            <p><strong>QR:</strong> <span class="qr-code">${escapeHtml(qrCode)}</span></p>
+          </div>`
+          )
+          .join("")}
+      </div>
+    </body>
+  </html>`;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  if (autoPrint) setTimeout(() => win.print(), 450);
+}
+
+async function downloadUnitChecklistQrPng(item) {
+  const firstCode = unitChecklistQrCodesText(item)[0];
+  if (!firstCode) return;
+  const url = qrImageUrl(firstCode, 512);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("QR image download failed");
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    const base = String(firstCode || "unit-item-qr").replace(/[^a-zA-Z0-9_-]+/g, "_");
+    a.download = `${base}.png`;
+    a.click();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    window.open(url, "_blank");
+  }
+}
+
+function workflowStageLabel(stage) {
+  if (!stage) return "-";
+  return QR_WORKFLOW_STAGE_LABELS[stage] || stage;
+}
+
+function workflowStatusLabel(status) {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "generated") return "Generated";
+  if (raw === "in-progress") return "In progress";
+  if (raw === "completed") return "Completed";
+  if (raw === "hold") return "On hold";
+  if (raw === "issue") return "Issue";
+  return raw || "-";
+}
+
+function issueTypeLabel(issueType) {
+  const raw = String(issueType || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "nao-chegou") return "Not received";
+  if (raw === "faltando-pecas") return "Missing parts";
+  if (raw === "quebrado") return "Damaged";
+  if (raw === "medida-diferente") return "Wrong size";
+  if (raw === "cor-errada") return "Wrong color";
+  return raw;
+}
+
+function qrFlowSourceLabel(source) {
+  const raw = String(source || "").trim().toLowerCase();
+  if (!raw) return "Workflow";
+  if (raw === "manifest") return "Manufacturer Manifest";
+  if (raw === "dispatch") return "Warehouse Dispatch";
+  if (raw === "site-receive") return "Site Receive";
+  if (raw === "workflow") return "Workflow Update";
+  return raw
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function normalizeWorkflowStage(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "warehouse") return "warehouse";
+  if (raw === "delivery" || raw === "site delivery" || raw === "site-delivery") return "delivery";
+  if (raw === "distribution") return "distribution";
+  if (raw === "installation") return "installation";
+  if (raw === "punch list" || raw === "punchlist") return "punchlist";
+  return raw;
+}
+
+function normalizeWorkflowStatus(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (QR_WORKFLOW_STATUS_OPTIONS.includes(raw)) return raw;
+  if (raw === "received") return "completed";
+  if (raw === "dispatched" || raw === "assigned") return "in-progress";
+  return "in-progress";
+}
+
+function canUpdateQrWorkflow() {
+  if (!currentUser) return false;
+  if (isDeveloper() || isAdmin() || isProjectManager()) return true;
+  return can("manageContainerRelease") || can("siteReceive") || can("checklist") || can("manageContainerIssues");
+}
+
+function stageFromProjectSector(sector) {
+  if (sector === "warehouse") return "warehouse";
+  if (sector === "delivery") return "delivery";
+  if (sector === "distribuicao") return "distribution";
+  if (sector === "instalacao") return "installation";
+  if (sector === "punchlist") return "punchlist";
+  return "";
+}
+
+function qrLockedStageForCurrentUser() {
+  if (!currentUser) return "";
+  if (isDeveloper() || isAdmin() || isProjectManager()) return "";
+  const accessProfile = userAccessProfile(currentUser);
+  if (accessProfile === "warehouse") return "warehouse";
+  if (accessProfile === "transport") return "delivery";
+  if (accessProfile === "distribution") return "distribution";
+  if (accessProfile === "qa") return "punchlist";
+  if (accessProfile === "installer" || accessProfile === "foreman") {
+    const bySector = stageFromProjectSector(currentProjectSector);
+    if (bySector === "distribution" || bySector === "installation") return bySector;
+    return accessProfile === "foreman" ? "installation" : "distribution";
+  }
+  return "";
+}
+
+function qrAllowedStagesForCurrentUser() {
+  if (!currentUser) return [];
+  if (isDeveloper() || isAdmin() || isProjectManager()) return [...QR_WORKFLOW_STAGES, "custom"];
+  const locked = qrLockedStageForCurrentUser();
+  if (locked) return [locked];
+  return [];
+}
+
+function qrDefaultStageForCurrentUser() {
+  const locked = qrLockedStageForCurrentUser();
+  if (locked) return locked;
+  const sectorStage = stageFromProjectSector(currentProjectSector);
+  if (sectorStage) return sectorStage;
+  return "warehouse";
+}
+
+function syncQrFlowStageOptions({ preserveSelection = true } = {}) {
+  if (!qrFlowStageSelect) return;
+  const options = qrAllowedStagesForCurrentUser();
+  if (!options.length) return;
+  const previous = preserveSelection ? String(qrFlowStageSelect.value || "").trim() : "";
+  qrFlowStageSelect.innerHTML = options
+    .map((stage) => `<option value="${stage}">${stage === "custom" ? "Custom stage" : workflowStageLabel(stage)}</option>`)
+    .join("");
+  const preferred = options.includes(previous) ? previous : qrDefaultStageForCurrentUser();
+  qrFlowStageSelect.value = options.includes(preferred) ? preferred : options[0];
+  qrFlowStageSelect.disabled = !canUpdateQrWorkflow() || Boolean(qrLockedStageForCurrentUser());
+  updateQrFlowStageCustomVisibility();
+}
+
+function renderQrFlowAccessHint() {
+  if (!qrFlowAccessHint) return;
+  if (!currentUser) {
+    qrFlowAccessHint.textContent = "";
+    return;
+  }
+  if (!canUpdateQrWorkflow()) {
+    qrFlowAccessHint.textContent = "Read-only: your access profile cannot update QR workflow stages.";
+    return;
+  }
+  if (isDeveloper() || isAdmin() || isProjectManager()) {
+    qrFlowAccessHint.textContent = "Admin/Project Manager/Developer mode: you can route this QR to any workflow stage.";
+    return;
+  }
+  const stage = qrLockedStageForCurrentUser() || qrDefaultStageForCurrentUser();
+  if (!stage) {
+    qrFlowAccessHint.textContent = "Your access profile has no QR workflow stage assigned.";
+    return;
+  }
+  qrFlowAccessHint.textContent = `Access profile routing active: scans from ${roleLabel(userAccessProfile(currentUser))} go to ${workflowStageLabel(stage)}.`;
+}
+
+function resolveQrStageForSubmit() {
+  const lockedStage = qrLockedStageForCurrentUser();
+  if (lockedStage) return { stage: lockedStage, stagePick: lockedStage, stageCustom: "" };
+  const stagePick = qrFlowStageSelect?.value || qrDefaultStageForCurrentUser();
+  const stageCustom = qrFlowStageCustomInput?.value?.trim() || "";
+  const stage = stagePick === "custom" ? stageCustom : stagePick;
+  return { stage, stagePick, stageCustom };
+}
+
+function ensureQrItemFlowDefaults(item) {
+  if (!item) return;
+  item.flowEvents = ensureArray(item.flowEvents);
+  if (!item.flowStatus) item.flowStatus = normalizeWorkflowStatus(item.status || "generated");
+  if (!item.flowStage) {
+    if (item.status === "received" || item.status === "issue") item.flowStage = "delivery";
+    else item.flowStage = "warehouse";
+  }
+  if (!item.flowUpdatedAt) item.flowUpdatedAt = item.updatedAt || item.createdAt || new Date().toISOString();
+  if (!item.flowEvents.length && item.createdAt) {
+    item.flowEvents.push({
+      id: uid(),
+      at: item.createdAt,
+      byUserId: "",
+      byName: "System",
+      stage: "warehouse",
+      status: "generated",
+      issueType: "",
+      note: "QR generated from manifest.",
+      unitId: item.unitId || "",
+      unitLabel: item.unitLabel || "",
+      source: "manifest",
+    });
+  }
+}
+
+function appendQrFlowEvent(container, qrItem, { stage, status, issueType = "", note = "", source = "workflow", unit = null, at = "" }) {
+  if (!qrItem) return;
+  ensureQrItemFlowDefaults(qrItem);
+  const now = at || new Date().toISOString();
+  const normalizedStage = normalizeWorkflowStage(stage) || "warehouse";
+  const normalizedStatus = normalizeWorkflowStatus(status);
+  const normalizedIssueType = String(issueType || "").trim();
+  const normalizedNote = String(note || "").trim();
+  const targetUnit = unit || units.find((entry) => entry.id === qrItem.unitId) || null;
+
+  const event = {
+    id: uid(),
+    at: now,
+    byUserId: currentUser?.id || "",
+    byName: currentUser?.name || "System",
+    byAccessProfile: userAccessProfile(currentUser),
+    bySector: stageFromProjectSector(currentProjectSector) || "",
+    stage: normalizedStage,
+    status: normalizedStatus,
+    issueType: normalizedIssueType,
+    note: normalizedNote,
+    unitId: targetUnit?.id || qrItem.unitId || "",
+    unitLabel: targetUnit?.unitCode || qrItem.unitLabel || "",
+    source,
+  };
+
+  qrItem.flowEvents.push(event);
+  qrItem.flowStage = normalizedStage;
+  qrItem.flowStatus = normalizedStatus;
+  qrItem.flowUpdatedAt = now;
+  qrItem.updatedAt = now;
+  if (targetUnit) {
+    qrItem.unitId = targetUnit.id;
+    qrItem.unitLabel = targetUnit.unitCode;
+  }
+
+  if (normalizedStage === "warehouse" && normalizedStatus === "in-progress") qrItem.status = "dispatched";
+  if (normalizedStage === "warehouse" && normalizedStatus === "generated") qrItem.status = "in-warehouse";
+  if (normalizedStage === "delivery" && normalizedStatus === "completed") qrItem.status = "received";
+  if (normalizedStatus === "issue") {
+    qrItem.status = "issue";
+    qrItem.issueType = normalizedIssueType;
+    qrItem.issueNote = normalizedNote;
+  }
+
+  const actionText = `${workflowStageLabel(normalizedStage)}: ${normalizedStatus}${normalizedIssueType ? ` (${normalizedIssueType})` : ""}`;
+  const detailText = `${qrItem.qrCode}${targetUnit ? ` -> ${targetUnit.unitCode}` : ""}${normalizedNote ? ` | ${normalizedNote}` : ""}`;
+  pushContainerAudit(container, `${actionText} | ${detailText}`);
+}
+
+function applyStageToUnitFromQr(unit, stage, status, note = "", at = "") {
+  if (!unit) return;
+  const when = at || new Date().toISOString();
+  const normalizedStage = normalizeWorkflowStage(stage);
+  const normalizedStatus = normalizeWorkflowStatus(status);
+  const done = normalizedStatus === "completed";
+
+  if (normalizedStage === "warehouse") unit.stages.warehouse = { done, at: done ? when : null };
+  if (normalizedStage === "delivery") {
+    unit.stages.transportation = { done, at: done ? when : null };
+    unit.stages.siteDelivery = { done, at: done ? when : null };
+    if (normalizedStatus === "issue") unit.deliveryQuality = "rejected";
+  }
+  if (normalizedStage === "distribution") unit.stages.distribution = { done, at: done ? when : null };
+  if (normalizedStage === "installation") {
+    unit.stages.installation = { done, at: done ? when : null };
+    if (normalizedStatus === "in-progress") unit.installationStatus = "in-progress";
+    if (normalizedStatus === "completed") unit.installationStatus = "completed";
+    if (normalizedStatus === "hold") unit.installationStatus = "blocked";
+  }
+  if (normalizedStage === "punchlist") unit.stages.quality = { done, at: done ? when : null };
+  if (note) {
+    unit.deliveryNotes = unit.deliveryNotes ? `${unit.deliveryNotes}\n${note}` : note;
+  }
+}
+
+function findQrRecord(qrCode, projectId = "") {
+  if (!qrCode) return null;
+  const container = findQrItemContainer(qrCode, projectId);
+  if (!container) return null;
+  const item = ensureArray(container.qrItems).find((entry) => entry.qrCode === qrCode);
+  if (!item) return null;
+  return { container, item };
+}
+
+function populateQrFlowUnitSelect() {
+  if (!qrFlowUnitSelect) return;
+  const currentProjectUnits =
+    currentView === "projects" && selectedProjectId
+      ? units.filter((entry) => entry.projectId === selectedProjectId)
+      : units;
+  const uniqueUnits = currentProjectUnits
+    .slice()
+    .sort((a, b) => `${a.projectName || ""}-${a.unitCode || ""}`.localeCompare(`${b.projectName || ""}-${b.unitCode || ""}`));
+  const previous = qrFlowUnitSelect.value;
+  qrFlowUnitSelect.innerHTML = `<option value="">Unit (optional)</option>${uniqueUnits
+    .map(
+      (entry) =>
+        `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.unitCode || "-")} - ${escapeHtml(entry.projectName || "-")}</option>`
+    )
+    .join("")}`;
+  if (uniqueUnits.some((entry) => entry.id === previous)) qrFlowUnitSelect.value = previous;
+}
+
+function updateQrFlowStageCustomVisibility() {
+  if (!qrFlowStageCustomWrap || !qrFlowStageCustomInput) return;
+  const customMode = qrFlowStageSelect?.value === "custom";
+  qrFlowStageCustomWrap.classList.toggle("hidden", !customMode);
+  qrFlowStageCustomInput.required = Boolean(customMode);
+  if (!customMode) qrFlowStageCustomInput.value = "";
+}
+
+function updateQrFlowIssueVisibility() {
+  if (!qrFlowIssueTypeSelect) return;
+  const issueMode = qrFlowStatusSelect?.value === "issue";
+  qrFlowIssueTypeSelect.disabled = !issueMode;
+  qrFlowIssueTypeSelect.required = issueMode;
+  if (!issueMode) qrFlowIssueTypeSelect.value = "";
+}
+
+function setQrFlowResult(message = "", isError = false) {
+  if (!qrFlowResult) return;
+  qrFlowResult.textContent = message;
+  qrFlowResult.style.color = isError ? "#b83232" : "var(--ink-soft)";
+}
+
+async function submitQrFlowUpdate({ fromScan = false } = {}) {
+  if (!canUpdateQrWorkflow()) return false;
+
+  const qrCode = qrFlowCodeInput?.value?.trim() || "";
+  const { stage, stagePick, stageCustom } = resolveQrStageForSubmit();
+  const status = normalizeWorkflowStatus(qrFlowStatusSelect?.value || "in-progress");
+  const issueType = status === "issue" ? String(qrFlowIssueTypeSelect?.value || "").trim() : "";
+  const note = qrFlowNoteInput?.value?.trim() || "";
+  const unitId = qrFlowUnitSelect?.value || "";
+  const normalizedStage = normalizeWorkflowStage(stage);
+  const lockedStage = qrLockedStageForCurrentUser();
+  const allowedStages = qrAllowedStagesForCurrentUser()
+    .map((entry) => normalizeWorkflowStage(entry))
+    .filter(Boolean);
+
+  if (!qrCode) {
+    setQrFlowResult("Enter or scan a QR code before updating.", true);
+    return false;
+  }
+  if (!stage) {
+    setQrFlowResult("Select a valid stage.", true);
+    return false;
+  }
+  if (status === "issue" && !issueType) {
+    setQrFlowResult("Select an issue type when status is Issue.", true);
+    return false;
+  }
+  if (!isDeveloper() && !isAdmin() && !isProjectManager()) {
+    if (lockedStage && normalizedStage !== normalizeWorkflowStage(lockedStage)) {
+      setQrFlowResult(`Your access profile can only update ${workflowStageLabel(lockedStage)} stage.`, true);
+      return false;
+    }
+    if (allowedStages.length && normalizedStage && !allowedStages.includes(normalizedStage)) {
+      setQrFlowResult(`This stage is not available for your access profile (${roleLabel(userAccessProfile(currentUser))}).`, true);
+      return false;
+    }
+    if (stagePick === "custom" || stageCustom) {
+      setQrFlowResult("Custom stage is only available to Admin/Developer.", true);
+      return false;
+    }
+  }
+
+  const scopedProjectId = currentView === "projects" ? selectedProjectId : "";
+  const snapshot = findQrRecord(qrCode, scopedProjectId);
+  if (!snapshot) {
+    setQrFlowResult(`QR not found: ${qrCode}`, true);
+    return false;
+  }
+
+  const { container, item } = snapshot;
+  const now = new Date().toISOString();
+  const targetUnit = unitId
+    ? units.find((entry) => entry.id === unitId) || null
+    : units.find((entry) => entry.id === item.unitId) || null;
+
+  if (targetUnit) {
+    item.clientId = targetUnit.clientId || container.clientId;
+    item.projectId = targetUnit.projectId || container.projectId;
+    item.unitId = targetUnit.id;
+    item.unitLabel = targetUnit.unitCode;
+    if (!item.assignedAt) item.assignedAt = now;
+    if (!item.assignedBy) item.assignedBy = currentUser?.name || "";
+  }
+
+  if (normalizeWorkflowStage(stage) === "delivery" && status === "completed") item.deliveredAt = now;
+  if (status === "issue") {
+    item.issueType = issueType;
+    item.issueNote = note;
+  } else if (status === "completed") {
+    item.issueType = "";
+    item.issueNote = "";
+  }
+
+  appendQrFlowEvent(container, item, {
+    stage,
+    status,
+    issueType,
+    note,
+    source: "workflow",
+    unit: targetUnit,
+    at: now,
+  });
+  if (targetUnit) {
+    applyStageToUnitFromQr(targetUnit, stage, status, note, now);
+    targetUnit.updatedAt = now;
+  }
+  if (status === "issue") {
+    pushQrIssueQueue(container, item, targetUnit, issueType, note, { source: "workflow", at: now });
+  }
+
+  if (targetUnit) {
+    await saveUnitAndContainer(targetUnit, container, `QR workflow updated: ${item.qrCode} -> ${workflowStageLabel(stage)} (${workflowStatusLabel(status)})`);
+  } else {
+    await saveContainer(container);
+  }
+
+  lastQrLookupCode = qrCode;
+  if (qrLookupInput) qrLookupInput.value = qrCode;
+  const actionPrefix = fromScan ? "Scanned and updated" : "Workflow updated";
+  setQrFlowResult(`${actionPrefix} for ${qrCode}: ${workflowStageLabel(stage)} / ${workflowStatusLabel(status)}.`);
+  renderQrLookupPanel();
+  return true;
+}
+
+function pushQrIssueQueue(container, qrItem, unit, issueType, note, { source = "workflow", at = "" } = {}) {
+  if (!container || !qrItem || !issueType) return;
+  const now = at || new Date().toISOString();
+  const queueEntry = {
+    id: uid(),
+    createdAt: now,
+    qrCode: qrItem.qrCode,
+    code: qrItem.code,
+    description: qrItem.description || qrItem.code || qrItem.qrCode,
+    unitId: unit?.id || qrItem.unitId || "",
+    unitLabel: unit?.unitCode || qrItem.unitLabel || "",
+    issueType,
+    note: String(note || "").trim(),
+    kitchenType: qrItem.kitchenType || "",
+    clientId: container.clientId || qrItem.clientId || "",
+    projectId: container.projectId || qrItem.projectId || "",
+    byUserId: currentUser?.id || "",
+    byName: currentUser?.name || "System",
+    source,
+  };
+
+  if (qrIssueRoutesToFactory(issueType)) {
+    container.factoryMissingQueue.push(queueEntry);
+  } else {
+    container.replacementQueue.push(queueEntry);
+  }
+}
+
+function resetQrFlowForm() {
+  qrFlowForm?.reset();
+  syncQrFlowStageOptions({ preserveSelection: false });
+  if (qrFlowStatusSelect) qrFlowStatusSelect.value = "in-progress";
+  updateQrFlowStageCustomVisibility();
+  updateQrFlowIssueVisibility();
+  renderQrFlowAccessHint();
+  setQrFlowResult("");
+}
+
+function stopCameraScanStream() {
+  if (cameraScanFrameId) cancelAnimationFrame(cameraScanFrameId);
+  cameraScanFrameId = 0;
+  if (cameraScanStream) {
+    cameraScanStream.getTracks().forEach((track) => track.stop());
+    cameraScanStream = null;
+  }
+  if (cameraScanVideo) {
+    cameraScanVideo.pause();
+    cameraScanVideo.srcObject = null;
+  }
+}
+
+function closeCameraScanModal(result = null) {
+  stopCameraScanStream();
+  if (cameraScanModal) cameraScanModal.classList.add("hidden");
+  if (cameraScanResolver) {
+    const resolver = cameraScanResolver;
+    cameraScanResolver = null;
+    resolver(result);
+  }
+}
+
+function setCameraScanStatus(message) {
+  if (cameraScanStatus) cameraScanStatus.textContent = message;
+}
+
+function cameraAccessErrorMessage(error) {
+  const errorName = String(error?.name || "");
+  if (errorName === "NotAllowedError" || errorName === "SecurityError") {
+    if (!window.isSecureContext) return "Camera requires HTTPS. Open this app from a secure URL.";
+    return "Camera permission denied. Allow camera access in browser settings and retry.";
+  }
+  if (errorName === "NotFoundError" || errorName === "OverconstrainedError") {
+    return "No compatible camera found on this device.";
+  }
+  if (errorName === "NotReadableError" || errorName === "AbortError") {
+    return "Camera is busy. Close other camera apps and retry.";
+  }
+  return "Unable to access camera. Use photo scan or manual entry.";
+}
+
+function loadJsQrLibrary() {
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+  if (jsQrLoaderPromise) return jsQrLoaderPromise;
+  jsQrLoaderPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
+    script.async = true;
+    script.onload = () => {
+      if (window.jsQR) resolve(window.jsQR);
+      else reject(new Error("jsQR loaded but unavailable"));
+    };
+    script.onerror = () => reject(new Error("Unable to load jsQR library"));
+    document.head.appendChild(script);
+  });
+  return jsQrLoaderPromise;
+}
+
+function scanFeedbackAudioContext() {
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return null;
+  if (!scanFeedbackAudioCtx) scanFeedbackAudioCtx = new AudioCtor();
+  return scanFeedbackAudioCtx;
+}
+
+async function primeScanFeedbackAudio() {
+  const context = scanFeedbackAudioContext();
+  if (!context) return;
+  if (context.state === "suspended") {
+    try {
+      await context.resume();
+    } catch {
+      // Ignore; browser may block resume until another user gesture.
+    }
+  }
+}
+
+function playScanFeedbackSound() {
+  const context = scanFeedbackAudioContext();
+  if (context) {
+    const playTone = () => {
+      const now = context.currentTime;
+      const gain = context.createGain();
+      const osc = context.createOscillator();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(1580, now);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.24, now + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start(now);
+      osc.stop(now + 0.065);
+    };
+    if (context.state === "suspended") {
+      context.resume().then(playTone).catch(() => {});
+    } else {
+      playTone();
+    }
+  }
+  if (navigator.vibrate) navigator.vibrate(20);
+}
+
+function startBarcodeDetectorLoop(DetectorCtor) {
+  const detector = new DetectorCtor({ formats: ["qr_code"] });
+  const scan = async () => {
+    if (!cameraScanVideo?.srcObject || !cameraScanResolver) return;
+    try {
+      const barcodes = await detector.detect(cameraScanVideo);
+      const hit = ensureArray(barcodes).find((entry) => entry.rawValue);
+      if (hit?.rawValue) {
+        playScanFeedbackSound();
+        closeCameraScanModal(String(hit.rawValue).trim());
+        return;
+      }
+      setCameraScanStatus("Point the camera at a QR code.");
+    } catch {
+      setCameraScanStatus("Scanning...");
+    }
+    cameraScanFrameId = requestAnimationFrame(scan);
+  };
+  cameraScanFrameId = requestAnimationFrame(scan);
+}
+
+function startJsQrDetectionLoop(jsQR) {
+  if (!cameraScanVideo) return;
+  if (!cameraScanCanvas) cameraScanCanvas = document.createElement("canvas");
+  const context = cameraScanCanvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    setCameraScanStatus("QR decoder unavailable. Use manual entry.");
+    return;
+  }
+
+  let lastScanAt = 0;
+  const scan = (timestamp = 0) => {
+    if (!cameraScanVideo.srcObject || !cameraScanResolver) return;
+    const width = cameraScanVideo.videoWidth || 0;
+    const height = cameraScanVideo.videoHeight || 0;
+    if (!width || !height) {
+      cameraScanFrameId = requestAnimationFrame(scan);
+      return;
+    }
+    if (timestamp - lastScanAt < 120) {
+      cameraScanFrameId = requestAnimationFrame(scan);
+      return;
+    }
+    lastScanAt = timestamp;
+    if (cameraScanCanvas.width !== width || cameraScanCanvas.height !== height) {
+      cameraScanCanvas.width = width;
+      cameraScanCanvas.height = height;
+    }
+
+    try {
+      context.drawImage(cameraScanVideo, 0, 0, width, height);
+      const frame = context.getImageData(0, 0, width, height);
+      const hit = jsQR(frame.data, width, height, { inversionAttempts: "attemptBoth" });
+      if (hit?.data) {
+        playScanFeedbackSound();
+        closeCameraScanModal(String(hit.data).trim());
+        return;
+      }
+      setCameraScanStatus("Point the camera at a QR code.");
+    } catch {
+      setCameraScanStatus("Scanning...");
+    }
+    cameraScanFrameId = requestAnimationFrame(scan);
+  };
+
+  cameraScanFrameId = requestAnimationFrame(scan);
+}
+
+async function startBarcodeDetectionLoop() {
+  if (!cameraScanVideo) return;
+  const Detector = window.BarcodeDetector;
+  if (Detector) {
+    startBarcodeDetectorLoop(Detector);
+    return;
+  }
+  setCameraScanStatus("Loading QR decoder for this browser...");
+  try {
+    const jsQR = await loadJsQrLibrary();
+    if (!cameraScanResolver || !cameraScanVideo?.srcObject) return;
+    startJsQrDetectionLoop(jsQR);
+  } catch {
+    setCameraScanStatus("Camera QR scan is not available here. Use photo scan or manual entry.");
+  }
+}
+
+async function requestCameraStream() {
+  const attempts = [
+    { video: { facingMode: { exact: "environment" } }, audio: false },
+    { video: { facingMode: { ideal: "environment" } }, audio: false },
+    { video: true, audio: false },
+  ];
+  let lastError = null;
+  for (const constraints of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      lastError = error;
+      if (error?.name === "NotAllowedError" || error?.name === "SecurityError") break;
+    }
+  }
+  throw lastError || new Error("Unable to access camera stream");
+}
+
+function imageDataFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const blobUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        URL.revokeObjectURL(blobUrl);
+        reject(new Error("Canvas context unavailable"));
+        return;
+      }
+      context.drawImage(img, 0, 0, width, height);
+      const frame = context.getImageData(0, 0, width, height);
+      URL.revokeObjectURL(blobUrl);
+      resolve(frame);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error("Unable to read selected image"));
+    };
+    img.src = blobUrl;
+  });
+}
+
+async function decodeQrFromImageFile(file) {
+  if (!file) return "";
+  const jsQR = await loadJsQrLibrary();
+  const frame = await imageDataFromFile(file);
+  const hit = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: "attemptBoth" });
+  return hit?.data ? String(hit.data).trim() : "";
+}
+
+async function openCameraScanner({ title = "Scan QR code" } = {}) {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    const manual = window.prompt("Camera not available on this device. Paste/enter QR code manually:");
+    return manual ? String(manual).trim() : "";
+  }
+
+  if (!cameraScanModal || !cameraScanVideo) {
+    const manual = window.prompt("Scanner UI not available. Paste/enter QR code manually:");
+    return manual ? String(manual).trim() : "";
+  }
+
+  return new Promise(async (resolve) => {
+    cameraScanResolver = resolve;
+    cameraScanTitle.textContent = title;
+    setCameraScanStatus("Starting camera...");
+    cameraScanModal.classList.remove("hidden");
+
+    try {
+      cameraScanStream = await requestCameraStream();
+      cameraScanVideo.srcObject = cameraScanStream;
+      await cameraScanVideo.play();
+      await startBarcodeDetectionLoop();
+    } catch (error) {
+      setCameraScanStatus(cameraAccessErrorMessage(error));
+    }
+  });
+}
+
+async function scanQrIntoInput(targetInput, title) {
+  await primeScanFeedbackAudio();
+  const scanned = await openCameraScanner({ title });
+  if (!scanned) return "";
+  targetInput.value = scanned;
+  targetInput.dispatchEvent(new Event("input", { bubbles: true }));
+  return scanned;
 }
 
 function openQrLabelWindow(container, item, { autoPrint = false } = {}) {
@@ -1591,10 +4573,9 @@ async function downloadQrLabelPng(item) {
 }
 
 function buildQrHistory(qrCode) {
-  const container = findQrItemContainer(qrCode);
-  if (!container) return null;
-  const item = container.qrItems.find((entry) => entry.qrCode === qrCode);
-  if (!item) return null;
+  const record = findQrRecord(qrCode);
+  if (!record) return null;
+  const { container, item } = record;
 
   const client = clientById(container.clientId);
   const project = projectById(container.projectId);
@@ -1603,48 +4584,72 @@ function buildQrHistory(qrCode) {
   const unit = linkedUnit || receiptUnits[0] || null;
   const events = [];
 
-  events.push({
-    at: item.createdAt,
-    source: "Manifesto",
-    action: "QR gerado",
-    detail: `${item.code || "-"} | ${item.description || "-"}`,
+  const flowEvents = ensureArray(item.flowEvents);
+  flowEvents.forEach((entry) => {
+    const issueLabel = issueTypeLabel(entry.issueType);
+    const detailParts = [];
+    if (entry.unitLabel) detailParts.push(`Unit ${entry.unitLabel}`);
+    if (issueLabel) detailParts.push(`Issue: ${issueLabel}`);
+    if (entry.note) detailParts.push(entry.note);
+    if (entry.byName) {
+      const actorAccessProfile = entry.byAccessProfile ? roleLabel(entry.byAccessProfile) : "";
+      detailParts.push(`By ${entry.byName}${actorAccessProfile ? ` (${actorAccessProfile})` : ""}`);
+    }
+    events.push({
+      at: entry.at,
+      source: qrFlowSourceLabel(entry.source || entry.stage || "workflow"),
+      action: `${workflowStageLabel(entry.stage)} • ${workflowStatusLabel(entry.status)}`,
+      detail: detailParts.join(" | ") || `${item.code || "-"} | ${item.description || "-"}`,
+    });
   });
-  if (item.assignedAt) {
+
+  if (!flowEvents.length) {
     events.push({
-      at: item.assignedAt,
-      source: "Dispatch",
-      action: "Item direcionado",
-      detail: `${item.unitLabel || "-"}${item.kitchenType ? ` | ${item.kitchenType}` : ""}`,
+      at: item.createdAt,
+      source: "Manufacturer Manifest",
+      action: "Warehouse • Generated",
+      detail: `${item.code || "-"} | ${item.description || "-"}`,
     });
-  }
-  if (item.deliveredAt) {
-    events.push({
-      at: item.deliveredAt,
-      source: "Site Job",
-      action: item.issueType ? "Recebido com problema" : "Recebido",
-      detail: item.issueType ? `${item.issueType}${item.issueNote ? ` | ${item.issueNote}` : ""}` : "OK",
-    });
+    if (item.assignedAt) {
+      events.push({
+        at: item.assignedAt,
+        source: "Warehouse Dispatch",
+        action: "Delivery • In progress",
+        detail: `${item.unitLabel || "-"}${item.kitchenType ? ` | ${item.kitchenType}` : ""}`,
+      });
+    }
+    if (item.deliveredAt) {
+      const legacyIssueLabel = issueTypeLabel(item.issueType);
+      events.push({
+        at: item.deliveredAt,
+        source: "Site Receive",
+        action: item.issueType ? "Delivery • Issue" : "Delivery • Completed",
+        detail: legacyIssueLabel ? `${legacyIssueLabel}${item.issueNote ? ` | ${item.issueNote}` : ""}` : "OK",
+      });
+    }
   }
 
   ensureArray(container.replacementQueue)
     .filter((entry) => entry.qrCode === qrCode)
     .forEach((entry) => {
+      const issueLabel = issueTypeLabel(entry.issueType) || entry.issueType;
       events.push({
         at: entry.createdAt,
         source: "Warehouse",
-        action: "Fila de substituicao",
-        detail: `${entry.issueType}${entry.note ? ` | ${entry.note}` : ""}`,
+        action: "Replacement queue",
+        detail: `${issueLabel}${entry.note ? ` | ${entry.note}` : ""}`,
       });
     });
 
   ensureArray(container.factoryMissingQueue)
     .filter((entry) => entry.qrCode === qrCode)
     .forEach((entry) => {
+      const issueLabel = issueTypeLabel(entry.issueType) || entry.issueType;
       events.push({
         at: entry.createdAt,
         source: "Factory Claim",
-        action: "Fila de faltantes da fabrica",
-        detail: `${entry.issueType}${entry.note ? ` | ${entry.note}` : ""}`,
+        action: "Factory missing queue",
+        detail: `${issueLabel}${entry.note ? ` | ${entry.note}` : ""}`,
       });
     });
 
@@ -1652,11 +4657,12 @@ function buildQrHistory(qrCode) {
     receiptUnit.siteReceipts
       .filter((entry) => entry.qrCode === qrCode)
       .forEach((entry) => {
+        const issueLabel = issueTypeLabel(entry.issue) || entry.issue;
         events.push({
           at: entry.createdAt,
-          source: "Site Job",
-          action: "Lancamento de recebimento",
-          detail: `${entry.item} (${entry.qty}) - ${entry.issue}${entry.note ? ` | ${entry.note}` : ""}`,
+          source: "Site Receive",
+          action: "Receipt record",
+          detail: `${entry.item} (${entry.qty}) - ${issueLabel}${entry.note ? ` | ${entry.note}` : ""}`,
         });
       });
   });
@@ -1684,7 +4690,7 @@ function buildQrHistory(qrCode) {
         events.push({
           at: entry.at,
           source: entry.byName || "Unit Audit",
-          action: "Unit audit",
+          action: "Unit audit log",
           detail: entry.message || "",
         });
       });
@@ -1703,7 +4709,8 @@ function renderQrTrackTable(wrapper, container) {
       <td>${escapeHtml(item.qrCode)}</td>
       <td>${escapeHtml(item.code)}</td>
       <td>${escapeHtml(item.description)}</td>
-      <td>${escapeHtml(item.status)}</td>
+      <td>${escapeHtml(workflowStageLabel(item.flowStage || "warehouse"))}</td>
+      <td>${escapeHtml(workflowStatusLabel(item.flowStatus || item.status))}</td>
       <td>${escapeHtml(item.unitLabel || "-")}</td>
       <td>${escapeHtml(item.kitchenType || "-")}</td>
       <td>${escapeHtml(fmtDate(item.updatedAt || item.createdAt))}</td>
@@ -1711,12 +4718,13 @@ function renderQrTrackTable(wrapper, container) {
     </tr>`
     )
     .join("");
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>QR</th><th>SKU</th><th>Item</th><th>Status</th><th>Unit</th><th>Kitchen Type</th><th>Updated</th><th>Label</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="8">No QR items generated.</td></tr>'
+  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>QR</th><th>SKU</th><th>Item</th><th>Stage</th><th>Status</th><th>Unit</th><th>Kitchen Type</th><th>Updated</th><th>Label</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="9">No QR items generated.</td></tr>'
   }</tbody></table>`;
 }
 
 function renderQueueTable(wrapper, list) {
+  if (!wrapper) return;
   const rows = ensureArray(list)
     .slice()
     .reverse()
@@ -1727,7 +4735,7 @@ function renderQueueTable(wrapper, list) {
       <td>${escapeHtml(entry.code)}</td>
       <td>${escapeHtml(entry.description)}</td>
       <td>${escapeHtml(entry.unitLabel || "-")}</td>
-      <td>${escapeHtml(entry.issueType)}</td>
+      <td>${escapeHtml(issueTypeLabel(entry.issueType) || entry.issueType || "-")}</td>
       <td>${escapeHtml(entry.note || "-")}</td>
     </tr>`
     )
@@ -1735,6 +4743,58 @@ function renderQueueTable(wrapper, list) {
   wrapper.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>QR</th><th>SKU</th><th>Description</th><th>Unit</th><th>Issue</th><th>Detail</th></tr></thead><tbody>${
     rows || '<tr><td colspan="7">No records.</td></tr>'
   }</tbody></table>`;
+}
+
+function materialQueueSummaryRows(listKey) {
+  const rows = [];
+  containers.forEach((container) => {
+    const fallbackClient = clientById(container.clientId)?.name || "-";
+    const fallbackProject = projectById(container.projectId)?.name || "-";
+    ensureArray(container[listKey]).forEach((entry) => {
+      rows.push({
+        createdAt: entry.createdAt || "",
+        containerCode: container.containerCode || "-",
+        clientName: clientById(entry.clientId || container.clientId)?.name || fallbackClient,
+        projectName: projectById(entry.projectId || container.projectId)?.name || fallbackProject,
+        qrCode: entry.qrCode || "-",
+        code: entry.code || "-",
+        description: entry.description || "-",
+        unitLabel: entry.unitLabel || "-",
+        issueType: issueTypeLabel(entry.issueType) || entry.issueType || "-",
+        note: entry.note || "-",
+      });
+    });
+  });
+  rows.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  return rows;
+}
+
+function renderMaterialQueueSummaryTable(wrapper, rows) {
+  if (!wrapper) return;
+  const body = rows
+    .map(
+      (entry) => `<tr>
+      <td>${escapeHtml(fmtDate(entry.createdAt))}</td>
+      <td>${escapeHtml(entry.containerCode)}</td>
+      <td>${escapeHtml(entry.clientName)}</td>
+      <td>${escapeHtml(entry.projectName)}</td>
+      <td>${escapeHtml(entry.qrCode)}</td>
+      <td>${escapeHtml(entry.code)}</td>
+      <td>${escapeHtml(entry.description)}</td>
+      <td>${escapeHtml(entry.unitLabel)}</td>
+      <td>${escapeHtml(entry.issueType)}</td>
+      <td>${escapeHtml(entry.note)}</td>
+    </tr>`
+    )
+    .join("");
+  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>Container</th><th>Client</th><th>Project</th><th>QR</th><th>SKU</th><th>Description</th><th>Unit</th><th>Issue</th><th>Detail</th></tr></thead><tbody>${
+    body || '<tr><td colspan="10">No records.</td></tr>'
+  }</tbody></table>`;
+}
+
+function renderManufactureCatalogSummaries() {
+  renderMaterialQueueSummaryTable(materialsReplacementSummaryTable, materialQueueSummaryRows("replacementQueue"));
+  renderMaterialQueueSummaryTable(materialsFactoryMissingSummaryTable, materialQueueSummaryRows("factoryMissingQueue"));
 }
 
 function findQrItemContainer(qrCode, projectId = "") {
@@ -1745,15 +4805,20 @@ function findQrItemContainer(qrCode, projectId = "") {
 }
 
 function qrIssueRoutesToFactory(issueType) {
-  return issueType === "nao-chegou" || issueType === "faltando-pecas";
+  const normalized = String(issueType || "").trim().toLowerCase();
+  return ["nao-chegou", "faltando-pecas", "not-received", "missing-parts"].includes(normalized);
 }
 
 function isAdmin() {
-  return currentUser?.role === "admin";
+  return userAccessProfile(currentUser) === "admin";
+}
+
+function isProjectManager() {
+  return userAccessProfile(currentUser) === "project-manager";
 }
 
 function isDeveloper() {
-  return currentUser?.role === "developer";
+  return userAccessProfile(currentUser) === "developer";
 }
 
 function normalizeCompanyName(value) {
@@ -1763,7 +4828,7 @@ function normalizeCompanyName(value) {
 }
 
 function isTagAdminUser(user = currentUser) {
-  if (!user || user.role !== "admin") return false;
+  if (!user || userAccessProfile(user) !== "admin") return false;
   const employmentType = String(user.employmentType || "").toLowerCase();
   const company = normalizeCompanyName(user.companyName);
   const isTagCompany = company.includes("tag");
@@ -1779,6 +4844,7 @@ function canViewAllEmployees() {
 function canAccessEmployeeRecord(targetUser) {
   if (!currentUser || !targetUser) return false;
   if (isDeveloper()) return true;
+  if (userAccessProfile(targetUser) === "developer" || isPrimaryDeveloperUser(targetUser)) return false;
   if (!isAdmin()) return targetUser.id === currentUser.id;
   if (isTagAdminUser(currentUser)) return true;
 
@@ -1789,7 +4855,30 @@ function canAccessEmployeeRecord(targetUser) {
 
 function can(action, stageKey = "") {
   if (!currentUser) return false;
+  const accessProfile = userAccessProfile(currentUser);
   if (isDeveloper()) return true;
+  if (isProjectManager()) {
+    if (action === "sync") return false;
+    if (action === "manageUsers") return false;
+    if (action === "report") return true;
+    if (action === "toggleStage") return true;
+    return [
+      "manageCatalog",
+      "manageContainers",
+      "manageContainerManifest",
+      "manageContainerRelease",
+      "manageContainerIssues",
+      "dispatchTasks",
+      "siteReceive",
+      "createUnit",
+      "quality",
+      "install",
+      "notes",
+      "issues",
+      "photos",
+      "checklist",
+    ].includes(action);
+  }
   if (isAdmin()) {
     if (action === "sync") return false;
     if (action === "report") return true;
@@ -1814,40 +4903,56 @@ function can(action, stageKey = "") {
       "checklist",
     ].includes(action);
   }
-  if (currentUser.role === "visitor") return action === "report";
+  if (accessProfile === "visitor") return action === "report";
 
   if (action === "manageUsers") return false;
   if (action === "sync") return false;
   if (action === "manageCatalog") return false;
-  if (action === "manageContainers") return ["warehouse", "transport"].includes(currentUser.role);
-  if (action === "manageContainerManifest") return ["warehouse", "transport"].includes(currentUser.role);
-  if (action === "manageContainerRelease") return currentUser.role === "warehouse";
-  if (action === "manageContainerIssues") return ["warehouse", "transport", "qa"].includes(currentUser.role);
-  if (action === "dispatchTasks") return currentUser.role === "warehouse";
-  if (action === "siteReceive") return ["transport", "qa", "installer"].includes(currentUser.role);
+  if (action === "manageContainers") return ["warehouse", "transport"].includes(accessProfile);
+  if (action === "manageContainerManifest") return ["warehouse", "transport"].includes(accessProfile);
+  if (action === "manageContainerRelease") return accessProfile === "warehouse";
+  if (action === "manageContainerIssues") return ["warehouse", "transport", "distribution", "foreman"].includes(accessProfile);
+  if (action === "dispatchTasks") return accessProfile === "warehouse";
+  if (action === "siteReceive") return ["transport", "distribution", "foreman", "installer"].includes(accessProfile);
   if (action === "deleteContainer") return false;
   if (action === "deleteUnit") return false;
-  if (action === "createUnit") return currentUser.role === "warehouse";
-  if (action === "toggleStage") return STAGE_ROLE_ACCESS[currentUser.role]?.includes(stageKey) || false;
-  if (action === "quality") return currentUser.role === "qa";
-  if (action === "install") return currentUser.role === "installer";
-  if (action === "notes") return currentUser.role === "qa" || currentUser.role === "installer";
-  if (action === "issues") return currentUser.role === "qa" || currentUser.role === "installer";
-  if (action === "photos") return currentUser.role === "qa" || currentUser.role === "installer";
-  if (action === "checklist") return ["warehouse", "transport", "qa"].includes(currentUser.role);
+  if (action === "createUnit") return accessProfile === "warehouse";
+  if (action === "toggleStage") {
+    if (stageKey === "quality") return false;
+    return STAGE_ROLE_ACCESS[accessProfile]?.includes(stageKey) || false;
+  }
+  // Quality control and punch list decisions are restricted to Admin / Project Manager / Developer.
+  if (action === "quality") return false;
+  if (action === "install") return ["foreman", "installer"].includes(accessProfile);
+  if (action === "notes") {
+    if (currentProjectSector === "punchlist") return false;
+    return ["distribution", "foreman", "installer"].includes(accessProfile);
+  }
+  if (action === "issues") {
+    if (currentProjectSector === "punchlist") return false;
+    return ["distribution", "foreman", "installer"].includes(accessProfile);
+  }
+  if (action === "photos") {
+    if (currentProjectSector === "punchlist") return false;
+    return ["distribution", "foreman", "installer"].includes(accessProfile);
+  }
+  if (action === "checklist") return ["warehouse", "transport", "distribution", "foreman"].includes(accessProfile);
   if (action === "report") return true;
 
   return false;
 }
 
-function rolePermissionsSummary(role) {
-  if (role === "developer") return t("Acesso desenvolvedor: controle total, inclusive configuracoes de sistema.");
-  if (role === "admin") return t("Acesso admin: gestao de dados, sem alterar estrutura do sistema.");
-  if (role === "warehouse") return t("Cria unidades, controla containers, manifesto e envio/retencao do warehouse.");
-  if (role === "transport") return t("Atualiza transportation/site job e acompanha schedule de containers.");
-  if (role === "qa") return t("Valida qualidade, pendencias e pode anexar fotos.");
-  if (role === "installer") return t("Controla distribuicao, instalacao, pendencias e fotos.");
-  if (role === "visitor") return t("Acesso visitante: apenas consulta e relatorios. Aprovacao de funcoes por admin/developer.");
+function rolePermissionsSummary(accessProfile) {
+  if (accessProfile === "developer") return "Developer access: full control, including system structure and settings.";
+  if (accessProfile === "admin") return "Admin access: can modify all project phases and quality control approvals/rejections.";
+  if (accessProfile === "project-manager") return "Project Manager access: can modify all project phases and quality control approvals/rejections.";
+  if (accessProfile === "warehouse") return "Warehouse access: unit creation, manifest, release/hold, and warehouse dispatch tasks.";
+  if (accessProfile === "transport") return "Transport access: delivery and site receive updates.";
+  if (accessProfile === "distribution") return "Distribution access: distribution-stage updates and field coordination.";
+  if (accessProfile === "foreman") return "Foreman access: distribution/installation updates and execution supervision.";
+  if (accessProfile === "qa") return "QA access: read/track quality records. Final QC decisions are by Admin or Project Manager.";
+  if (accessProfile === "installer") return "Installer access: installation execution updates.";
+  if (accessProfile === "visitor") return "Visitor access: read-only and reports. Access profiles are assigned by Admin/Developer.";
   return "";
 }
 
@@ -1869,6 +4974,32 @@ async function hashPassword(password) {
   return Array.from(new Uint8Array(buffer))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function isSha256Hash(value) {
+  return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
+}
+
+function userLegacyPassword(user) {
+  const legacy = String(user?.legacyPassword || "").trim();
+  if (legacy) return legacy;
+  const oldPassword = String(user?.password || "").trim();
+  if (oldPassword) return oldPassword;
+  return "";
+}
+
+function userPasswordMatches(user, plainPassword, sha256Hash) {
+  const stored = String(user?.passwordHash || "").trim();
+  const inputHash = String(sha256Hash || "").trim().toLowerCase();
+
+  if (stored) {
+    if (isSha256Hash(stored)) return stored.toLowerCase() === inputHash;
+    return stored === plainPassword || stored.toLowerCase() === inputHash;
+  }
+
+  const legacy = userLegacyPassword(user);
+  if (!legacy) return false;
+  return legacy === plainPassword || legacy.toLowerCase() === inputHash;
 }
 
 function loadAppAuditLog() {
@@ -1982,38 +5113,33 @@ function showSignupMode(show) {
 }
 
 function renderAuth() {
-  const noUsers = users.length === 0;
-
   if (currentUser) {
+    startAutoPullLoop();
     authView.classList.add("hidden");
     appMain.classList.remove("hidden");
     userBadge.classList.remove("hidden");
     editProfileBtn?.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
-    userBadge.textContent = `${currentUser.name} (${roleLabel(currentUser.role)})`;
+    userBadge.textContent = `${currentUser.name} (${roleLabel(userAccessProfile(currentUser))})`;
     currentView = viewFromHash();
     render();
     void maybeAutoDispatchCoiReminder();
     return;
   }
 
+  stopAutoPullLoop();
   appMain.classList.add("hidden");
   authView.classList.remove("hidden");
   userBadge.classList.add("hidden");
   editProfileBtn?.classList.add("hidden");
   logoutBtn.classList.add("hidden");
-
-  setupPanel.classList.toggle("hidden", !noUsers);
-  if (noUsers) {
-    loginPanel.classList.add("hidden");
-    signupPanel?.classList.add("hidden");
-  } else {
-    showSignupMode(false);
-  }
+  setupPanel?.classList.add("hidden");
+  showSignupMode(false);
   applyLanguageToUi();
 }
 
 function setFormEnabled(form, enabled) {
+  if (!form) return;
   form.querySelectorAll("input, select, textarea, button").forEach((field) => {
     field.disabled = !enabled;
   });
@@ -2022,8 +5148,18 @@ function setFormEnabled(form, enabled) {
 function viewFromHash() {
   const raw = window.location.hash.replace(/^#/, "").trim();
   if (!raw) return "home";
-  const allowed = new Set(["home", "sync", "users", "clients", "projects", "userEdit"]);
+  const allowed = new Set(["home", "sync", "users", "clients", "projects", "manufacture", "userEdit", "ocrImporter"]);
   return allowed.has(raw) ? raw : "home";
+}
+
+function canOpenManufactureWorkspace() {
+  return (
+    can("manageContainers") ||
+    can("manageCatalog") ||
+    can("manageContainerManifest") ||
+    can("manageContainerRelease") ||
+    can("manageContainerIssues")
+  );
 }
 
 function canOpenView(view) {
@@ -2034,21 +5170,25 @@ function canOpenView(view) {
   if (view === "userEdit") return true;
   if (view === "clients") return can("manageCatalog");
   if (view === "projects") return true;
+  if (view === "manufacture") return canOpenManufactureWorkspace();
+  if (view === "ocrImporter") return can("manageCatalog") || can("manageContainerManifest") || isAdmin() || isDeveloper();
   return false;
 }
 
-function allowedProjectSectorsForRole(role) {
-  if (role === "developer" || role === "admin") return PROJECT_SECTORS;
-  if (role === "visitor") return ["delivery", "distribuicao"];
-  if (role === "warehouse") return ["warehouse"];
-  if (role === "transport") return ["delivery"];
-  if (role === "installer") return ["distribuicao", "instalacao"];
-  if (role === "qa") return ["punchlist"];
+function allowedProjectSectorsForAccessProfile(accessProfile) {
+  if (accessProfile === "developer" || accessProfile === "admin" || accessProfile === "project-manager") return PROJECT_SECTORS;
+  if (accessProfile === "visitor") return ["delivery", "distribuicao"];
+  if (accessProfile === "warehouse") return ["warehouse"];
+  if (accessProfile === "transport") return ["delivery"];
+  if (accessProfile === "distribution") return ["distribuicao"];
+  if (accessProfile === "foreman") return ["distribuicao", "instalacao"];
+  if (accessProfile === "installer") return ["distribuicao", "instalacao"];
+  if (accessProfile === "qa") return ["punchlist"];
   return ["delivery"];
 }
 
 function allowedProjectSectors() {
-  return allowedProjectSectorsForRole(currentUser?.role || "visitor");
+  return allowedProjectSectorsForAccessProfile(userAccessProfile(currentUser));
 }
 
 function ensureProjectSector() {
@@ -2062,20 +5202,50 @@ function stageVisibleForSector(stageKey) {
   return allowedStages.includes(stageKey);
 }
 
-function nodeVisibleForSector(node) {
+function nodeVisibleForSector(node, sectorKey = currentProjectSector) {
   const list = String(node?.dataset?.sectors || "")
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
   if (!list.length) return true;
-  return list.includes(currentProjectSector);
+  return list.includes(sectorKey);
 }
 
-function applySectorVisibility(root) {
+function applySectorVisibility(root, sectorKey = currentProjectSector) {
   if (!root) return;
   root.querySelectorAll("[data-sectors]").forEach((node) => {
-    node.classList.toggle("hidden-view", !nodeVisibleForSector(node));
+    node.classList.toggle("hidden-view", !nodeVisibleForSector(node, sectorKey));
   });
+}
+
+function setManufactureSubView(view = "schedule") {
+  const normalized = ["schedule", "catalog", "solicitation"].includes(view) ? view : "schedule";
+  const previous = manufactureSubView;
+  manufactureSubView = normalized;
+  if (previous !== manufactureSubView && currentUser) {
+    pushAppAudit(`Navigation manufacture folder: ${previous} -> ${manufactureSubView}`, "navigation", "manufacture");
+  }
+}
+
+function applyManufactureSubviewVisibility() {
+  const inManufacture = currentView === "manufacture";
+  const active = ["schedule", "catalog", "solicitation"].includes(manufactureSubView) ? manufactureSubView : "schedule";
+  manufactureScheduleView?.classList.toggle("hidden-view", inManufacture ? active !== "schedule" : false);
+  manufactureCatalogView?.classList.toggle("hidden-view", inManufacture ? active !== "catalog" : true);
+  manufactureSolicitationView?.classList.toggle("hidden-view", inManufacture ? active !== "solicitation" : true);
+}
+
+function normalizeWarehouseSubView(view = "") {
+  return ["schedule", "inventory", "qr", "operations"].includes(view) ? view : "operations";
+}
+
+function setWarehouseSubView(view = "operations") {
+  const normalized = normalizeWarehouseSubView(view);
+  const previous = warehouseSubView;
+  warehouseSubView = normalized;
+  if (previous !== warehouseSubView && currentUser) {
+    pushAppAudit(`Navigation warehouse folder: ${previous} -> ${warehouseSubView}`, "navigation", "warehouse");
+  }
 }
 
 function applyMasterSubpanelMode() {
@@ -2085,14 +5255,19 @@ function applyMasterSubpanelMode() {
   masterDataPanel?.classList.toggle("clients-mode", showClients);
 
   if (showClients) {
-    clientsSubpanel.classList.remove("hidden-view");
-    projectsSubpanel.classList.add("hidden-view");
-    contactsSubpanel.classList.add("hidden-view");
+    const showNewClients = clientsWorkspaceMode === "newClients";
+    const showProjectsCatalog = clientsWorkspaceMode === "projects";
+    const showContracts = clientsWorkspaceMode === "contracts";
+    clientsSubpanel.classList.toggle("hidden-view", !showNewClients);
+    projectsSubpanel.classList.toggle("hidden-view", !showProjectsCatalog);
+    contactsSubpanel.classList.toggle("hidden-view", !showProjectsCatalog);
+    contractsSubpanel?.classList.toggle("hidden-view", !showContracts);
     return;
   }
 
   if (showProjects) {
     clientsSubpanel.classList.add("hidden-view");
+    contractsSubpanel?.classList.add("hidden-view");
     const showProjectCatalog = projectsViewMode === "overview";
     projectsSubpanel.classList.toggle("hidden-view", !showProjectCatalog);
     contactsSubpanel.classList.toggle("hidden-view", !showProjectCatalog);
@@ -2102,6 +5277,7 @@ function applyMasterSubpanelMode() {
   clientsSubpanel.classList.remove("hidden-view");
   projectsSubpanel.classList.remove("hidden-view");
   contactsSubpanel.classList.remove("hidden-view");
+  contractsSubpanel?.classList.remove("hidden-view");
 }
 
 function renderProjectSectorPanel() {
@@ -2118,19 +5294,56 @@ function renderProjectSectorPanel() {
 
 function applyProjectSectorLayout() {
   const inProjects = currentView === "projects";
+  const inManufacture = currentView === "manufacture";
+  const inWarehouseWorkspace = inProjects && ["warehouse", "delivery"].includes(currentProjectSector);
+  const activeWarehouseSubView = normalizeWarehouseSubView(warehouseSubView);
   projectSectorPanel?.classList.toggle("hidden-view", !inProjects);
-  if (!inProjects) return;
+  const containerVisible = inManufacture || (inProjects && ["fabrica", "warehouse"].includes(currentProjectSector));
+  let deliveryInventoryVisible = inProjects && ["delivery"].includes(currentProjectSector);
+  let unitEntryVisible = inProjects && ["warehouse"].includes(currentProjectSector);
+  let unitsVisible =
+    inProjects && ["warehouse", "delivery", "distribuicao", "instalacao", "punchlist"].includes(currentProjectSector);
+  let qrLookupVisible = unitsVisible;
 
-  const containerVisible = ["fabrica", "warehouse"].includes(currentProjectSector);
-  const unitEntryVisible = ["warehouse"].includes(currentProjectSector);
-  const unitsVisible = ["warehouse", "delivery", "distribuicao", "instalacao", "punchlist"].includes(currentProjectSector);
+  if (inWarehouseWorkspace) {
+    if (activeWarehouseSubView === "inventory") {
+      deliveryInventoryVisible = currentProjectSector === "delivery";
+      unitEntryVisible = false;
+      unitsVisible = false;
+      qrLookupVisible = false;
+    } else if (activeWarehouseSubView === "qr") {
+      deliveryInventoryVisible = currentProjectSector === "delivery";
+      unitEntryVisible = false;
+      unitsVisible = false;
+      qrLookupVisible = true;
+    } else if (activeWarehouseSubView === "schedule") {
+      deliveryInventoryVisible = false;
+      unitEntryVisible = false;
+      unitsVisible = true;
+      qrLookupVisible = false;
+    } else {
+      deliveryInventoryVisible = false;
+      unitEntryVisible = currentProjectSector === "warehouse";
+      unitsVisible = true;
+      qrLookupVisible = false;
+    }
+  }
 
   containerPanel.classList.toggle("hidden-view", !containerVisible);
+  deliveryInventoryPanel?.classList.toggle("hidden-view", !deliveryInventoryVisible);
+  const showInventoryCatalog = deliveryInventoryVisible && activeWarehouseSubView !== "qr";
+  const showInventoryScan = deliveryInventoryVisible && activeWarehouseSubView === "qr";
+  deliveryInventoryCatalogBlock?.classList.toggle("hidden-view", !showInventoryCatalog);
+  deliveryInventoryScanBlock?.classList.toggle("hidden-view", !showInventoryScan);
+  deliveryInventoryTable?.classList.toggle("hidden-view", !showInventoryCatalog);
   unitEntryPanel.classList.toggle("hidden-view", !unitEntryVisible);
   unitsToolbarPanel.classList.toggle("hidden-view", !unitsVisible);
-  qrLookupPanel.classList.toggle("hidden-view", !unitsVisible);
+  qrLookupPanel.classList.toggle("hidden-view", !qrLookupVisible);
   unitsContainer.classList.toggle("hidden-view", !unitsVisible);
-  applySectorVisibility(containerPanel);
+  if (containerVisible) {
+    applySectorVisibility(containerPanel, inManufacture ? "fabrica" : currentProjectSector);
+  }
+  applyManufactureSubviewVisibility();
 }
 
 function applyViewMode() {
@@ -2146,7 +5359,18 @@ function applyViewMode() {
     users: [usersPanel],
     userEdit: [userEditPanel],
     clients: [masterDataPanel],
-    projects: [masterDataPanel, projectSectorPanel, containerPanel, unitEntryPanel, unitsToolbarPanel, qrLookupPanel, unitsContainer],
+    manufacture: [containerPanel],
+    ocrImporter: [ocrImporterPanel],
+    projects: [
+      masterDataPanel,
+      projectSectorPanel,
+      containerPanel,
+      deliveryInventoryPanel,
+      unitEntryPanel,
+      unitsToolbarPanel,
+      qrLookupPanel,
+      unitsContainer,
+    ],
   };
 
   const allPanels = [
@@ -2154,9 +5378,11 @@ function applyViewMode() {
     syncPanel,
     usersPanel,
     userEditPanel,
+    ocrImporterPanel,
     masterDataPanel,
     projectSectorPanel,
     containerPanel,
+    deliveryInventoryPanel,
     unitEntryPanel,
     unitsToolbarPanel,
     qrLookupPanel,
@@ -2176,6 +5402,13 @@ function applyViewMode() {
 function setView(view, { updateHash = true } = {}) {
   const previousView = currentView;
   currentView = view;
+  if (currentView === "clients") {
+    if (clientsWorkspaceMode === "newClients") {
+      selectedClientDetailsProjectId = "";
+      keepClientFormBlank = true;
+      setClientsSectionMode("create");
+    }
+  }
   applyViewMode();
   if (previousView !== currentView) {
     pushAppAudit(`Navigation view: ${previousView || "-"} -> ${currentView}`, "navigation", `sector:${currentProjectSector}`);
@@ -2201,9 +5434,29 @@ function setProjectSector(sector, { rerender = true } = {}) {
   if (rerender && currentUser) render();
 }
 
+function partnerCategoryFromUser(user) {
+  const text = `${user?.companyName || ""} ${user?.jobTitle || ""}`.toLowerCase();
+  if (/(factory|manufactur|fabrica)/.test(text)) return "manufacturers";
+  if (/(import|importadora)/.test(text)) return "importers";
+  if (/(truck|delivery|trucking)/.test(text)) return "truck-deliveries";
+  if (/(transport|carrier|logistic|freight|shipping|transportadora)/.test(text)) return "carriers";
+  if (/(material|construction|supply|lumber|tile|wood|cabinet)/.test(text)) return "construction-materials";
+  return "uncategorized";
+}
+
 function usersFilterMatches(user) {
   if (usersViewFilter === "subcontractor") return user.employmentType === "subcontractor";
   if (usersViewFilter === "partner") return user.employmentType === "supplier";
+  if (usersViewFilter === "partner-manufacturers")
+    return user.employmentType === "supplier" && partnerCategoryFromUser(user) === "manufacturers";
+  if (usersViewFilter === "partner-construction-materials")
+    return user.employmentType === "supplier" && partnerCategoryFromUser(user) === "construction-materials";
+  if (usersViewFilter === "partner-importers")
+    return user.employmentType === "supplier" && partnerCategoryFromUser(user) === "importers";
+  if (usersViewFilter === "partner-carriers")
+    return user.employmentType === "supplier" && partnerCategoryFromUser(user) === "carriers";
+  if (usersViewFilter === "partner-truck-deliveries")
+    return user.employmentType === "supplier" && partnerCategoryFromUser(user) === "truck-deliveries";
   return true;
 }
 
@@ -2220,6 +5473,25 @@ function openProjectsSector(sector) {
   setUsersViewFilter("all");
   setView("projects");
   setProjectSector(sector);
+}
+
+function openWarehouseWorkspace(subView = "operations", preferredSector = "warehouse") {
+  if (!canOpenView("projects")) {
+    setView("home");
+    return;
+  }
+  const allowed = allowedProjectSectors();
+  let targetSector = preferredSector;
+  if (!allowed.includes(targetSector)) {
+    if (allowed.includes("delivery")) targetSector = "delivery";
+    else if (allowed.includes("warehouse")) targetSector = "warehouse";
+    else targetSector = allowed[0] || "delivery";
+  }
+  projectsViewMode = "operations";
+  setUsersViewFilter("all");
+  setWarehouseSubView(subView);
+  setView("projects");
+  setProjectSector(targetSector);
 }
 
 function openProjectReportsView() {
@@ -2249,6 +5521,7 @@ function openProjectWarehouse(projectId) {
   selectedProjectId = project.id;
   selectedClientId = project.clientId || selectedClientId;
   projectsViewMode = "operations";
+  setWarehouseSubView("operations");
   setUsersViewFilter("all");
   setView("projects");
   setProjectSector("warehouse");
@@ -2294,9 +5567,15 @@ function openProjectCatalog(projectId) {
     syncContactProjectSelect();
     if (contactProjectSelect) contactProjectSelect.value = project.id;
   }
+  if (contractClientSelect) {
+    contractClientSelect.value = project.clientId || "";
+    syncContractProjectSelect();
+    if (contractProjectSelect) contractProjectSelect.value = project.id;
+  }
   populateProjectForm(project);
   renderProjectsTable();
   renderContactsTable();
+  renderContractsTable();
   projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
   pushAppAudit(`Navigation to projects catalog: ${project.name}`, "navigation", project.name || "-");
 }
@@ -2322,13 +5601,76 @@ function handleQuickNavAction(action) {
 
   if (action === "users") {
     setUsersViewFilter("all");
+    setUsersSubView("directory");
     setView(can("manageUsers") ? "users" : "home");
     return;
   }
 
-  if (action === "clients") {
+  if (action === "usersRegistration") {
+    if (!can("manageUsers")) {
+      setView("home");
+      return;
+    }
     setUsersViewFilter("all");
-    setView(can("manageCatalog") ? "clients" : "home");
+    openUsersRegistrationClean();
+    setView("users");
+    return;
+  }
+
+  if (action === "usersPeople") {
+    if (!can("manageUsers")) {
+      setView("home");
+      return;
+    }
+    setUsersViewFilter("all");
+    setUsersSubView("directory");
+    setView("users");
+    return;
+  }
+
+  if (action === "clients") {
+    if (!can("manageCatalog")) {
+      setView("home");
+      return;
+    }
+    setUsersViewFilter("all");
+    setClientsWorkspaceMode("newClients");
+    setView("clients");
+    return;
+  }
+
+  if (action === "clientsNew") {
+    if (!can("manageCatalog")) {
+      setView("home");
+      return;
+    }
+    setUsersViewFilter("all");
+    setClientsWorkspaceMode("newClients");
+    setView("clients");
+    return;
+  }
+
+  if (action === "clientsProjects") {
+    if (!can("manageCatalog")) {
+      setView("home");
+      return;
+    }
+    setUsersViewFilter("all");
+    setClientsWorkspaceMode("projects");
+    setView("clients");
+    projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+
+  if (action === "clientsContracts") {
+    if (!can("manageCatalog")) {
+      setView("home");
+      return;
+    }
+    setUsersViewFilter("all");
+    setClientsWorkspaceMode("contracts");
+    setView("clients");
+    contractsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
 
@@ -2339,25 +5681,116 @@ function handleQuickNavAction(action) {
     return;
   }
 
+  if (action === "ocrImporter") {
+    setUsersViewFilter("all");
+    setView(canOpenView("ocrImporter") ? "ocrImporter" : "home");
+    return;
+  }
+
   if (action === "subcontractors") {
     setUsersViewFilter("subcontractor");
+    setUsersSubView("directory");
     setView(can("manageUsers") ? "users" : "home");
     return;
   }
 
   if (action === "partners") {
     setUsersViewFilter("partner");
+    setUsersSubView("directory");
     setView(can("manageUsers") ? "users" : "home");
     return;
   }
 
+  if (action === "partnersManufacturers") {
+    setUsersViewFilter("partner-manufacturers");
+    setUsersSubView("directory");
+    setView(can("manageUsers") ? "users" : "home");
+    return;
+  }
+
+  if (action === "partnersConstructionMaterials") {
+    setUsersViewFilter("partner-construction-materials");
+    setUsersSubView("directory");
+    setView(can("manageUsers") ? "users" : "home");
+    return;
+  }
+
+  if (action === "partnersImporters") {
+    setUsersViewFilter("partner-importers");
+    setUsersSubView("directory");
+    setView(can("manageUsers") ? "users" : "home");
+    return;
+  }
+
+  if (action === "partnersCarriers") {
+    setUsersViewFilter("partner-carriers");
+    setUsersSubView("directory");
+    setView(can("manageUsers") ? "users" : "home");
+    return;
+  }
+
+  if (action === "partnersTruckDeliveries") {
+    setUsersViewFilter("partner-truck-deliveries");
+    setUsersSubView("directory");
+    setView(can("manageUsers") ? "users" : "home");
+    return;
+  }
+
+  if (action === "manufacture") {
+    setUsersViewFilter("all");
+    setManufactureSubView("schedule");
+    setView(canOpenView("manufacture") ? "manufacture" : "home");
+    return;
+  }
+
+  if (action === "manufactureSchedule") {
+    setUsersViewFilter("all");
+    setManufactureSubView("schedule");
+    setView(canOpenView("manufacture") ? "manufacture" : "home");
+    return;
+  }
+
+  if (action === "manufactureCatalog") {
+    setUsersViewFilter("all");
+    setManufactureSubView("catalog");
+    setView(canOpenView("manufacture") ? "manufacture" : "home");
+    return;
+  }
+
+  if (action === "manufactureSolicitation") {
+    setUsersViewFilter("all");
+    setManufactureSubView("solicitation");
+    setView(canOpenView("manufacture") ? "manufacture" : "home");
+    return;
+  }
+
   if (action === "warehouse") {
-    openProjectsSector("warehouse");
+    openWarehouseWorkspace("operations", "warehouse");
+    return;
+  }
+
+  if (action === "warehouseDeliverySchedule") {
+    openWarehouseWorkspace("schedule", "delivery");
+    return;
+  }
+
+  if (action === "warehouseDeliveryInventory") {
+    openWarehouseWorkspace("inventory", "delivery");
+    return;
+  }
+
+  if (action === "warehouseQrScan") {
+    openWarehouseWorkspace("qr", "delivery");
+    return;
+  }
+
+  if (action === "warehouseOperations") {
+    openWarehouseWorkspace("operations", "warehouse");
     return;
   }
 
   if (action === "delivery") {
-    openProjectsSector("delivery");
+    openWarehouseWorkspace("schedule", "delivery");
     return;
   }
 
@@ -2489,10 +5922,18 @@ function syncContactProjectSelect() {
   populateProjectSelectByClient(contactProjectSelect, clientId, "Project (optional)", true);
 }
 
+function syncContractProjectSelect() {
+  const clientId = contractClientSelect?.value || "";
+  if (!contractProjectSelect) return;
+  populateProjectSelectByClient(contractProjectSelect, clientId, "Project (optional)", true);
+}
+
 function renderMasterSelects() {
   const previousProjectClient = projectClientSelect.value;
   const previousContactClient = contactClientSelect.value;
   const previousContactProject = contactProjectSelect.value;
+  const previousContractClient = contractClientSelect?.value || "";
+  const previousContractProject = contractProjectSelect?.value || "";
 
   populateSelect(projectClientSelect, clients, {
     includeEmpty: true,
@@ -2517,6 +5958,23 @@ function renderMasterSelects() {
   syncContactProjectSelect();
   if (previousContactProject && projects.some((project) => project.id === previousContactProject)) {
     contactProjectSelect.value = previousContactProject;
+  }
+
+  if (contractClientSelect) {
+    populateSelect(contractClientSelect, clients, {
+      includeEmpty: true,
+      placeholder: "Select client",
+    });
+    if (previousContractClient && clients.some((client) => client.id === previousContractClient)) {
+      contractClientSelect.value = previousContractClient;
+    } else if (selectedClientId && clients.some((client) => client.id === selectedClientId)) {
+      contractClientSelect.value = selectedClientId;
+    }
+  }
+
+  syncContractProjectSelect();
+  if (contractProjectSelect && previousContractProject && projects.some((project) => project.id === previousContractProject)) {
+    contractProjectSelect.value = previousContractProject;
   }
 
   populateSelect(unitProjectSelect, projects, {
@@ -2547,29 +6005,147 @@ function renderMasterSelects() {
   syncUnitProjectInfo();
 }
 
+function setClientsSectionMode(mode = "create") {
+  const detailsMode = mode === "details";
+  clientsCreateView?.classList.toggle("hidden", detailsMode);
+  clientDetailsView?.classList.toggle("hidden", !detailsMode);
+}
+
+function setClientsWorkspaceMode(mode = "newClients") {
+  const normalized = mode === "projects" || mode === "contracts" ? mode : "newClients";
+  clientsWorkspaceMode = normalized;
+  if (normalized === "newClients") {
+    selectedClientDetailsProjectId = "";
+    keepClientFormBlank = true;
+    setClientsSectionMode("create");
+  }
+}
+
+function renderClientSelectedProjectDetails(project) {
+  if (!clientProjectDetailsTable) return;
+  if (!project) {
+    clientProjectDetailsTable.innerHTML = '<p class="hint">Select a project to view project details and full scope of work.</p>';
+    return;
+  }
+
+  const client = clientById(project.clientId);
+  const scopeBase = ensureArray(project.scopeCategories).map((key) => PROJECT_SCOPE_LABELS[key] || key);
+  const scopeExtra = uniqueTextList(project.scopeExtras);
+  const scopeAll = uniqueTextList([...scopeBase, ...scopeExtra]);
+  const checklistTemplate = projectChecklistTemplate(project);
+
+  const detailRows = [
+    ["Client", client?.name || "-"],
+    ["Project Name", project.name || "-"],
+    ["Project Code", project.code || "-"],
+    ["Address / Job Site", project.address || "-"],
+    ["Floors", project.floorsCount || "-"],
+    ["Apartments", project.apartmentsCount || "-"],
+  ]
+    .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
+    .join("");
+
+  const scopeRows = scopeAll.length
+    ? scopeAll.map((entry) => `<tr><td>${escapeHtml(entry)}</td></tr>`).join("")
+    : '<tr><td>No scope items registered.</td></tr>';
+
+  const checklistRows = checklistTemplate.length
+    ? checklistTemplate.map((entry) => `<tr><td>${escapeHtml(entry)}</td></tr>`).join("")
+    : '<tr><td>No checklist template items registered.</td></tr>';
+
+  clientProjectDetailsTable.innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Field</th><th>Value</th></tr></thead>
+      <tbody>${detailRows}</tbody>
+    </table>
+    <table class="data-table">
+      <thead><tr><th>Scope of Work (all items)</th></tr></thead>
+      <tbody>${scopeRows}</tbody>
+    </table>
+    <table class="data-table">
+      <thead><tr><th>Unit checklist template</th></tr></thead>
+      <tbody>${checklistRows}</tbody>
+    </table>
+  `;
+}
+
+function renderClientProjectsList(client) {
+  if (!clientProjectsList) return;
+  if (!client) {
+    clientProjectsList.innerHTML = '<p class="hint">Select a client to view projects.</p>';
+    renderClientSelectedProjectDetails(null);
+    return;
+  }
+
+  const linkedProjects = projects
+    .filter((project) => project.clientId === client.id)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (selectedClientDetailsProjectId && !linkedProjects.some((entry) => entry.id === selectedClientDetailsProjectId)) {
+    selectedClientDetailsProjectId = "";
+  }
+
+  const rows = linkedProjects
+    .map((project) => {
+      const pmContact =
+        contacts.find((entry) => entry.projectId === project.id && entry.role === "project-manager") ||
+        contacts.find((entry) => entry.projectId === project.id && entry.role === "foreman") ||
+        null;
+      const pmName = pmContact?.name || client.contactSeniorProjectManager || "-";
+      const pmPhone = pmContact?.phone || client.seniorProjectManagerPhone || "-";
+      return `<tr class="${project.id === selectedClientDetailsProjectId ? "selected-row" : ""}">
+        <td>${escapeHtml(project.name || "-")}</td>
+        <td>${escapeHtml(project.address || "-")}</td>
+        <td>${escapeHtml(project.code || "-")}</td>
+        <td>${escapeHtml(pmName)}</td>
+        <td>${escapeHtml(pmPhone)}</td>
+        <td><button class="secondary xs-btn" type="button" data-client-detail-project="${project.id}">View details</button></td>
+      </tr>`;
+    })
+    .join("");
+
+  clientProjectsList.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Address</th><th>Code</th><th>PM</th><th>PM Phone</th><th>Action</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="6">No projects registered for this client.</td></tr>'
+  }</tbody></table>`;
+
+  clientProjectsList.querySelectorAll("[data-client-detail-project]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const targetProject = projects.find((entry) => entry.id === button.dataset.clientDetailProject) || null;
+      if (!targetProject) return;
+      selectedClientDetailsProjectId = targetProject.id;
+      renderClientProjectsList(client);
+      renderClientSelectedProjectDetails(targetProject);
+    });
+  });
+
+  const selectedProject = linkedProjects.find((entry) => entry.id === selectedClientDetailsProjectId) || null;
+  renderClientSelectedProjectDetails(selectedProject);
+}
+
 function renderClientsTable() {
-  if (!clientsSummaryScroll || !clientDetailsPanel || !clientForm) return;
+  if (!clientsSummaryScroll || !clientForm) return;
 
   const query = clientSearchQuery.trim().toLowerCase();
-  const visibleClients = clients.filter((client) => {
-    if (!query) return true;
-    return String(client.name || "").toLowerCase().includes(query);
-  });
+  const visibleClients = clients
+    .filter((client) => {
+      if (!query) return true;
+      return String(client.name || "").toLowerCase().includes(query);
+    })
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 
   if (selectedClientId && !clients.some((entry) => entry.id === selectedClientId)) {
     selectedClientId = "";
+    selectedContractId = "";
   }
-  if (selectedClientId && !visibleClients.some((entry) => entry.id === selectedClientId)) {
-    selectedClientId = visibleClients[0]?.id || "";
-  }
-  if (!selectedClientId && visibleClients.length) selectedClientId = visibleClients[0].id;
 
   const listRows = visibleClients
-    .map((client) => {
-      return `<button class="client-summary-item${client.id === selectedClientId ? " active" : ""}" type="button" data-client-summary="${client.id}">
+    .map(
+      (client) => `<button class="client-summary-item${client.id === selectedClientId ? " active" : ""}" type="button" data-client-summary="${client.id}">
         ${escapeHtml(client.name || "-")}
-      </button>`;
-    })
+      </button>`
+    )
     .join("");
 
   clientsSummaryScroll.innerHTML = listRows || '<p class="hint">No matching clients.</p>';
@@ -2577,37 +6153,37 @@ function renderClientsTable() {
   clientsSummaryScroll.querySelectorAll("[data-client-summary]").forEach((button) => {
     button.addEventListener("click", () => {
       selectedClientId = button.dataset.clientSummary || "";
-      const selectedClient = clients.find((entry) => entry.id === selectedClientId) || null;
-      const selectedProject = projects.find((entry) => entry.id === selectedProjectId) || null;
-      if (selectedProject && selectedProject.clientId !== selectedClientId) selectedProjectId = "";
-      renderClientsTable();
-      if (selectedClient) populateClientForm(selectedClient);
-      if (!selectedProjectId) resetProjectForm({ clientId: selectedClientId });
-      if (contactClientSelect) {
+      selectedProjectId = "";
+      selectedContractId = "";
+      selectedClientDetailsProjectId = "";
+      setClientsSectionMode("details");
+      if (projectClientSelect && selectedClientId) projectClientSelect.value = selectedClientId;
+      if (contactClientSelect && selectedClientId) {
         contactClientSelect.value = selectedClientId;
         syncContactProjectSelect();
       }
+      if (contractClientSelect && selectedClientId) {
+        contractClientSelect.value = selectedClientId;
+        syncContractProjectSelect();
+      }
+      renderClientsTable();
       renderProjectsTable();
       renderContactsTable();
+      renderContractsTable();
     });
   });
 
   const selectedClient = clients.find((entry) => entry.id === selectedClientId) || null;
-  if (selectedProjectId) {
-    const selectedProject = projects.find((entry) => entry.id === selectedProjectId) || null;
-    if (!selectedProject || selectedProject.clientId !== selectedClientId) selectedProjectId = "";
-  }
-  renderClientDetails(selectedClient);
-
-  if (!selectedClient) {
-    selectedProjectId = "";
-    resetClientForm();
-    resetProjectForm();
-    return;
+  if (selectedClient && !clientDetailsView?.classList.contains("hidden")) {
+    renderClientDetails(selectedClient);
+    renderClientProjectsList(selectedClient);
+  } else if (!selectedClient) {
+    renderClientDetails(null);
+    renderClientProjectsList(null);
   }
 
   const currentEditId = clientForm.elements.clientId?.value || "";
-  if (!currentEditId) populateClientForm(selectedClient);
+  if (!currentEditId && keepClientFormBlank) resetClientForm();
 }
 
 function splitLines(value) {
@@ -2654,7 +6230,10 @@ function renderProjectDraftPills() {
       ? projectScopeExtrasDraft
           .map(
             (entry, index) =>
-              `<span class="pill">${escapeHtml(entry)}<button type="button" data-project-scope-pill-remove="${index}" aria-label="Remove scope item">x</button></span>`
+              `<div class="dynamic-check-row">
+                <label><input type="checkbox" name="scopeExtrasDynamic" value="${escapeHtml(entry)}" checked /> ${escapeHtml(entry)}</label>
+                <button class="danger xs-btn" type="button" data-project-scope-pill-remove="${index}" aria-label="Remove scope item">Remove</button>
+              </div>`
           )
           .join("")
       : '<p class="hint">No extra scope items.</p>';
@@ -2664,7 +6243,10 @@ function renderProjectDraftPills() {
       ? projectChecklistExtrasDraft
           .map(
             (entry, index) =>
-              `<span class="pill">${escapeHtml(entry)}<button type="button" data-project-checklist-pill-remove="${index}" aria-label="Remove checklist item">x</button></span>`
+              `<div class="dynamic-check-row">
+                <label><input type="checkbox" name="unitChecklistExtrasDynamic" value="${escapeHtml(entry)}" checked /> ${escapeHtml(entry)}</label>
+                <button class="danger xs-btn" type="button" data-project-checklist-pill-remove="${index}" aria-label="Remove checklist item">Remove</button>
+              </div>`
           )
           .join("")
       : '<p class="hint">No extra checklist items.</p>';
@@ -2750,12 +6332,19 @@ function populateProjectForm(project) {
 }
 
 function openClientRegistrationShortcut(target = "projects") {
-  if (!canOpenView("projects")) {
+  if (!can("manageCatalog")) {
     setView("home");
     return;
   }
-  projectsViewMode = "overview";
-  setView("projects");
+  if (target === "contracts") {
+    setClientsWorkspaceMode("contracts");
+    setView("clients");
+    contractsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+
+  setClientsWorkspaceMode("projects");
+  setView("clients");
 
   const selectedId = clientForm?.elements?.clientId?.value || selectedClientId || "";
   if (target === "projects") {
@@ -2782,10 +6371,6 @@ function renderClientDetails(client) {
     return;
   }
 
-  const linkedProjects = projects
-    .filter((project) => project.clientId === client.id)
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name));
   const officeLines = splitLines(client.offices);
   const logoBlock = client.logoDataUrl
     ? `<img class="client-logo" src="${escapeHtml(client.logoDataUrl)}" alt="${escapeHtml(client.name)} logo" />`
@@ -2793,24 +6378,6 @@ function renderClientDetails(client) {
   const locationsHtml = officeLines.length
     ? `<ul>${officeLines.map((entry) => `<li>${escapeHtml(entry)}</li>`).join("")}</ul>`
     : "<p>-</p>";
-  const linkedProjectsHtml = linkedProjects.length
-    ? `<div class="client-project-list">${linkedProjects
-        .map((project) => {
-          const pmContact =
-            contacts.find((entry) => entry.projectId === project.id && entry.role === "project-manager") ||
-            contacts.find((entry) => entry.projectId === project.id && entry.role === "foreman") ||
-            null;
-          const pmName = pmContact?.name || client.contactSeniorProjectManager || "-";
-          const pmPhone = pmContact?.phone || client.seniorProjectManagerPhone || "-";
-          return `<button class="secondary client-project-item" type="button" data-client-project-open="${escapeHtml(project.id)}">
-            <strong>${escapeHtml(project.name || "-")}</strong>
-            <span>${escapeHtml(project.address || "-")}</span>
-            <small>PM: ${escapeHtml(pmName)} | Phone: ${escapeHtml(pmPhone)}</small>
-          </button>`;
-        })
-        .join("")}</div>`
-    : '<p class="hint">No projects registered for this client.</p>';
-
   clientDetailsPanel.innerHTML = `
     <div class="client-details-head">
       ${logoBlock}
@@ -2834,15 +6401,18 @@ function renderClientDetails(client) {
         ${locationsHtml}
       </div>
     </div>
-    <div class="client-projects-quick">
-      <h5>Projects (quick list)</h5>
-      ${linkedProjectsHtml}
+    <div class="row">
+      <button class="secondary" type="button" data-client-edit-form="${escapeHtml(client.id)}">Edit this client</button>
     </div>
   `;
 
-  clientDetailsPanel.querySelectorAll("[data-client-project-open]").forEach((button) => {
+  clientDetailsPanel.querySelectorAll("[data-client-edit-form]").forEach((button) => {
     button.addEventListener("click", () => {
-      openProjectCatalog(button.dataset.clientProjectOpen || "");
+      const targetClient = clients.find((entry) => entry.id === button.dataset.clientEditForm);
+      if (!targetClient) return;
+      keepClientFormBlank = false;
+      setClientsSectionMode("create");
+      populateClientForm(targetClient);
     });
   });
 }
@@ -2921,8 +6491,13 @@ function renderProjectsTable() {
       }
       const targetProject = projects.find((entry) => entry.id === id);
       if (!targetProject) return;
+      const confirmed = confirmDeleteAction(`project "${targetProject.name}"`);
+      if (!confirmed) return;
       pushEntityAudit("Projects", "deleted", `${targetProject.name}`, "projects");
-      await del(PROJECT_STORE, id);
+      await trashDeleteRecord(PROJECT_STORE, targetProject, {
+        label: `Project: ${targetProject.name}`,
+        scope: "projects",
+      });
       if (projectForm?.elements?.projectId?.value === id) resetProjectForm({ clientId: selectedClientId });
       if (selectedProjectId === id) selectedProjectId = "";
       await loadAll();
@@ -2957,7 +6532,7 @@ function renderContactsTable() {
     })
     .join("");
 
-  contactsTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Role</th><th>Company</th><th>Client</th><th>Project</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead><tbody>${
+  contactsTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Job Title Project</th><th>Company</th><th>Client</th><th>Project</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead><tbody>${
     rows || '<tr><td colspan="8">No people registered for the selected client.</td></tr>'
   }</tbody></table>`;
 
@@ -3002,8 +6577,136 @@ function renderContactsTable() {
   contactsTable.querySelectorAll("[data-del-contact]").forEach((button) => {
     button.addEventListener("click", async () => {
       const targetContact = contacts.find((entry) => entry.id === button.dataset.delContact);
+      if (!targetContact) return;
+      const confirmed = confirmDeleteAction(`contact "${targetContact.name}"`);
+      if (!confirmed) return;
       if (targetContact) pushEntityAudit("Contacts", "deleted", `${targetContact.name}`, "contacts");
-      await del(CONTACT_STORE, button.dataset.delContact);
+      await trashDeleteRecord(CONTACT_STORE, targetContact, {
+        label: `Contact: ${targetContact.name}`,
+        scope: "contacts",
+      });
+      await loadAll();
+      render();
+      queueAutoSync();
+    });
+  });
+}
+
+function resetContractForm({ clientId = "", projectId = "" } = {}) {
+  if (!contractForm) return;
+  contractForm.reset();
+  selectedContractId = "";
+  if (contractForm.elements.contractId) contractForm.elements.contractId.value = "";
+  if (contractClientSelect && clientId && clients.some((client) => client.id === clientId)) {
+    contractClientSelect.value = clientId;
+  }
+  syncContractProjectSelect();
+  if (contractProjectSelect && projectId && projects.some((project) => project.id === projectId)) {
+    contractProjectSelect.value = projectId;
+  }
+  if (contractAdminTarget) contractAdminTarget.textContent = "Creating a new contract.";
+  if (contractFormDeleteBtn) contractFormDeleteBtn.disabled = true;
+}
+
+function populateContractForm(contract) {
+  if (!contractForm || !contract) return;
+  selectedContractId = contract.id;
+  if (contractForm.elements.contractId) contractForm.elements.contractId.value = contract.id;
+  contractForm.elements.clientId.value = contract.clientId || "";
+  syncContractProjectSelect();
+  contractForm.elements.projectId.value = contract.projectId || "";
+  contractForm.elements.title.value = contract.title || "";
+  contractForm.elements.contractCode.value = contract.contractCode || "";
+  contractForm.elements.status.value = contract.status || "draft";
+  contractForm.elements.signedDate.value = normalizeDateField(contract.signedDate);
+  contractForm.elements.startDate.value = normalizeDateField(contract.startDate);
+  contractForm.elements.endDate.value = normalizeDateField(contract.endDate);
+  contractForm.elements.amount.value = contract.amount || "";
+  contractForm.elements.notes.value = contract.notes || "";
+  if (contractAdminTarget) contractAdminTarget.textContent = `Editing contract: ${contract.title || "-"}`;
+  if (contractFormDeleteBtn) contractFormDeleteBtn.disabled = false;
+}
+
+function contractStatusLabel(status) {
+  const key = String(status || "").trim().toLowerCase();
+  if (key === "active") return "Active";
+  if (key === "on-hold") return "On hold";
+  if (key === "completed") return "Completed";
+  if (key === "cancelled") return "Cancelled";
+  return "Draft";
+}
+
+function renderContractsTable() {
+  if (!contractsTable) return;
+  const canManage = can("manageCatalog");
+  const scopedContracts = (selectedClientId ? contracts.filter((entry) => entry.clientId === selectedClientId) : contracts)
+    .slice()
+    .sort((a, b) => a.title.localeCompare(b.title) || a.contractCode.localeCompare(b.contractCode));
+
+  const activeContract = selectedContractId ? contractById(selectedContractId) : null;
+  if (!activeContract || (selectedClientId && activeContract.clientId !== selectedClientId)) {
+    if (selectedContractId) selectedContractId = "";
+    if (contractForm?.elements?.contractId?.value) resetContractForm({ clientId: selectedClientId || "" });
+  }
+
+  const rows = scopedContracts
+    .map((contract) => {
+      const client = clientById(contract.clientId);
+      const project = projectById(contract.projectId);
+      return `<tr class="${contract.id === selectedContractId ? "selected-row" : ""}">
+        <td>${escapeHtml(contract.title || "-")}</td>
+        <td>${escapeHtml(contract.contractCode || "-")}</td>
+        <td>${escapeHtml(client?.name || "-")}</td>
+        <td>${escapeHtml(project?.name || "-")}</td>
+        <td>${escapeHtml(contractStatusLabel(contract.status))}</td>
+        <td>${escapeHtml(contract.signedDate || "-")}</td>
+        <td>${escapeHtml(contract.endDate || "-")}</td>
+        <td>${escapeHtml(contract.amount || "-")}</td>
+        <td>${escapeHtml(fmtDate(contract.updatedAt))}</td>
+        <td>${
+          canManage
+            ? `<div class="actions-inline"><button class="secondary xs-btn" data-select-contract="${contract.id}">Select</button><button class="danger xs-btn" data-del-contract="${contract.id}">Delete</button></div>`
+            : "-"
+        }</td>
+      </tr>`;
+    })
+    .join("");
+
+  contractsTable.innerHTML = `<table class="data-table"><thead><tr><th>Title</th><th>Code</th><th>Client</th><th>Project</th><th>Status</th><th>Signed</th><th>End</th><th>Value (USD)</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="10">No contracts registered for the selected client.</td></tr>'
+  }</tbody></table>`;
+
+  if (!canManage) return;
+
+  contractsTable.querySelectorAll("[data-select-contract]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const contract = contractById(button.dataset.selectContract);
+      if (!contract) return;
+      selectedContractId = contract.id;
+      selectedClientId = contract.clientId || selectedClientId;
+      populateContractForm(contract);
+      renderContractsTable();
+    });
+  });
+
+  contractsTable.querySelectorAll("[data-del-contract]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const targetId = button.dataset.delContract || "";
+      const targetContract = contractById(targetId);
+      if (!targetContract) return;
+      const confirmed = confirmDeleteAction(`contract "${targetContract.title || targetContract.contractCode || targetContract.id}"`);
+      if (!confirmed) return;
+      pushEntityAudit(
+        "Contracts",
+        "deleted",
+        `${targetContract.title} | code "${auditValue(targetContract.contractCode)}"`,
+        "contracts"
+      );
+      await trashDeleteRecord(CONTRACT_STORE, targetContract, {
+        label: `Contract: ${targetContract.title || targetContract.contractCode || targetContract.id}`,
+        scope: "contracts",
+      });
+      if (selectedContractId === targetId) resetContractForm({ clientId: selectedClientId || "" });
       await loadAll();
       render();
       queueAutoSync();
@@ -3089,8 +6792,14 @@ function renderMaterialsTable() {
         return;
       }
       const targetMaterial = materials.find((entry) => entry.id === id);
+      if (!targetMaterial) return;
+      const confirmed = confirmDeleteAction(`material "${targetMaterial.sku} | ${targetMaterial.description}"`);
+      if (!confirmed) return;
       if (targetMaterial) pushEntityAudit("Materials", "deleted", `${targetMaterial.sku} | ${targetMaterial.description}`, "materials");
-      await del(MATERIAL_STORE, id);
+      await trashDeleteRecord(MATERIAL_STORE, targetMaterial, {
+        label: `Material: ${targetMaterial.sku} | ${targetMaterial.description}`,
+        scope: "materials",
+      });
       await loadAll();
       render();
       queueAutoSync();
@@ -3105,10 +6814,12 @@ function renderMasterData() {
   setFormEnabled(clientForm, canManage);
   setFormEnabled(projectForm, canManage);
   setFormEnabled(contactForm, canManage);
+  setFormEnabled(contractForm, canManage);
   setFormEnabled(materialForm, canManage);
 
   if (selectedClientId && !clients.some((client) => client.id === selectedClientId)) selectedClientId = "";
   if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) selectedProjectId = "";
+  if (selectedContractId && !contracts.some((contract) => contract.id === selectedContractId)) selectedContractId = "";
 
   renderMasterSelects();
   if (projectForm?.elements?.projectId?.value) {
@@ -3118,11 +6829,12 @@ function renderMasterData() {
     projectClientSelect.value = selectedClientId;
   }
   renderProjectDraftPills();
+  renderMaterialsTable();
   if (!canManage) return;
   renderClientsTable();
   renderProjectsTable();
   renderContactsTable();
-  renderMaterialsTable();
+  renderContractsTable();
 }
 
 function containerReleasedQty(container) {
@@ -3260,6 +6972,7 @@ function renderReleaseTable(wrapper, container) {
 function renderContainers() {
   containerPanel.classList.toggle("hidden", !currentUser);
   containersBoard.innerHTML = "";
+  renderManufactureCatalogSummaries();
 
   if (!containers.length) {
     containersBoard.innerHTML = `<div class="panel empty">No containers registered.</div>`;
@@ -3341,8 +7054,13 @@ function renderContainers() {
     deleteBtn.classList.toggle("hidden", !can("deleteContainer"));
     deleteBtn.addEventListener("click", async () => {
       if (!can("deleteContainer")) return;
+      const confirmed = confirmDeleteAction(`container "${container.containerCode || container.id}"`);
+      if (!confirmed) return;
       pushContainerAudit(container, `Container deleted: ${container.containerCode}`);
-      await del(CONTAINER_STORE, container.id);
+      await trashDeleteRecord(CONTAINER_STORE, container, {
+        label: `Container: ${container.containerCode || container.id}`,
+        scope: container.projectId || "containers",
+      });
       await loadAll();
       render();
       queueAutoSync();
@@ -3431,6 +7149,24 @@ function renderContainers() {
           deliveredAt: "",
           issueType: "",
           issueNote: "",
+          flowStage: "warehouse",
+          flowStatus: "generated",
+          flowUpdatedAt: now,
+          flowEvents: [
+            {
+              id: uid(),
+              at: now,
+              byUserId: currentUser?.id || "",
+              byName: currentUser?.name || "System",
+              stage: "warehouse",
+              status: "generated",
+              issueType: "",
+              note: "QR generated from manifest.",
+              unitId: "",
+              unitLabel: "",
+              source: "manifest",
+            },
+          ],
           createdAt: now,
           updatedAt: now,
         });
@@ -3484,6 +7220,21 @@ function renderContainers() {
       manifestTable.querySelectorAll("[data-manifest-del]").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const removed = container.materialItems.find((item) => item.id === btn.dataset.manifestDel);
+          if (!removed) return;
+          const confirmed = confirmDeleteAction(`manifest item "${removed.description || removed.code || removed.id}"`);
+          if (!confirmed) return;
+          const removedQrItems = container.qrItems.filter(
+            (item) => item.manifestItemId === btn.dataset.manifestDel && (item.status === "in-warehouse" || item.status === "dispatched")
+          );
+          await saveTrashRecord({
+            storeName: CONTAINER_STORE,
+            recordId: `${container.id}:${removed.id}`,
+            label: `Container manifest: ${removed.description || removed.code || removed.id}`,
+            scope: container.containerCode || "containers",
+            payload: removed,
+            restoreType: "container-manifest-item",
+            context: { containerId: container.id, qrItems: removedQrItems },
+          });
           container.materialItems = container.materialItems.filter((item) => item.id !== btn.dataset.manifestDel);
           container.qrItems = container.qrItems.filter(
             (item) => item.manifestItemId !== btn.dataset.manifestDel || (item.status !== "in-warehouse" && item.status !== "dispatched")
@@ -3595,6 +7346,7 @@ function renderContainers() {
     const qrUnitSelect = qrDispatchForm.querySelector(".qd-unit");
     const qrKitchenInput = qrDispatchForm.querySelector(".qd-kitchen");
     const qrScanInput = qrDispatchForm.querySelector(".qd-scan");
+    const qrScanBtn = qrDispatchForm.querySelector(".qd-scan-btn");
     const qrTrackTable = node.querySelector(".qr-track-table");
     const replaceQueueTable = node.querySelector(".replace-queue-table");
     const factoryQueueTable = node.querySelector(".factory-queue-table");
@@ -3622,6 +7374,10 @@ function renderContainers() {
 
     const qrDispatchEditable = can("manageContainerRelease");
     if (!qrDispatchEditable) qrDispatchForm.querySelectorAll("input,select,button").forEach((el) => (el.disabled = true));
+    qrScanBtn?.addEventListener("click", async () => {
+      if (!qrDispatchEditable) return;
+      await scanQrIntoInput(qrScanInput, "Scan QR for dispatch");
+    });
 
     qrDispatchForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -3635,7 +7391,7 @@ function renderContainers() {
       }
       const qrItem = container.qrItems.find((entry) => entry.qrCode === qrCode);
       if (!qrItem) {
-        alert("QR nao encontrado neste container.");
+        alert("QR not found in this container.");
         return;
       }
       const now = new Date().toISOString();
@@ -3648,12 +7404,21 @@ function renderContainers() {
       qrItem.assignedBy = currentUser.name;
       qrItem.status = "dispatched";
       qrItem.updatedAt = now;
-      pushContainerAudit(container, `QR routed: ${qrItem.qrCode} -> ${targetUnit.unitCode}`);
+      appendQrFlowEvent(container, qrItem, {
+        stage: "delivery",
+        status: "in-progress",
+        note: `Dispatched from warehouse to unit ${targetUnit.unitCode}`,
+        source: "dispatch",
+        unit: targetUnit,
+        at: now,
+      });
+      applyStageToUnitFromQr(targetUnit, "warehouse", "completed", `QR dispatched: ${qrItem.qrCode}`, now);
+      targetUnit.updatedAt = now;
       qrDispatchForm.reset();
-      await saveContainer(container);
+      await saveUnitAndContainer(targetUnit, container, `QR dispatch recorded: ${qrItem.qrCode} -> ${targetUnit.unitCode}`);
     });
 
-    applySectorVisibility(node);
+    applySectorVisibility(node, currentView === "manufacture" ? "fabrica" : currentProjectSector);
     containersBoard.appendChild(node);
   }
 }
@@ -3751,7 +7516,8 @@ function checklistSummary(checkItems) {
   const missing = checkItems.filter((item) => item.status === "missing").length;
   const damaged = checkItems.filter((item) => item.status === "damaged").length;
   const adjustment = checkItems.filter((item) => item.status === "adjustment").length;
-  return `Items: ${total} | Missing: ${missing} | Damaged: ${damaged} | Adjustment: ${adjustment}`;
+  const qrCount = checkItems.reduce((sum, item) => sum + unitChecklistQrCodesText(item).length, 0);
+  return `Items: ${total} | QR labels: ${qrCount} | Missing: ${missing} | Damaged: ${damaged} | Adjustment: ${adjustment}`;
 }
 
 function renderChecklistTable(wrapper, unit) {
@@ -3767,6 +7533,7 @@ function renderChecklistTable(wrapper, unit) {
         <tr>
           <th>Code</th>
           <th>Description</th>
+          <th>QR codes</th>
           <th>Expected</th>
           <th>Checked</th>
           <th>Status</th>
@@ -3776,11 +7543,28 @@ function renderChecklistTable(wrapper, unit) {
       </thead>
       <tbody>
         ${unit.checkItems
-          .map(
-            (item) => `
+          .map((item) => {
+            const qrCodes = unitChecklistQrCodesText(item);
+            const firstQr = qrCodes[0] || "";
+            const extraQrCount = qrCodes.length > 1 ? qrCodes.length - 1 : 0;
+            const qrPreview = firstQr
+              ? `<img class="qr-thumb" src="${qrImageUrl(firstQr, 120)}" alt="QR for ${escapeHtml(item.description || item.code || "item")}" loading="lazy" />`
+              : `<span class="hint">No QR</span>`;
+            return `
             <tr>
               <td>${escapeHtml(item.code)}</td>
               <td>${escapeHtml(item.description)}</td>
+              <td>
+                <div class="qr-item-cell">
+                  ${qrPreview}
+                  ${qrCodes.length ? `<small>${qrCodes.length} label(s)${extraQrCount ? ` (+${extraQrCount} extra)` : ""}</small>` : ""}
+                  <div class="actions-inline">
+                    <button type="button" class="secondary xs-btn" data-item-qr-copy="${item.id}">Copy</button>
+                    <button type="button" class="secondary xs-btn" data-item-qr-print="${item.id}">Print</button>
+                    <button type="button" class="secondary xs-btn" data-item-qr-png="${item.id}">PNG</button>
+                  </div>
+                </div>
+              </td>
               <td>${escapeHtml(item.expectedQty)}</td>
               <td><input data-item-action="got" data-item-id="${item.id}" type="number" min="0" value="${Number(item.checkedQty || 0)}" ${
                 editable ? "" : "disabled"
@@ -3798,7 +7582,7 @@ function renderChecklistTable(wrapper, unit) {
               } /></td>
               <td><button data-item-remove="${item.id}" class="danger xs-btn" ${editable ? "" : "disabled"}>x</button></td>
             </tr>`
-          )
+          })
           .join("")}
       </tbody>
     </table>
@@ -3849,9 +7633,53 @@ function bindChecklistEvents(node, unit) {
   });
 
   wrapper.querySelectorAll("[data-item-remove]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
+      const removed = unit.checkItems.find((entry) => entry.id === button.dataset.itemRemove);
+      if (!removed) return;
+      const confirmed = confirmDeleteAction(`checklist item "${removed.description || removed.code || removed.id}"`);
+      if (!confirmed) return;
+      await saveTrashRecord({
+        storeName: UNIT_STORE,
+        recordId: `${unit.id}:${removed.id}`,
+        label: `Checklist item: ${removed.description || removed.code || removed.id}`,
+        scope: unit.projectName || unit.unitCode || "units",
+        payload: removed,
+        restoreType: "unit-check-item",
+        context: { unitId: unit.id },
+      });
       unit.checkItems = unit.checkItems.filter((entry) => entry.id !== button.dataset.itemRemove);
-      saveUnitWithAudit(unit, `Item removido do checklist: ${button.dataset.itemRemove}`);
+      await saveUnitWithAudit(unit, `Item removed from checklist: ${removed.description || removed.id}`);
+    });
+  });
+
+  wrapper.querySelectorAll("[data-item-qr-print]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = unit.checkItems.find((entry) => entry.id === button.dataset.itemQrPrint);
+      if (!item) return;
+      openUnitChecklistQrLabels(unit, item, { autoPrint: true });
+    });
+  });
+
+  wrapper.querySelectorAll("[data-item-qr-png]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = unit.checkItems.find((entry) => entry.id === button.dataset.itemQrPng);
+      if (!item) return;
+      downloadUnitChecklistQrPng(item);
+    });
+  });
+
+  wrapper.querySelectorAll("[data-item-qr-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const item = unit.checkItems.find((entry) => entry.id === button.dataset.itemQrCopy);
+      if (!item) return;
+      const qrCodes = unitChecklistQrCodesText(item);
+      if (!qrCodes.length) return;
+      const text = qrCodes.join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        window.prompt("Copy QR code(s):", text);
+      }
     });
   });
 }
@@ -4095,10 +7923,22 @@ function renderUnits() {
       });
 
       dispatchTable.querySelectorAll("[data-dispatch-del]").forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", async () => {
           const row = unit.dispatchTasks.find((entry) => entry.id === button.dataset.dispatchDel);
+          if (!row) return;
+          const confirmed = confirmDeleteAction(`dispatch task "${row.item || row.id}"`);
+          if (!confirmed) return;
+          await saveTrashRecord({
+            storeName: UNIT_STORE,
+            recordId: `${unit.id}:${row.id}`,
+            label: `Dispatch task: ${row.item || row.id}`,
+            scope: unit.projectName || unit.unitCode || "units",
+            payload: row,
+            restoreType: "unit-dispatch-task",
+            context: { unitId: unit.id },
+          });
           unit.dispatchTasks = unit.dispatchTasks.filter((entry) => entry.id !== button.dataset.dispatchDel);
-          saveUnitWithAudit(unit, `Tarefa de envio removida: ${row?.item || button.dataset.dispatchDel}`);
+          await saveUnitWithAudit(unit, `Dispatch task removed: ${row?.item || button.dataset.dispatchDel}`);
         });
       });
     }
@@ -4119,8 +7959,13 @@ function renderUnits() {
 
     const siteForm = node.querySelector(".site-receive-form");
     const siteTable = node.querySelector(".site-receive-table");
+    const siteScanBtn = siteForm.querySelector(".sr-scan-btn");
     const canSiteReceive = can("siteReceive");
     if (!canSiteReceive) siteForm.querySelectorAll("input,select,button").forEach((el) => (el.disabled = true));
+    siteScanBtn?.addEventListener("click", async () => {
+      if (!canSiteReceive) return;
+      await scanQrIntoInput(siteForm.querySelector(".sr-qr"), "Scan QR for site receive");
+    });
     renderSiteReceiveTable(siteTable, unit, canSiteReceive);
 
     siteForm.addEventListener("submit", async (event) => {
@@ -4135,12 +7980,12 @@ function renderUnits() {
       if (qrCode) {
         const qrContainer = findQrItemContainer(qrCode, unit.projectId);
         if (!qrContainer) {
-          alert("QR nao encontrado para este projeto.");
+          alert("QR not found for this project.");
           return;
         }
         const qrItem = qrContainer.qrItems.find((entry) => entry.qrCode === qrCode);
         if (!qrItem) {
-          alert("QR nao encontrado.");
+          alert("QR not found.");
           return;
         }
 
@@ -4172,37 +8017,23 @@ function renderUnits() {
         qrItem.issueNote = issue === "ok" ? "" : note;
         qrItem.status = issue === "ok" ? "received" : "issue";
         qrItem.updatedAt = now;
+        appendQrFlowEvent(qrContainer, qrItem, {
+          stage: "delivery",
+          status: issue === "ok" ? "completed" : "issue",
+          issueType: issue === "ok" ? "" : issue,
+          note,
+          source: "site-receive",
+          unit,
+          at: now,
+        });
+        applyStageToUnitFromQr(unit, "delivery", issue === "ok" ? "completed" : "issue", note, now);
+        unit.updatedAt = now;
 
         if (issue !== "ok") {
           const issueLine = `${effectiveItem} (${effectiveQty}) -> ${issue}${note ? ` | ${note}` : ""}`;
           unit.issuesText = unit.issuesText ? `${unit.issuesText}\n${issueLine}` : issueLine;
-          const queueEntry = {
-            id: uid(),
-            createdAt: now,
-            qrCode: qrItem.qrCode,
-            code: qrItem.code,
-            description: qrItem.description || effectiveItem,
-            unitId: unit.id,
-            unitLabel: unit.unitCode,
-            issueType: issue,
-            note,
-            kitchenType: qrItem.kitchenType || "",
-            clientId: qrContainer.clientId,
-            projectId: qrContainer.projectId,
-            byUserId: currentUser.id,
-            byName: currentUser.name,
-          };
-          if (qrIssueRoutesToFactory(issue)) {
-            qrContainer.factoryMissingQueue.push(queueEntry);
-          } else {
-            qrContainer.replacementQueue.push(queueEntry);
-          }
+          pushQrIssueQueue(qrContainer, qrItem, unit, issue, note, { source: "site-receive", at: now });
         }
-
-        qrContainer.auditLog = pushAudit(
-          qrContainer.auditLog,
-          `QR receipt ${qrItem.qrCode} at unit ${unit.unitCode} with status ${issue}${note ? ` (${note})` : ""}`
-        );
 
         siteForm.reset();
         await saveUnitAndContainer(unit, qrContainer, `Site job receipt by QR: ${effectiveItem} (${effectiveQty}) - ${issue}`);
@@ -4267,10 +8098,22 @@ function renderUnits() {
       });
 
       siteTable.querySelectorAll("[data-receive-del]").forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", async () => {
           const row = unit.siteReceipts.find((entry) => entry.id === button.dataset.receiveDel);
+          if (!row) return;
+          const confirmed = confirmDeleteAction(`site receipt "${row.item || row.id}"`);
+          if (!confirmed) return;
+          await saveTrashRecord({
+            storeName: UNIT_STORE,
+            recordId: `${unit.id}:${row.id}`,
+            label: `Site receipt: ${row.item || row.id}`,
+            scope: unit.projectName || unit.unitCode || "units",
+            payload: row,
+            restoreType: "unit-site-receipt",
+            context: { unitId: unit.id },
+          });
           unit.siteReceipts = unit.siteReceipts.filter((entry) => entry.id !== button.dataset.receiveDel);
-          saveUnitWithAudit(unit, `Receipt removed: ${row?.item || button.dataset.receiveDel}`);
+          await saveUnitWithAudit(unit, `Receipt removed: ${row?.item || button.dataset.receiveDel}`);
         });
       });
     }
@@ -4279,7 +8122,19 @@ function renderUnits() {
     if (auditTable) renderAuditTable(auditTable, unit);
 
     const checkForm = node.querySelector(".check-item-form");
+    const addDefaultsBtn = node.querySelector(".add-default-items-btn");
     if (!can("checklist")) checkForm.querySelectorAll("input,select,button").forEach((el) => (el.disabled = true));
+    if (!can("checklist") && addDefaultsBtn) addDefaultsBtn.disabled = true;
+
+    addDefaultsBtn?.addEventListener("click", () => {
+      if (!can("checklist")) return;
+      const added = addDefaultChecklistItemsToUnit(unit);
+      if (!added) {
+        alert("All default materials are already in this unit.");
+        return;
+      }
+      saveUnitWithAudit(unit, `${added} default material item(s) with QR codes added.`);
+    });
 
     checkForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -4287,26 +8142,32 @@ function renderUnits() {
 
       const code = checkForm.querySelector(".ci-code").value.trim();
       const description = checkForm.querySelector(".ci-desc").value.trim();
-      const expectedQty = Number(checkForm.querySelector(".ci-exp").value || 0);
+      const expectedQty = Number(checkForm.querySelector(".ci-exp").value || 1);
       const checkedQty = Number(checkForm.querySelector(".ci-got").value || 0);
       const status = checkForm.querySelector(".ci-status").value;
 
       if (!description) return;
 
-      unit.checkItems.push({
-        id: uid(),
-        code,
-        description,
-        expectedQty,
-        checkedQty,
-        status,
-        note: "",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+      const createdItem = createCheckItem(
+        {
+          code,
+          description,
+          expectedQty: Math.max(1, Math.trunc(expectedQty || 1)),
+          checkedQty,
+          status,
+        },
+        unit,
+        unit.checkItems.length
+      );
+      unit.checkItems.push(createdItem);
 
       checkForm.reset();
-      saveUnitWithAudit(unit, `Item adicionado ao checklist: ${description}`);
+      saveUnitWithAudit(
+        unit,
+        `Checklist item added: ${description} (${createdItem.expectedQty} piece${createdItem.expectedQty === 1 ? "" : "s"}) with ${
+          createdItem.qrItems.length
+        } QR label(s)`
+      );
     });
 
     bindChecklistEvents(node, unit);
@@ -4337,12 +8198,17 @@ function renderUnits() {
       }>x</button>`;
       p.querySelector("button").addEventListener("click", async () => {
         if (!can("photos")) return;
+        const confirmed = confirmDeleteAction(`photo "${photo.name || photo.id}"`);
+        if (!confirmed) return;
         pushAppAudit(
           `[Unit ${unit.unitCode || unit.id}] Photo removed: ${photo.name || photo.id}`,
           "unit-change",
           unit.projectName || "-"
         );
-        await del(PHOTO_STORE, photo.id);
+        await trashDeleteRecord(PHOTO_STORE, photo, {
+          label: `Photo: ${photo.name || photo.id}`,
+          scope: unit.projectName || unit.unitCode || "photos",
+        });
         await loadAll();
         render();
         queueAutoSync();
@@ -4354,10 +8220,15 @@ function renderUnits() {
     deleteBtn.classList.toggle("hidden", !can("deleteUnit"));
     deleteBtn.addEventListener("click", async () => {
       if (!can("deleteUnit")) return;
+      const confirmed = confirmDeleteAction(`unit "${unit.unitCode || unit.id}"`);
+      if (!confirmed) return;
       pushAppAudit(`[Unit ${unit.unitCode || unit.id}] Unit deleted`, "unit-change", unit.projectName || "-");
-      await del(UNIT_STORE, unit.id);
       const toDelete = photosByUnit.get(unit.id) || [];
-      await Promise.all(toDelete.map((photo) => del(PHOTO_STORE, photo.id)));
+      await trashDeleteRecord(UNIT_STORE, unit, {
+        label: `Unit: ${unit.unitCode || unit.id}`,
+        scope: unit.projectName || "units",
+        relatedRecords: toDelete.map((photo) => ({ storeName: PHOTO_STORE, payload: photo })),
+      });
       await loadAll();
       render();
       queueAutoSync();
@@ -4372,28 +8243,56 @@ function renderUnits() {
   }
 }
 
+function isPendingUserAssignment(user) {
+  return userAccessProfile(user) === "visitor";
+}
+
+function setUsersSubView(view = "directory") {
+  const normalized = view === "registration" ? "registration" : "directory";
+  usersSubView = normalized;
+  usersDirectoryView?.classList.toggle("hidden", normalized !== "directory");
+  usersRegistrationView?.classList.toggle("hidden", normalized !== "registration");
+  usersRegistrationTabBtn?.classList.toggle("active", normalized === "registration");
+  usersDirectoryTabBtn?.classList.toggle("active", normalized === "directory");
+}
+
+function openUsersRegistrationClean() {
+  resetAdminUserForm();
+  setUserAdminFormOpen(false);
+  setUsersSubView("registration");
+  syncSelectedUserRow();
+}
+
 function resetAdminUserForm() {
   if (!userForm) return;
   adminEditingUserId = "";
   userForm.reset();
-  userForm.role.value = "visitor";
+  userForm.accessProfile.value = "visitor";
   userForm.employmentType.value = "tag";
+  if (userAdminGenderSelect) userAdminGenderSelect.value = "unspecified";
   toggleSubcontractorExtras("admin", "tag");
   if (userAdminTarget) userAdminTarget.textContent = "Creating a new user.";
-  if (userAdminPhotoPreview) {
-    userAdminPhotoPreview.removeAttribute("src");
-    userAdminPhotoPreview.classList.add("hidden");
-  }
+  setAvatarPreview(userAdminPhotoPreview, defaultAvatarForGender(userAdminGenderSelect?.value || "unspecified"));
   if (userAdminCoiFileStatus) userAdminCoiFileStatus.textContent = "No COI file attached.";
   if (openUserAdminCoiFileBtn) openUserAdminCoiFileBtn.classList.add("hidden");
   if (userFormDeleteBtn) userFormDeleteBtn.disabled = true;
+  renderUserIdCard(null);
+}
+
+function setUserAdminFormOpen(open) {
+  userAdminFormOpen = Boolean(open);
+  if (!userFormPanel) return;
+  userFormPanel.classList.remove("hidden");
+  userFormPanel.classList.toggle("users-form-editing", userAdminFormOpen);
 }
 
 function populateAdminUserForm(user) {
   if (!userForm || !user) return;
   adminEditingUserId = user.id;
+  setUserAdminFormOpen(true);
   userForm.firstName.value = user.firstName || "";
   userForm.lastName.value = user.lastName || "";
+  userForm.birthDate.value = normalizeDateField(user.birthDate);
   userForm.companyName.value = user.companyName || "";
   userForm.jobTitle.value = user.jobTitle || "";
   userForm.employmentType.value = user.employmentType || "tag";
@@ -4408,21 +8307,14 @@ function populateAdminUserForm(user) {
   userForm.email.value = user.email || "";
   userForm.username.value = user.username || "";
   userForm.password.value = "";
-  userForm.role.value = user.role || "visitor";
+  userForm.accessProfile.value = userAccessProfile(user);
+  if (userAdminGenderSelect) userAdminGenderSelect.value = normalizeGender(user.gender);
   const photoInput = userForm.querySelector('input[name="photo"]');
   if (photoInput) photoInput.value = "";
   const contractorFileInput = userForm.querySelector('input[name="contractorCoiFile"]');
   if (contractorFileInput) contractorFileInput.value = "";
   if (userAdminTarget) userAdminTarget.textContent = `Editing user: ${user.name || user.username}`;
-  if (userAdminPhotoPreview) {
-    if (user.photoDataUrl) {
-      userAdminPhotoPreview.src = user.photoDataUrl;
-      userAdminPhotoPreview.classList.remove("hidden");
-    } else {
-      userAdminPhotoPreview.removeAttribute("src");
-      userAdminPhotoPreview.classList.add("hidden");
-    }
-  }
+  setAvatarPreview(userAdminPhotoPreview, userAvatarSrc(user));
   if (userAdminCoiFileStatus) {
     userAdminCoiFileStatus.textContent = user.contractorCoiFile?.name
       ? `Current file: ${user.contractorCoiFile.name}`
@@ -4430,6 +8322,7 @@ function populateAdminUserForm(user) {
   }
   if (openUserAdminCoiFileBtn) openUserAdminCoiFileBtn.classList.toggle("hidden", !user.contractorCoiFile?.dataUrl);
   if (userFormDeleteBtn) userFormDeleteBtn.disabled = user.id === currentUser?.id;
+  renderUserIdCard(user);
 }
 
 function syncSelectedUserRow() {
@@ -4452,39 +8345,46 @@ function selectAdminUser(userId) {
 
 function renderUsers() {
   if (!can("manageUsers")) {
+    setUsersSubView("directory");
+    setUserAdminFormOpen(false);
     usersPanel.classList.add("hidden");
     return;
   }
 
   usersPanel.classList.remove("hidden");
+  setUsersSubView(usersSubView);
 
   const visibleUsers = users.filter((user) => {
     if (!canAccessEmployeeRecord(user)) return false;
     if (isDeveloper()) return usersFilterMatches(user);
-    if (user.role === "developer" || isPrimaryDeveloperUser(user)) return false;
+    if (userAccessProfile(user) === "developer" || isPrimaryDeveloperUser(user)) return false;
     return usersFilterMatches(user);
   });
 
-  const userRoleSelect = userForm?.querySelector('select[name="role"]');
-  if (userRoleSelect) {
-    const developerOption = userRoleSelect.querySelector('option[value="developer"]');
+  const userAccessProfileSelect = userForm?.querySelector('select[name="accessProfile"]');
+  if (userAccessProfileSelect) {
+    const developerOption = userAccessProfileSelect.querySelector('option[value="developer"]');
     if (developerOption) developerOption.hidden = !isDeveloper();
-    if (!isDeveloper() && userRoleSelect.value === "developer") userRoleSelect.value = "admin";
+    if (!isDeveloper() && userAccessProfileSelect.value === "developer") userAccessProfileSelect.value = "admin";
   }
 
   if (!adminEditingUserId && userForm && !userForm.dataset.ready) {
     resetAdminUserForm();
     userForm.dataset.ready = "1";
+    setUserAdminFormOpen(false);
   }
 
   if (usersNameRail) {
     const nameRows = visibleUsers
-      .map(
-        (user) => `<button class="users-name-btn" type="button" data-user-rail="${user.id}">
+      .map((user) => {
+        const profile = userAccessProfile(user);
+        const pendingAssignment = isPendingUserAssignment(user);
+        return `<button class="users-name-btn${pendingAssignment ? " pending-assignment" : ""}" type="button" data-user-rail="${user.id}">
           ${escapeHtml(user.name || user.username || "-")}
-          <small>${escapeHtml(user.role || "visitor")} • ${escapeHtml(user.companyName || "No company")}</small>
-        </button>`
-      )
+          <small>${escapeHtml(roleLabel(profile))} • ${escapeHtml(user.companyName || "No company")}</small>
+          ${pendingAssignment ? '<span class="pending-assignment-chip">Pending assignment</span>' : ""}
+        </button>`;
+      })
       .join("");
     usersNameRail.innerHTML = nameRows || '<p class="hint">No users available.</p>';
     usersNameRail.querySelectorAll("[data-user-rail]").forEach((button) => {
@@ -4495,22 +8395,29 @@ function renderUsers() {
   }
 
   const rows = visibleUsers
-    .map(
-      (user) => `<tr data-user-row="${user.id}">
-      <td>${user.photoDataUrl ? `<img class="avatar-xs" src="${user.photoDataUrl}" alt="${escapeHtml(user.name)}" />` : "-"}</td>
+    .map((user) => {
+      const avatarSrc = userAvatarSrc(user);
+      const profile = userAccessProfile(user);
+      const pendingAssignment = isPendingUserAssignment(user);
+      return `<tr data-user-row="${user.id}" class="${pendingAssignment ? "user-pending-assignment" : ""}">
+      <td>${avatarSrc ? `<img class="avatar-xs" src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(user.name || user.username || "User")}" />` : ""}</td>
       <td>${escapeHtml(user.name)}</td>
       <td>${escapeHtml(user.companyName || "-")}</td>
       <td>${escapeHtml(user.jobTitle || "-")}</td>
       <td>${escapeHtml(user.employmentType || "-")}</td>
       <td>${escapeHtml(user.email || "-")}</td>
       <td>${escapeHtml(user.username)}</td>
-      <td>${escapeHtml(roleLabel(user.role || "visitor"))}</td>
+      <td>${
+        pendingAssignment
+          ? '<span class="pending-assignment-pill">Pending assignment (Visitor)</span>'
+          : escapeHtml(roleLabel(profile))
+      }</td>
       <td>${fmtDate(user.updatedAt)}</td>
-    </tr>`
-    )
+    </tr>`;
+    })
     .join("");
 
-  usersTable.innerHTML = `<table class="data-table"><thead><tr><th>Photo</th><th>Name</th><th>Company</th><th>Role</th><th>Type</th><th>Email</th><th>User</th><th>Profile</th><th>Updated</th></tr></thead><tbody>${
+  usersTable.innerHTML = `<table class="data-table"><thead><tr><th>Photo</th><th>Name</th><th>Company</th><th>Job Title</th><th>Type</th><th>Email</th><th>User</th><th>Access Profile</th><th>Updated</th></tr></thead><tbody>${
     rows || '<tr><td colspan="9">No visible users.</td></tr>'
   }</tbody></table>`;
 
@@ -4528,7 +8435,12 @@ function renderUsers() {
   if (adminEditingUserId) {
     const selected = users.find((entry) => entry.id === adminEditingUserId);
     if (selected) populateAdminUserForm(selected);
-    else resetAdminUserForm();
+    else {
+      resetAdminUserForm();
+      setUserAdminFormOpen(false);
+    }
+  } else {
+    if (!userAdminFormOpen) renderUserIdCard(null);
   }
   syncSelectedUserRow();
 }
@@ -4537,6 +8449,7 @@ function populateUserEditForm(user) {
   if (!userEditForm || !user) return;
   userEditForm.firstName.value = user.firstName || "";
   userEditForm.lastName.value = user.lastName || "";
+  userEditForm.birthDate.value = normalizeDateField(user.birthDate);
   userEditForm.companyName.value = user.companyName || "";
   userEditForm.jobTitle.value = user.jobTitle || "";
   userEditForm.employmentType.value = user.employmentType || "tag";
@@ -4549,11 +8462,12 @@ function populateUserEditForm(user) {
   userEditForm.phone.value = maskPhoneValue(user.phone || "");
   userEditForm.cellPhone.value = maskPhoneValue(user.cellPhone || "");
   userEditForm.email.value = user.email || "";
+  if (userEditGenderSelect) userEditGenderSelect.value = normalizeGender(user.gender);
   const photoInput = userEditForm.querySelector('input[name="photo"]');
   if (photoInput) photoInput.value = "";
   const contractorFileInput = userEditForm.querySelector('input[name="contractorCoiFile"]');
   if (contractorFileInput) contractorFileInput.value = "";
-  if (userEditTarget) userEditTarget.textContent = `Editando: ${user.name || user.username}`;
+  if (userEditTarget) userEditTarget.textContent = `Editing: ${user.name || user.username}`;
   if (userEditCoiFileStatus) {
     if (user.contractorCoiFile?.name) {
       userEditCoiFileStatus.textContent = `Current file: ${user.contractorCoiFile.name}`;
@@ -4564,26 +8478,18 @@ function populateUserEditForm(user) {
   if (openUserEditCoiFileBtn) {
     openUserEditCoiFileBtn.classList.toggle("hidden", !user.contractorCoiFile?.dataUrl);
   }
-  if (userEditPhotoPreview) {
-    if (user.photoDataUrl) {
-      userEditPhotoPreview.src = user.photoDataUrl;
-      userEditPhotoPreview.classList.remove("hidden");
-    } else {
-      userEditPhotoPreview.removeAttribute("src");
-      userEditPhotoPreview.classList.add("hidden");
-    }
-  }
+  setAvatarPreview(userEditPhotoPreview, userAvatarSrc(user));
 }
 
 function openUserEdit(userId, returnView = "users") {
   if (!currentUser) return;
-  if (currentUser.role === "warehouse" && userId !== currentUser.id) return;
+  if (userAccessProfile(currentUser) === "warehouse" && userId !== currentUser.id) return;
   if (!isDeveloper() && !isAdmin() && userId !== currentUser.id) return;
   const user = users.find((entry) => entry.id === userId);
   if (!user) return;
   if (!canAccessEmployeeRecord(user)) return;
-  if (!isDeveloper() && user.role === "developer" && user.id !== currentUser.id) {
-    alert("Somente developer pode editar contas de developer.");
+  if (!isDeveloper() && (userAccessProfile(user) === "developer" || isPrimaryDeveloperUser(user))) {
+    alert("Only developer can edit developer accounts.");
     return;
   }
   editingUserId = user.id;
@@ -4676,6 +8582,7 @@ function renderHomePanel() {
   const isCatalogAdmin = can("manageCatalog");
   const canManageUsers = can("manageUsers");
   const canProjects = canOpenView("projects");
+  const canManufacture = canOpenView("manufacture");
   const canReports = can("report");
   const isDev = isDeveloper();
   const visibleSectors = new Set(allowedProjectSectors());
@@ -4685,25 +8592,56 @@ function renderHomePanel() {
       el.classList.toggle("hidden", !visible);
     });
   };
+  const toggleNavGroup = (group, visible) => {
+    document.querySelectorAll(`[data-nav-group="${group}"]`).forEach((el) => {
+      el.classList.toggle("hidden", !visible);
+    });
+  };
 
+  toggleNavGroup("users", canManageUsers);
   toggleNav("developer", isDev);
   toggleNav("users", canManageUsers);
+  toggleNav("usersRegistration", canManageUsers);
+  toggleNav("usersPeople", canManageUsers);
   toggleNav("subcontractors", canManageUsers);
+  toggleNavGroup("partners", canManageUsers);
   toggleNav("partners", canManageUsers);
+  toggleNav("partnersManufacturers", canManageUsers);
+  toggleNav("partnersConstructionMaterials", canManageUsers);
+  toggleNav("partnersImporters", canManageUsers);
+  toggleNav("partnersCarriers", canManageUsers);
+  toggleNav("partnersTruckDeliveries", canManageUsers);
+  toggleNavGroup("manufacture", canManufacture);
+  toggleNav("manufacture", canManufacture);
+  toggleNav("manufactureSchedule", canManufacture);
+  toggleNav("manufactureCatalog", canManufacture);
+  toggleNav("manufactureSolicitation", canManufacture);
+  toggleNavGroup("clients", isCatalogAdmin);
   toggleNav("clients", isCatalogAdmin);
-  toggleNav("projects", canProjects);
-  toggleNav("warehouse", canProjects && visibleSectors.has("warehouse"));
-  toggleNav("delivery", canProjects && visibleSectors.has("delivery"));
+  toggleNav("clientsNew", isCatalogAdmin);
+  toggleNav("clientsProjects", isCatalogAdmin);
+  toggleNav("clientsContracts", isCatalogAdmin);
+  toggleNav("projects", false);
+  const canWarehouseGroup = canProjects && (visibleSectors.has("warehouse") || visibleSectors.has("delivery"));
+  toggleNavGroup("warehouse", canWarehouseGroup);
+  toggleNav("warehouse", canWarehouseGroup);
+  toggleNav("warehouseDeliverySchedule", canProjects && visibleSectors.has("delivery"));
+  toggleNav("warehouseDeliveryInventory", canProjects && visibleSectors.has("delivery"));
+  toggleNav("warehouseQrScan", canProjects && visibleSectors.has("delivery"));
+  toggleNav("warehouseOperations", canWarehouseGroup);
+  toggleNav("delivery", false);
   toggleNav("distribution", canProjects && visibleSectors.has("distribuicao"));
   toggleNav("installation", canProjects && visibleSectors.has("instalacao"));
   toggleNav("changeOrders", canProjects && visibleSectors.has("punchlist"));
   toggleNav("projectReports", canProjects && canReports);
+  toggleNav("ocrImporter", can("manageCatalog") || can("manageContainerManifest") || isAdmin() || isDeveloper());
   renderCoiReminderPanel();
 }
 
 function renderRoleStrip() {
-  roleLine.textContent = `User: ${currentUser.name} | Role: ${roleLabel(currentUser.role)}`;
-  permissionLine.textContent = rolePermissionsSummary(currentUser.role);
+  const accessProfile = userAccessProfile(currentUser);
+  roleLine.textContent = `User: ${currentUser.name} | Access Profile: ${roleLabel(accessProfile)}`;
+  permissionLine.textContent = rolePermissionsSummary(accessProfile);
 }
 
 function renderDeveloperAuditPanel() {
@@ -4738,6 +8676,28 @@ function renderDeveloperAuditPanel() {
     )
     .join("");
 
+  const deletedRows = ensureArray(trashRecords)
+    .slice()
+    .sort((a, b) => new Date(b.deletedAt || 0).getTime() - new Date(a.deletedAt || 0).getTime())
+    .slice(0, 600)
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(fmtDate(entry.deletedAt))}</td>
+        <td>${escapeHtml(entry.deletedByName || "-")}</td>
+        <td>${escapeHtml(trashStoreLabel(entry.storeName))}</td>
+        <td>${escapeHtml(entry.scope || "-")}</td>
+        <td>${escapeHtml(entry.label || entry.recordId || "-")}</td>
+        <td>${escapeHtml(formatTrashTimeLeft(entry))}</td>
+        <td>
+          <div class="actions-inline">
+            <button class="secondary xs-btn" type="button" data-trash-restore="${escapeHtml(entry.id)}">Restore</button>
+            <button class="danger xs-btn" type="button" data-trash-delete="${escapeHtml(entry.id)}">Delete forever</button>
+          </div>
+        </td>
+      </tr>`
+    )
+    .join("");
+
   developerAuditPanel.classList.remove("hidden");
   developerAuditPanel.innerHTML = `
     <h3>Audit Log (Developer)</h3>
@@ -4757,7 +8717,61 @@ function renderDeveloperAuditPanel() {
         <tbody>${rows || '<tr><td colspan="6">No audited changes found.</td></tr>'}</tbody>
       </table>
     </div>
+    <details class="trash-recovery-box">
+      <summary><strong>Deleted Records Recovery (${RESTORE_WINDOW_LABEL})</strong></summary>
+      <p class="hint">Hidden recycle area for deletes. Restore window is ${RESTORE_WINDOW_LABEL}.</p>
+      <div class="row">
+        <button class="secondary xs-btn" type="button" data-trash-purge-expired>Purge expired now</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Deleted at</th>
+              <th>Deleted by</th>
+              <th>Store</th>
+              <th>Scope</th>
+              <th>Item</th>
+              <th>Time left</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${deletedRows || '<tr><td colspan="7">No deleted records available for restore.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </details>
   `;
+
+  developerAuditPanel.querySelectorAll("[data-trash-restore]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const target = trashRecords.find((entry) => entry.id === button.dataset.trashRestore);
+      if (!target) return;
+      const confirmed = window.confirm(`Restore "${target.label || target.recordId || target.id}" now?`);
+      if (!confirmed) return;
+      await restoreTrashRecord(target.id);
+    });
+  });
+
+  developerAuditPanel.querySelectorAll("[data-trash-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const target = trashRecords.find((entry) => entry.id === button.dataset.trashDelete);
+      if (!target) return;
+      const confirmed = window.confirm(`Delete "${target.label || target.recordId || target.id}" permanently?`);
+      if (!confirmed) return;
+      await permanentlyDeleteTrashRecord(target.id);
+      await loadAll();
+      render();
+      queueAutoSync();
+    });
+  });
+
+  const purgeBtn = developerAuditPanel.querySelector("[data-trash-purge-expired]");
+  purgeBtn?.addEventListener("click", async () => {
+    const purgedCount = await purgeExpiredTrashRecords();
+    await loadAll();
+    render();
+    if (purgedCount) queueAutoSync();
+  });
 }
 
 function renderSyncPanel() {
@@ -4770,7 +8784,18 @@ function renderSyncPanel() {
   syncConfigForm.tenant.value = syncConfig.tenant;
   syncConfigForm.autoSync.value = String(syncConfig.autoSync);
 
-  const statusText = syncConfig.lastSyncAt ? `Last sync: ${fmtDate(syncConfig.lastSyncAt)}` : t("Sem sincronizacao");
+  const presetLocked = hasPresetSyncConfig();
+  syncConfigForm.querySelectorAll('input[name="supabaseUrl"], input[name="supabaseAnonKey"], input[name="tenant"]').forEach((field) => {
+    field.disabled = presetLocked;
+  });
+  const syncSaveBtn = syncConfigForm.querySelector('button[type="submit"]');
+  if (syncSaveBtn) syncSaveBtn.disabled = presetLocked;
+
+  const statusText = presetLocked
+    ? "Cloud sync is centrally configured for all devices."
+    : syncConfig.lastSyncAt
+      ? `Last sync: ${fmtDate(syncConfig.lastSyncAt)}`
+      : t("Sem sincronizacao");
   updateSyncStatus(statusText, false);
   renderDeveloperAuditPanel();
 }
@@ -4780,19 +8805,49 @@ function renderQrLookupPanel() {
   qrLookupPanel.classList.toggle("hidden", !currentUser);
   if (!currentUser) return;
 
+  populateQrFlowUnitSelect();
+  syncQrFlowStageOptions();
+  updateQrFlowStageCustomVisibility();
+  updateQrFlowIssueVisibility();
+  renderQrFlowAccessHint();
+  const canEditWorkflow = canUpdateQrWorkflow();
+  if (qrFlowForm) {
+    qrFlowForm.querySelectorAll("input,select,button").forEach((field) => {
+      field.disabled = !canEditWorkflow;
+    });
+    if (qrFlowStageSelect) {
+      qrFlowStageSelect.disabled = !canEditWorkflow || Boolean(qrLockedStageForCurrentUser());
+    }
+    if (canEditWorkflow) {
+      syncQrFlowStageOptions();
+      updateQrFlowStageCustomVisibility();
+      updateQrFlowIssueVisibility();
+    }
+  }
+  if (!canEditWorkflow) {
+    setQrFlowResult("You have read-only access for QR workflow updates.");
+  }
+
   const lookupCode = String(lastQrLookupCode || "").trim();
   if (!lookupCode) {
-    qrLookupResult.innerHTML = `<p class="hint">Busque um QR para ver status, destino e historico completo.</p>`;
+    qrLookupResult.innerHTML = `<p class="hint">Search a QR code to view complete status, routing, and history.</p>`;
     return;
   }
 
   const snapshot = buildQrHistory(lookupCode);
   if (!snapshot) {
-    qrLookupResult.innerHTML = `<p class="hint">QR nao encontrado: ${escapeHtml(lookupCode)}</p>`;
+    qrLookupResult.innerHTML = `<p class="hint">QR not found: ${escapeHtml(lookupCode)}</p>`;
     return;
   }
 
   const { container, item, client, project, unit, events } = snapshot;
+  if (qrFlowCodeInput && !qrFlowCodeInput.value.trim()) qrFlowCodeInput.value = item.qrCode;
+  if (qrFlowUnitSelect) {
+    const flowUnit = item.unitId || unit?.id || "";
+    if (flowUnit && Array.from(qrFlowUnitSelect.options).some((entry) => entry.value === flowUnit)) {
+      qrFlowUnitSelect.value = flowUnit;
+    }
+  }
   const eventRows = events
     .map(
       (entry) => `<tr>
@@ -4808,7 +8863,8 @@ function renderQrLookupPanel() {
     <div class="kpi-grid">
       <div class="kpi-box"><span>QR</span><strong>${escapeHtml(item.qrCode)}</strong></div>
       <div class="kpi-box"><span>SKU</span><strong>${escapeHtml(item.code || "-")}</strong></div>
-      <div class="kpi-box"><span>Status</span><strong>${escapeHtml(item.status || "-")}</strong></div>
+      <div class="kpi-box"><span>Stage</span><strong>${escapeHtml(workflowStageLabel(item.flowStage || "warehouse"))}</strong></div>
+      <div class="kpi-box"><span>Status</span><strong>${escapeHtml(workflowStatusLabel(item.flowStatus || item.status))}</strong></div>
       <div class="kpi-box"><span>Container</span><strong>${escapeHtml(container.containerCode || "-")}</strong></div>
       <div class="kpi-box"><span>Client</span><strong>${escapeHtml(client?.name || "-")}</strong></div>
       <div class="kpi-box"><span>Project</span><strong>${escapeHtml(project?.name || "-")}</strong></div>
@@ -4816,8 +8872,8 @@ function renderQrLookupPanel() {
       <div class="kpi-box"><span>Kitchen Type</span><strong>${escapeHtml(item.kitchenType || "-")}</strong></div>
     </div>
     <div class="row">
-      <button class="secondary" type="button" data-lookup-print="${escapeHtml(item.id)}">Imprimir etiqueta (PDF/Print)</button>
-      <button class="secondary" type="button" data-lookup-png="${escapeHtml(item.id)}">Baixar etiqueta PNG</button>
+      <button class="secondary" type="button" data-lookup-print="${escapeHtml(item.id)}">Print label (PDF/Print)</button>
+      <button class="secondary" type="button" data-lookup-png="${escapeHtml(item.id)}">Download label PNG</button>
     </div>
     <table class="data-table">
       <thead><tr><th>Date</th><th>Source</th><th>Action</th><th>Detail</th></tr></thead>
@@ -4866,6 +8922,8 @@ function render() {
   renderStats();
   renderSyncPanel();
   renderQrLookupPanel();
+  renderDeliveryInventoryPanel();
+  renderOcrImporterPanel();
   renderUsers();
   renderUserEditPanel();
   renderAccessControl();
@@ -4875,6 +8933,7 @@ function render() {
 }
 
 function toUnit(formData) {
+  const unitId = uid();
   const projectId = formData.get("projectId")?.toString();
   const project = projectById(projectId);
   const client = project ? clientById(project.clientId) : null;
@@ -4882,26 +8941,23 @@ function toUnit(formData) {
   const projectScope = projectScopeSummary(project);
   const manualScope = formData.get("scopeWork")?.toString().trim() || "";
   const scopeWork = manualScope || projectScope;
-  const checkItems = projectChecklistTemplate(project).map((description) => ({
-    id: uid(),
-    code: "",
-    description,
-    expectedQty: 1,
-    checkedQty: 0,
-    status: "ok",
-    note: "",
-    createdAt: now,
-    updatedAt: now,
-  }));
-
-  return normalizeUnit({
-    id: uid(),
+  const unitCode = formData.get("unitCode")?.toString().trim();
+  const baseChecklist = uniqueTextList([...projectChecklistTemplate(project), ...UNIT_DEFAULT_QR_MATERIALS]);
+  const unitDraft = {
+    id: unitId,
     clientId: client?.id || "",
     projectId: project?.id || "",
     clientName: client?.name || formData.get("clientName")?.toString().trim(),
     projectName: project?.name || formData.get("projectName")?.toString().trim(),
+    unitCode,
+  };
+  const checkItems = baseChecklist.map((description, index) =>
+    createCheckItem({ code: "", description, expectedQty: 1, checkedQty: 0, status: "ok", createdAt: now, updatedAt: now }, unitDraft, index)
+  );
+
+  return normalizeUnit({
+    ...unitDraft,
     jobSite: formData.get("jobSite")?.toString().trim(),
-    unitCode: formData.get("unitCode")?.toString().trim(),
     building: formData.get("building")?.toString().trim(),
     floor: formData.get("floor")?.toString().trim(),
     category: formData.get("category")?.toString().trim(),
@@ -4938,11 +8994,27 @@ function syncEndpoint() {
   return `${url}/rest/v1/app_records`;
 }
 
-function toCloudRecords() {
+function normalizeSyncKinds(kinds) {
+  if (!Array.isArray(kinds) || kinds.length === 0) return null;
+  const validKinds = new Set(["unit", "photo", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "trash"]);
+  const normalized = kinds
+    .map((kind) => String(kind || "").trim())
+    .filter((kind) => validKinds.has(kind));
+  return normalized.length ? normalized : null;
+}
+
+function toCloudRecords({ kinds = null } = {}) {
   const tenant = syncConfig.tenant.trim();
+  const kindFilter = normalizeSyncKinds(kinds);
+  const sanitizeUserForSync = (user) => {
+    const clean = { ...user };
+    delete clean.legacyPassword;
+    delete clean.password;
+    return clean;
+  };
 
   const mapRecords = (arr, kind, updatedField = "updatedAt") =>
-    arr.map((item) => ({
+    (kindFilter && !kindFilter.includes(kind) ? [] : arr).map((item) => ({
       tenant,
       kind,
       id: item.id,
@@ -4950,32 +9022,49 @@ function toCloudRecords() {
       updated_at: item[updatedField] || item.createdAt || new Date().toISOString(),
     }));
 
+  const userRecords =
+    kindFilter && !kindFilter.includes("user")
+      ? []
+      : users.map((item) => ({
+          tenant,
+          kind: "user",
+          id: item.id,
+          payload: sanitizeUserForSync(item),
+          updated_at: item.updatedAt || item.createdAt || new Date().toISOString(),
+        }));
+
   return [
     ...mapRecords(units, "unit"),
     ...mapRecords(photos, "photo", "updatedAt"),
-    ...mapRecords(users, "user"),
+    ...userRecords,
     ...mapRecords(clients, "client"),
     ...mapRecords(projects, "project"),
     ...mapRecords(contacts, "contact"),
+    ...mapRecords(contracts, "contract"),
     ...mapRecords(containers, "container"),
     ...mapRecords(materials, "material"),
+    ...mapRecords(deliverySkuItems, "deliverySku"),
+    ...mapRecords(trashRecords, "trash"),
   ];
 }
 
-async function pushCloud({ silent = false } = {}) {
-  if (!can("sync")) return;
+async function pushCloud({ silent = false, force = false, kinds = null } = {}) {
+  if (!force && !can("sync")) return false;
   const endpoint = syncEndpoint();
   if (!endpoint) {
-    updateSyncStatus(t("Configurar Supabase URL/Key/Tenant"), true);
-    return;
+    if (!silent) updateSyncStatus(t("Configurar Supabase URL/Key/Tenant"), true);
+    return false;
   }
   if (!navigator.onLine) {
-    updateSyncStatus(t("Sem internet para sincronizar"), true);
-    return;
+    if (!silent) updateSyncStatus(t("Sem internet para sincronizar"), true);
+    return false;
   }
 
+  const records = toCloudRecords({ kinds });
+  if (!records.length) return true;
+
   try {
-    updateSyncStatus(t("Enviando dados..."));
+    if (!silent) updateSyncStatus(t("Enviando dados..."));
 
     const response = await fetch(`${endpoint}?on_conflict=tenant,kind,id`, {
       method: "POST",
@@ -4985,17 +9074,19 @@ async function pushCloud({ silent = false } = {}) {
         Authorization: `Bearer ${syncConfig.supabaseAnonKey}`,
         Prefer: "resolution=merge-duplicates,return=minimal",
       },
-      body: JSON.stringify(toCloudRecords()),
+      body: JSON.stringify(records),
     });
 
     if (!response.ok) throw new Error(await response.text());
 
     syncConfig.lastSyncAt = new Date().toISOString();
     await saveSetting({ id: "syncConfig", ...syncConfig });
-    updateSyncStatus(`${t("Push concluido:")} ${fmtDate(syncConfig.lastSyncAt)}`);
+    if (!silent) updateSyncStatus(`${t("Push concluido:")} ${fmtDate(syncConfig.lastSyncAt)}`);
+    return true;
   } catch (error) {
-    updateSyncStatus(t("Falha no push. Verifique a configuracao."), true);
+    if (!silent) updateSyncStatus(t("Falha no push. Verifique a configuracao."), true);
     if (!silent) console.error(error);
+    return false;
   }
 }
 
@@ -5003,26 +9094,31 @@ function newerThan(remoteTs, localTs) {
   return new Date(remoteTs || 0).getTime() > new Date(localTs || 0).getTime();
 }
 
-async function pullCloud() {
-  if (!can("sync")) return;
+async function pullCloud({ silent = false, force = false, kinds = null, full = false } = {}) {
+  if (!force && !can("sync")) return false;
   const endpoint = syncEndpoint();
   if (!endpoint) {
-    updateSyncStatus(t("Configurar Supabase URL/Key/Tenant"), true);
-    return;
+    if (!silent) updateSyncStatus(t("Configurar Supabase URL/Key/Tenant"), true);
+    return false;
   }
   if (!navigator.onLine) {
-    updateSyncStatus(t("Sem internet para sincronizar"), true);
-    return;
+    if (!silent) updateSyncStatus(t("Sem internet para sincronizar"), true);
+    return false;
   }
 
   try {
-    updateSyncStatus(t("Baixando dados..."));
+    if (!silent) updateSyncStatus(t("Baixando dados..."));
+    const normalizedKinds = normalizeSyncKinds(kinds);
+    const pullCursor = typeof syncConfig.lastPullCursor === "string" ? syncConfig.lastPullCursor : "";
     const qs = new URLSearchParams({
       select: "kind,id,payload,updated_at",
       tenant: `eq.${syncConfig.tenant.trim()}`,
       order: "updated_at.desc",
       limit: "20000",
     });
+
+    if (normalizedKinds) qs.set("kind", `in.(${normalizedKinds.join(",")})`);
+    if (!full && pullCursor) qs.set("updated_at", `gt.${pullCursor}`);
 
     const response = await fetch(`${endpoint}?${qs.toString()}`, {
       headers: {
@@ -5034,84 +9130,215 @@ async function pullCloud() {
     if (!response.ok) throw new Error(await response.text());
 
     const records = await response.json();
+    if (!records.length) {
+      syncConfig.lastSyncAt = new Date().toISOString();
+      await saveSetting({ id: "syncConfig", ...syncConfig });
+      if (!silent) updateSyncStatus(`${t("Pull concluido:")} ${fmtDate(syncConfig.lastSyncAt)}`);
+      return true;
+    }
+
+    let nextPullCursor = pullCursor;
+    let hasChanges = false;
     const unitMap = new Map(units.map((item) => [item.id, item]));
     const photoMap = new Map(photos.map((item) => [item.id, item]));
     const userMap = new Map(users.map((item) => [item.id, item]));
     const clientMap = new Map(clients.map((item) => [item.id, item]));
     const projectMap = new Map(projects.map((item) => [item.id, item]));
     const contactMap = new Map(contacts.map((item) => [item.id, item]));
+    const contractMap = new Map(contracts.map((item) => [item.id, item]));
     const containerMap = new Map(containers.map((item) => [item.id, item]));
     const materialMap = new Map(materials.map((item) => [item.id, item]));
+    const deliverySkuMap = new Map(deliverySkuItems.map((item) => [item.id, item]));
+    const trashMap = new Map(trashRecords.map((item) => [item.id, item]));
 
     for (const row of records) {
       const item = row.payload || {};
       const remoteUpdatedAt = item.updatedAt || row.updated_at || new Date().toISOString();
       item.updatedAt = remoteUpdatedAt;
+      if (!nextPullCursor || newerThan(remoteUpdatedAt, nextPullCursor)) nextPullCursor = remoteUpdatedAt;
 
       if (row.kind === "unit") {
         const local = unitMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) await put(UNIT_STORE, normalizeUnit(item));
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(UNIT_STORE, normalizeUnit(item));
+          hasChanges = true;
+        }
       }
 
       if (row.kind === "photo") {
         const local = photoMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt || local.createdAt)) await put(PHOTO_STORE, item);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt || local.createdAt)) {
+          await put(PHOTO_STORE, item);
+          hasChanges = true;
+        }
       }
 
       if (row.kind === "user") {
         const local = userMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) await put(USER_STORE, normalizeUser(item));
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(USER_STORE, normalizeUser(item));
+          hasChanges = true;
+        }
       }
 
       if (row.kind === "client") {
         const local = clientMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) await put(CLIENT_STORE, normalizeClient(item));
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(CLIENT_STORE, normalizeClient(item));
+          hasChanges = true;
+        }
       }
 
       if (row.kind === "project") {
         const local = projectMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) await put(PROJECT_STORE, normalizeProject(item));
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(PROJECT_STORE, normalizeProject(item));
+          hasChanges = true;
+        }
       }
 
       if (row.kind === "contact") {
         const local = contactMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) await put(CONTACT_STORE, normalizeContact(item));
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(CONTACT_STORE, normalizeContact(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "contract") {
+        const local = contractMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(CONTRACT_STORE, normalizeContract(item));
+          hasChanges = true;
+        }
       }
 
       if (row.kind === "container") {
         const local = containerMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) await put(CONTAINER_STORE, normalizeContainer(item));
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(CONTAINER_STORE, normalizeContainer(item));
+          hasChanges = true;
+        }
       }
 
       if (row.kind === "material") {
         const local = materialMap.get(item.id);
-        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) await put(MATERIAL_STORE, normalizeMaterial(item));
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(MATERIAL_STORE, normalizeMaterial(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "deliverySku") {
+        const local = deliverySkuMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(DELIVERY_SKU_STORE, normalizeDeliverySkuItem(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "trash") {
+        const local = trashMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(TRASH_STORE, normalizeTrashRecord(item));
+          hasChanges = true;
+        }
       }
     }
 
     syncConfig.lastSyncAt = new Date().toISOString();
+    if (nextPullCursor) syncConfig.lastPullCursor = nextPullCursor;
     await saveSetting({ id: "syncConfig", ...syncConfig });
-    await loadAll();
-
-    if (currentUser) currentUser = users.find((user) => user.id === currentUser.id) || currentUser;
-
-    render();
-    updateSyncStatus(`${t("Pull concluido:")} ${fmtDate(syncConfig.lastSyncAt)}`);
+    if (hasChanges) {
+      await loadAll();
+      if (currentUser) currentUser = users.find((user) => user.id === currentUser.id) || currentUser;
+      render();
+    }
+    if (!silent) updateSyncStatus(`${t("Pull concluido:")} ${fmtDate(syncConfig.lastSyncAt)}`);
+    return true;
   } catch (error) {
-    updateSyncStatus(t("Falha no pull. Verifique a configuracao."), true);
-    console.error(error);
+    if (!silent) updateSyncStatus(t("Falha no pull. Verifique a configuracao."), true);
+    if (!silent) console.error(error);
+    return false;
   }
 }
 
 function queueAutoSync() {
-  if (!can("sync")) return;
+  clearPendingFormChanges();
+  if (!syncEndpoint()) return;
   if (!syncConfig.autoSync) return;
   if (!navigator.onLine) return;
 
   clearTimeout(autoSyncTimer);
   autoSyncTimer = setTimeout(() => {
-    pushCloud({ silent: true });
+    pushCloud({ silent: true, force: true });
   }, 1200);
+}
+
+function formForSyncLock(target) {
+  if (!target) return null;
+  if (target.tagName === "FORM") return target;
+  if (typeof target.closest === "function") return target.closest("form");
+  return null;
+}
+
+function setFormSyncDirty(form, dirty) {
+  if (!form || !appMain?.contains(form)) return;
+  if (dirty) form.dataset.syncDirty = "1";
+  else delete form.dataset.syncDirty;
+}
+
+function clearPendingFormChanges() {
+  if (!appMain) return;
+  appMain.querySelectorAll("form[data-sync-dirty='1']").forEach((form) => {
+    delete form.dataset.syncDirty;
+  });
+}
+
+function hasPendingFormChanges() {
+  if (!appMain) return false;
+  return Boolean(appMain.querySelector("form[data-sync-dirty='1']"));
+}
+
+function blockAutoPullTemporarily(ms = AUTO_PULL_SUBMIT_GRACE_MS) {
+  autoPullBlockedUntil = Math.max(autoPullBlockedUntil, Date.now() + ms);
+}
+
+function isAutoPullTemporarilyBlocked() {
+  return Date.now() < autoPullBlockedUntil;
+}
+
+async function runAutoPullCycle() {
+  if (autoPullInFlight) return;
+  if (!currentUser) return;
+  if (!navigator.onLine) return;
+  if (!syncEndpoint()) return;
+  if (isAutoPullTemporarilyBlocked()) return;
+  if (hasPendingFormChanges()) return;
+
+  autoPullInFlight = true;
+  try {
+    await pullCloud({ silent: true, force: true, kinds: AUTO_PULL_KINDS });
+  } finally {
+    autoPullInFlight = false;
+  }
+}
+
+function stopAutoPullLoop() {
+  if (autoPullTimer) clearInterval(autoPullTimer);
+  autoPullTimer = null;
+}
+
+function startAutoPullLoop() {
+  stopAutoPullLoop();
+  if (!currentUser) return;
+  if (!navigator.onLine) return;
+  if (!syncEndpoint()) return;
+
+  autoPullTimer = setInterval(() => {
+    void runAutoPullCycle();
+  }, AUTO_PULL_INTERVAL_MS);
+  void runAutoPullCycle();
 }
 
 function reportShell(title, bodyHtml) {
@@ -5169,6 +9396,7 @@ function generateUnitReport(unitId) {
       (item) => `<tr>
       <td>${escapeHtml(item.code)}</td>
       <td>${escapeHtml(item.description)}</td>
+      <td>${escapeHtml(unitChecklistQrCodesText(item).join(", ") || "-")}</td>
       <td>${escapeHtml(item.expectedQty)}</td>
       <td>${escapeHtml(item.checkedQty)}</td>
       <td>${escapeHtml(statusBadge(item.status))}</td>
@@ -5230,8 +9458,8 @@ function generateUnitReport(unitId) {
 
       <h3>Detailed checklist</h3>
       <table>
-        <thead><tr><th>Code</th><th>Description</th><th>Expected Qty</th><th>Checked Qty</th><th>Status</th><th>Notes</th></tr></thead>
-        <tbody>${checklistRows || '<tr><td colspan="6">No items.</td></tr>'}</tbody>
+        <thead><tr><th>Code</th><th>Description</th><th>QR Codes</th><th>Expected Qty</th><th>Checked Qty</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>${checklistRows || '<tr><td colspan="7">No items.</td></tr>'}</tbody>
       </table>
 
       <h3>Warehouse movements (containers)</h3>
@@ -5242,7 +9470,7 @@ function generateUnitReport(unitId) {
 
       <h3>Project team</h3>
       <table>
-        <thead><tr><th>Name</th><th>Role</th><th>Company</th><th>Phone</th><th>Email</th></tr></thead>
+        <thead><tr><th>Name</th><th>Job Title Project</th><th>Company</th><th>Phone</th><th>Email</th></tr></thead>
         <tbody>${peopleRows || '<tr><td colspan="5">No linked people.</td></tr>'}</tbody>
       </table>
 
@@ -5361,28 +9589,8 @@ function generateProjectReport(projectId) {
   setTimeout(() => win.print(), 300);
 }
 
-setupForm.addEventListener("submit", async (event) => {
+setupForm?.addEventListener("submit", (event) => {
   event.preventDefault();
-  const data = new FormData(setupForm);
-
-  const user = {
-    id: uid(),
-    name: data.get("name")?.toString().trim(),
-    username: data.get("username")?.toString().trim().toLowerCase(),
-    passwordHash: await hashPassword(data.get("password")?.toString() || ""),
-    role: "developer",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  await put(USER_STORE, user);
-  await loadAll();
-  currentUser = user;
-  hasAutoDispatchedCoiReminder = false;
-  setSession(user.id);
-  window.history.replaceState(null, "", "#home");
-  setupForm.reset();
-  renderAuth();
 });
 
 openSignupBtn?.addEventListener("click", () => {
@@ -5408,14 +9616,56 @@ userAdminEmploymentTypeSelect?.addEventListener("change", () => {
   toggleSubcontractorExtras("admin", userAdminEmploymentTypeSelect.value);
 });
 
+const userAdminPhotoInput = userForm?.querySelector('input[name="photo"]');
+const userEditPhotoInput = userEditForm?.querySelector('input[name="photo"]');
+
+userAdminGenderSelect?.addEventListener("change", () => {
+  void refreshAdminPhotoPreview();
+});
+
+userEditGenderSelect?.addEventListener("change", () => {
+  void refreshUserEditPhotoPreview();
+});
+
+userAdminPhotoInput?.addEventListener("change", () => {
+  void refreshAdminPhotoPreview();
+});
+
+userEditPhotoInput?.addEventListener("change", () => {
+  void refreshUserEditPhotoPreview();
+});
+
+function refreshUserIdCardFromAdminForm() {
+  const selected = adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null;
+  renderUserIdCard(selected);
+}
+
+userForm?.addEventListener("input", () => {
+  refreshUserIdCardFromAdminForm();
+});
+
+userForm?.addEventListener("change", () => {
+  refreshUserIdCardFromAdminForm();
+});
+
 signupForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(signupForm);
   const username = data.get("username")?.toString().trim().toLowerCase();
   const firstName = data.get("firstName")?.toString().trim() || "";
   const lastName = data.get("lastName")?.toString().trim() || "";
+  const birthDate = normalizeDateField(data.get("birthDate"));
   const fullName = `${firstName} ${lastName}`.trim();
   if (!username) return;
+  if (!syncEndpoint()) {
+    alert("System database is not available on this device. Contact your administrator.");
+    return;
+  }
+  const syncedUsers = await pullCloud({ silent: true, force: true, kinds: ["user"] });
+  if (!syncedUsers) {
+    alert("Could not validate users in database right now. Check connection and try again.");
+    return;
+  }
   if (users.some((user) => user.username === username)) {
     alert(t("Usuario ja existe."));
     return;
@@ -5423,6 +9673,7 @@ signupForm?.addEventListener("submit", async (event) => {
   const photoFile = signupForm.querySelector('input[name="photo"]')?.files?.[0];
   const photoDataUrl = photoFile ? await fileToDataUrl(photoFile) : "";
   const employmentType = data.get("employmentType")?.toString() || "";
+  const gender = normalizeGender(data.get("gender"));
   const contractorAreas = employmentType === "subcontractor" ? collectCheckedValues(signupForm, "contractorAreas") : [];
   const contractorCoiExpiry = employmentType === "subcontractor" ? data.get("contractorCoiExpiry")?.toString() || "" : "";
   const contractorCoiFileRaw = signupForm.querySelector('input[name="contractorCoiFile"]')?.files?.[0] || null;
@@ -5451,6 +9702,7 @@ signupForm?.addEventListener("submit", async (event) => {
     name: fullName,
     firstName,
     lastName,
+    birthDate,
     companyName: data.get("companyName")?.toString().trim() || "",
     jobTitle: data.get("jobTitle")?.toString().trim() || "",
     employmentType,
@@ -5465,10 +9717,11 @@ signupForm?.addEventListener("submit", async (event) => {
     phone: data.get("phone")?.toString().trim() || "",
     cellPhone: data.get("cellPhone")?.toString().trim() || "",
     email: data.get("email")?.toString().trim().toLowerCase() || "",
+    gender,
     photoDataUrl,
     username,
     passwordHash: await hashPassword(data.get("password")?.toString() || ""),
-    role: "visitor",
+    accessProfile: "visitor",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -5477,7 +9730,14 @@ signupForm?.addEventListener("submit", async (event) => {
   signupForm.reset();
   toggleSubcontractorExtras("signup", "tag");
   showSignupMode(false);
-  alert("Registration submitted. An admin or developer can adjust your roles and access.");
+  const pushed = await pushCloud({ silent: true, force: true, kinds: ["user"] });
+  if (!pushed) {
+    await del(USER_STORE, user.id);
+    await loadAll();
+    alert("Could not save registration in the central database. Try again.");
+    return;
+  }
+  alert("Registration submitted. An admin or developer can adjust your access profile and permissions.");
   queueAutoSync();
 });
 
@@ -5485,20 +9745,56 @@ loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(loginForm);
   const username = data.get("username")?.toString().trim().toLowerCase();
-  const passwordHash = await hashPassword(data.get("password")?.toString() || "");
+  const plainPassword = data.get("password")?.toString() || "";
+  const passwordHash = await hashPassword(plainPassword);
+  if (!syncEndpoint()) {
+    alert("System database is not available on this device. Contact your administrator.");
+    return;
+  }
+  const syncedUsers = await pullCloud({ silent: true, force: true, kinds: ["user"] });
+  if (!syncedUsers) {
+    alert("Could not validate users in database right now. Check connection and try again.");
+    return;
+  }
 
-  const user = users.find((entry) => entry.username === username && entry.passwordHash === passwordHash);
+  const userByUsername = users.find((entry) => entry.username === username);
+  const user = users.find((entry) => entry.username === username && userPasswordMatches(entry, plainPassword, passwordHash));
   if (!user) {
+    if (!userByUsername) {
+      alert("User is not registered. Click 'Create Account' to register.");
+      return;
+    }
     alert(t("Usuario ou senha invalidos."));
     return;
   }
 
-  currentUser = user;
+  const shouldMigratePassword =
+    Boolean(userLegacyPassword(user)) ||
+    !isSha256Hash(user.passwordHash) ||
+    String(user.passwordHash || "").trim().toLowerCase() !== passwordHash.toLowerCase();
+
+  if (shouldMigratePassword) {
+    const migratedUser = normalizeUser({
+      ...user,
+      passwordHash,
+      legacyPassword: "",
+      password: "",
+      updatedAt: new Date().toISOString(),
+    });
+    await put(USER_STORE, migratedUser);
+    await loadAll();
+    currentUser = users.find((entry) => entry.id === migratedUser.id) || migratedUser;
+    await pushCloud({ silent: true, force: true, kinds: ["user"] });
+  } else {
+    currentUser = user;
+  }
+
   hasAutoDispatchedCoiReminder = false;
   setSession(user.id);
   pushAppAudit("Session login", "session", "auth");
   window.history.replaceState(null, "", "#home");
   loginForm.reset();
+  await pullCloud({ silent: true, force: true });
   renderAuth();
 });
 
@@ -5520,6 +9816,7 @@ userForm.addEventListener("submit", async (event) => {
   const data = new FormData(userForm);
   const firstName = data.get("firstName")?.toString().trim() || "";
   const lastName = data.get("lastName")?.toString().trim() || "";
+  const birthDate = normalizeDateField(data.get("birthDate"));
   const formCompanyName = data.get("companyName")?.toString().trim() || "";
   const companyName = isAdmin() && !canViewAllEmployees() ? currentUser?.companyName || formCompanyName : formCompanyName;
   const jobTitle = data.get("jobTitle")?.toString().trim() || "";
@@ -5534,13 +9831,14 @@ userForm.addEventListener("submit", async (event) => {
   const email = data.get("email")?.toString().trim().toLowerCase() || "";
   const username = data.get("username")?.toString().trim().toLowerCase() || "";
   const plainPassword = data.get("password")?.toString() || "";
-  const selectedRole = data.get("role")?.toString() || "visitor";
+  const selectedAccessProfile = data.get("accessProfile")?.toString() || "visitor";
+  const gender = normalizeGender(data.get("gender"));
 
   if (!firstName || !lastName || !companyName || !jobTitle || !address || !cellPhone || !email || !username) {
     alert("Fill in all required fields.");
     return;
   }
-  if (!isDeveloper() && selectedRole === "developer") {
+  if (!isDeveloper() && selectedAccessProfile === "developer") {
     alert("Only developer can create or edit a developer account.");
     return;
   }
@@ -5609,6 +9907,7 @@ userForm.addEventListener("submit", async (event) => {
     name: `${firstName} ${lastName}`.trim(),
     firstName,
     lastName,
+    birthDate,
     companyName,
     jobTitle,
     employmentType,
@@ -5623,10 +9922,11 @@ userForm.addEventListener("submit", async (event) => {
     phone,
     cellPhone,
     email,
+    gender,
     photoDataUrl,
     username,
     passwordHash,
-    role: selectedRole,
+    accessProfile: selectedAccessProfile,
     createdAt: targetUser?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -5636,13 +9936,14 @@ userForm.addEventListener("submit", async (event) => {
     pushEntityAudit(
       "Users",
       "created",
-      `${savedUser.name} (${savedUser.username}) role "${savedUser.role}" company "${auditValue(savedUser.companyName)}"`,
+      `${savedUser.name} (${savedUser.username}) access profile "${savedUser.accessProfile}" company "${auditValue(savedUser.companyName)}"`,
       "users"
     );
   } else {
     const changes = collectAuditChanges(targetUser, savedUser, [
       { key: "firstName", label: "First name" },
       { key: "lastName", label: "Last name" },
+      { key: "birthDate", label: "Date of birth" },
       { key: "companyName", label: "Company name" },
       { key: "jobTitle", label: "Job title" },
       { key: "employmentType", label: "Employment type" },
@@ -5654,8 +9955,9 @@ userForm.addEventListener("submit", async (event) => {
       { key: "phone", label: "Phone" },
       { key: "cellPhone", label: "Cell phone" },
       { key: "email", label: "Email" },
+      { key: "gender", label: "Gender" },
       { key: "username", label: "Username" },
-      { key: "role", label: "Role" },
+      { key: "accessProfile", label: "Access Profile" },
     ]);
     if (plainPassword) changes.push("Password: updated");
     if (photoFile) changes.push("Photo: updated");
@@ -5670,16 +9972,48 @@ userForm.addEventListener("submit", async (event) => {
 
   await loadAll();
   if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
-  const refreshed = adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) : null;
-  if (refreshed) populateAdminUserForm(refreshed);
-  else resetAdminUserForm();
+  adminEditingUserId = "";
+  resetAdminUserForm();
+  setUserAdminFormOpen(false);
+  setUsersSubView("directory");
   render();
   queueAutoSync();
+});
+
+usersRegistrationTabBtn?.addEventListener("click", () => {
+  if (!can("manageUsers")) return;
+  openUsersRegistrationClean();
+});
+
+usersDirectoryTabBtn?.addEventListener("click", () => {
+  if (!can("manageUsers")) return;
+  setUsersSubView("directory");
+});
+
+userDirectoryEditBtn?.addEventListener("click", () => {
+  if (!can("manageUsers")) return;
+  if (!adminEditingUserId) {
+    alert("Select a user from the list first.");
+    return;
+  }
+  const selected = users.find((entry) => entry.id === adminEditingUserId);
+  if (!selected) {
+    alert("Selected user is no longer available.");
+    return;
+  }
+  populateAdminUserForm(selected);
+  setUserAdminFormOpen(true);
+  setUsersSubView("registration");
+  userForm?.querySelector('input[name="firstName"]')?.focus();
 });
 
 userFormNewBtn?.addEventListener("click", () => {
   if (!can("manageUsers")) return;
   resetAdminUserForm();
+  setUserAdminFormOpen(true);
+  setUsersSubView("registration");
+  syncSelectedUserRow();
+  userForm?.querySelector('input[name="firstName"]')?.focus();
 });
 
 userFormDeleteBtn?.addEventListener("click", async () => {
@@ -5695,17 +10029,37 @@ userFormDeleteBtn?.addEventListener("click", async () => {
     alert("You can only manage users from your own company.");
     return;
   }
-  if (!isDeveloper() && (targetUser.role === "developer" || isPrimaryDeveloperUser(targetUser))) {
+  if (!isDeveloper() && (userAccessProfile(targetUser) === "developer" || isPrimaryDeveloperUser(targetUser))) {
     alert("Developer account cannot be deleted by admin.");
     return;
   }
-  pushEntityAudit("Users", "deleted", `${targetUser.name} (${targetUser.username}) role "${targetUser.role}"`, "users");
-  await del(USER_STORE, targetUser.id);
+  const confirmed = confirmDeleteAction(`user "${targetUser.name} (${targetUser.username})"`);
+  if (!confirmed) return;
+  pushEntityAudit(
+    "Users",
+    "deleted",
+    `${targetUser.name} (${targetUser.username}) access profile "${userAccessProfile(targetUser)}"`,
+    "users"
+  );
+  await trashDeleteRecord(USER_STORE, targetUser, {
+    label: `User: ${targetUser.name} (${targetUser.username})`,
+    scope: "users",
+  });
   await loadAll();
   if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
   resetAdminUserForm();
+  setUserAdminFormOpen(false);
+  setUsersSubView("directory");
   render();
   queueAutoSync();
+});
+
+userFormCloseBtn?.addEventListener("click", () => {
+  adminEditingUserId = "";
+  resetAdminUserForm();
+  setUserAdminFormOpen(false);
+  setUsersSubView("directory");
+  syncSelectedUserRow();
 });
 
 cancelUserEditBtn?.addEventListener("click", () => {
@@ -5722,12 +10076,13 @@ userEditForm?.addEventListener("submit", async (event) => {
     return;
   }
   if (!isDeveloper() && !isAdmin() && targetUser.id !== currentUser.id) return;
-  if (!isDeveloper() && targetUser.role === "developer" && targetUser.id !== currentUser.id) return;
+  if (!isDeveloper() && userAccessProfile(targetUser) === "developer" && targetUser.id !== currentUser.id) return;
   if (!canAccessEmployeeRecord(targetUser)) return;
 
   const data = new FormData(userEditForm);
   const firstName = data.get("firstName")?.toString().trim() || "";
   const lastName = data.get("lastName")?.toString().trim() || "";
+  const birthDate = normalizeDateField(data.get("birthDate"));
   const companyName = data.get("companyName")?.toString().trim() || "";
   const jobTitle = data.get("jobTitle")?.toString().trim() || "";
   const employmentType = data.get("employmentType")?.toString() || "tag";
@@ -5739,6 +10094,7 @@ userEditForm?.addEventListener("submit", async (event) => {
   const phone = maskPhoneValue(data.get("phone")?.toString().trim() || "");
   const cellPhone = maskPhoneValue(data.get("cellPhone")?.toString().trim() || "");
   const email = data.get("email")?.toString().trim().toLowerCase() || "";
+  const gender = normalizeGender(data.get("gender"));
 
   if (isAdmin() && !canViewAllEmployees()) {
     const myCompany = normalizeCompanyName(currentUser?.companyName);
@@ -5788,6 +10144,7 @@ userEditForm?.addEventListener("submit", async (event) => {
     name: `${firstName} ${lastName}`.trim(),
     firstName,
     lastName,
+    birthDate,
     companyName,
     jobTitle,
     employmentType,
@@ -5802,6 +10159,7 @@ userEditForm?.addEventListener("submit", async (event) => {
     phone,
     cellPhone,
     email,
+    gender,
     photoDataUrl,
     updatedAt: new Date().toISOString(),
   });
@@ -5810,6 +10168,7 @@ userEditForm?.addEventListener("submit", async (event) => {
   const changes = collectAuditChanges(targetUser, savedUser, [
     { key: "firstName", label: "First name" },
     { key: "lastName", label: "Last name" },
+    { key: "birthDate", label: "Date of birth" },
     { key: "companyName", label: "Company name" },
     { key: "jobTitle", label: "Job title" },
     { key: "employmentType", label: "Employment type" },
@@ -5821,6 +10180,7 @@ userEditForm?.addEventListener("submit", async (event) => {
     { key: "phone", label: "Phone" },
     { key: "cellPhone", label: "Cell phone" },
     { key: "email", label: "Email" },
+    { key: "gender", label: "Gender" },
   ]);
   if (photoFile) changes.push("Photo: updated");
   if (employmentType === "subcontractor" && contractorCoiFileRaw) changes.push("COI file: updated");
@@ -5907,17 +10267,15 @@ clientForm.addEventListener("submit", async (event) => {
   }
 
   selectedClientId = nextId;
+  selectedProjectId = "";
+  selectedContractId = "";
+  keepClientFormBlank = true;
+  selectedClientDetailsProjectId = "";
+  setClientsSectionMode("create");
   await loadAll();
-  const refreshed = clients.find((client) => client.id === selectedClientId) || null;
-  if (refreshed) populateClientForm(refreshed);
-  const currentEditingProjectId = projectForm?.elements?.projectId?.value || "";
-  if (currentEditingProjectId) {
-    const project = projects.find((entry) => entry.id === currentEditingProjectId) || null;
-    if (project) populateProjectForm(project);
-    else resetProjectForm({ clientId: selectedClientId });
-  } else {
-    resetProjectForm({ clientId: selectedClientId });
-  }
+  resetClientForm();
+  resetProjectForm({ clientId: selectedClientId });
+  resetContractForm({ clientId: selectedClientId });
   if (contactClientSelect) {
     contactClientSelect.value = selectedClientId;
     syncContactProjectSelect();
@@ -5929,6 +10287,13 @@ clientForm.addEventListener("submit", async (event) => {
 clientSearchInput?.addEventListener("input", () => {
   clientSearchQuery = (clientSearchInput.value || "").trim();
   renderClientsTable();
+});
+
+clientDetailsBackBtn?.addEventListener("click", () => {
+  selectedClientDetailsProjectId = "";
+  keepClientFormBlank = true;
+  setClientsSectionMode("create");
+  resetClientForm();
 });
 
 goProjectsFromClientBtn?.addEventListener("click", () => {
@@ -5984,6 +10349,9 @@ projectScopeExtraList?.addEventListener("click", (event) => {
   if (!btn) return;
   const index = Number(btn.dataset.projectScopePillRemove);
   if (!Number.isInteger(index) || index < 0 || index >= projectScopeExtrasDraft.length) return;
+  const value = projectScopeExtrasDraft[index];
+  const confirmed = confirmDeleteAction(`scope item "${value || index}"`, { restorable: false });
+  if (!confirmed) return;
   projectScopeExtrasDraft = projectScopeExtrasDraft.filter((_, idx) => idx !== index);
   renderProjectDraftPills();
 });
@@ -5993,6 +10361,9 @@ projectChecklistExtraList?.addEventListener("click", (event) => {
   if (!btn) return;
   const index = Number(btn.dataset.projectChecklistPillRemove);
   if (!Number.isInteger(index) || index < 0 || index >= projectChecklistExtrasDraft.length) return;
+  const value = projectChecklistExtrasDraft[index];
+  const confirmed = confirmDeleteAction(`checklist template item "${value || index}"`, { restorable: false });
+  if (!confirmed) return;
   projectChecklistExtrasDraft = projectChecklistExtrasDraft.filter((_, idx) => idx !== index);
   renderProjectDraftPills();
 });
@@ -6001,8 +10372,13 @@ clientFormNewBtn?.addEventListener("click", () => {
   if (!can("manageCatalog")) return;
   selectedClientId = "";
   selectedProjectId = "";
+  selectedContractId = "";
+  selectedClientDetailsProjectId = "";
+  keepClientFormBlank = true;
+  setClientsSectionMode("create");
   resetClientForm();
   resetProjectForm();
+  resetContractForm();
   render();
 });
 
@@ -6018,17 +10394,32 @@ clientFormDeleteBtn?.addEventListener("click", async () => {
     alert(t("Nao e possivel excluir cliente com pessoas vinculadas."));
     return;
   }
+  if (contracts.some((contract) => contract.clientId === targetId)) {
+    alert("Cannot delete client with linked contracts.");
+    return;
+  }
   if (containers.some((container) => container.clientId === targetId)) {
     alert(t("Nao e possivel excluir cliente com containers vinculados."));
     return;
   }
   const targetClient = clients.find((entry) => entry.id === targetId);
+  if (!targetClient) return;
+  const confirmed = confirmDeleteAction(`client "${targetClient.name}"`);
+  if (!confirmed) return;
   if (targetClient) pushEntityAudit("Clients", "deleted", `${targetClient.name}`, "clients");
-  await del(CLIENT_STORE, targetId);
+  await trashDeleteRecord(CLIENT_STORE, targetClient, {
+    label: `Client: ${targetClient.name}`,
+    scope: "clients",
+  });
   selectedClientId = "";
   selectedProjectId = "";
+  selectedContractId = "";
+  selectedClientDetailsProjectId = "";
+  keepClientFormBlank = true;
+  setClientsSectionMode("create");
   resetClientForm();
   resetProjectForm();
+  resetContractForm();
   await loadAll();
   render();
   queueAutoSync();
@@ -6036,7 +10427,9 @@ clientFormDeleteBtn?.addEventListener("click", async () => {
 
 projectFormNewBtn?.addEventListener("click", () => {
   if (!can("manageCatalog")) return;
+  selectedProjectId = "";
   resetProjectForm({ clientId: selectedClientId || projectClientSelect?.value || "" });
+  render();
 });
 
 projectFormDeleteBtn?.addEventListener("click", async () => {
@@ -6051,14 +10444,23 @@ projectFormDeleteBtn?.addEventListener("click", async () => {
     alert(t("Nao e possivel excluir projeto com pessoas vinculadas."));
     return;
   }
+  if (contracts.some((contract) => contract.projectId === targetId)) {
+    alert("Cannot delete project with linked contracts.");
+    return;
+  }
   if (containers.some((container) => container.projectId === targetId)) {
     alert(t("Nao e possivel excluir projeto com containers vinculados."));
     return;
   }
   const targetProject = projects.find((entry) => entry.id === targetId);
   if (!targetProject) return;
+  const confirmed = confirmDeleteAction(`project "${targetProject.name}"`);
+  if (!confirmed) return;
   pushEntityAudit("Projects", "deleted", `${targetProject.name}`, "projects");
-  await del(PROJECT_STORE, targetId);
+  await trashDeleteRecord(PROJECT_STORE, targetProject, {
+    label: `Project: ${targetProject.name}`,
+    scope: "projects",
+  });
   if (selectedProjectId === targetId) selectedProjectId = "";
   resetProjectForm({ clientId: selectedClientId || targetProject.clientId || "" });
   await loadAll();
@@ -6080,9 +10482,10 @@ projectForm.addEventListener("submit", async (event) => {
   const floorsCount = data.get("floorsCount")?.toString().trim() || "";
   const apartmentsCount = data.get("apartmentsCount")?.toString().trim() || "";
   const scopeCategories = collectCheckedValues(projectForm, "scopeCategories");
-  const scopeExtras = uniqueTextList(projectScopeExtrasDraft);
+  const scopeExtras = uniqueTextList(collectCheckedValues(projectForm, "scopeExtrasDynamic"));
   const checklistBase = collectCheckedValues(projectForm, "unitChecklistBase");
-  const unitChecklistTemplate = uniqueTextList([...checklistBase, ...projectChecklistExtrasDraft]);
+  const checklistExtras = uniqueTextList(collectCheckedValues(projectForm, "unitChecklistExtrasDynamic"));
+  const unitChecklistTemplate = uniqueTextList([...checklistBase, ...checklistExtras]);
 
   if (!clientId || !name) {
     alert(t("Cliente e nome do projeto sao obrigatorios."));
@@ -6095,6 +10498,11 @@ projectForm.addEventListener("submit", async (event) => {
     )
   ) {
     alert(t("Projeto ja cadastrado para este cliente."));
+    return;
+  }
+
+  if (targetProject && targetProject.clientId !== clientId && contracts.some((contract) => contract.projectId === targetProject.id)) {
+    alert("This project has linked contracts. Keep the same client or update contracts first.");
     return;
   }
 
@@ -6145,10 +10553,9 @@ projectForm.addEventListener("submit", async (event) => {
   }
 
   selectedClientId = clientId;
-  selectedProjectId = savedProject.id;
+  selectedProjectId = "";
   await loadAll();
-  const refreshedProject = projects.find((entry) => entry.id === selectedProjectId) || null;
-  if (refreshedProject) populateProjectForm(refreshedProject);
+  resetProjectForm({ clientId: selectedClientId });
   render();
   queueAutoSync();
 });
@@ -6191,7 +10598,7 @@ contactForm.addEventListener("submit", async (event) => {
   pushEntityAudit(
     "Contacts",
     "created",
-    `${createdContact.name} | role "${auditValue(contactRoleLabel(createdContact.role))}" | company "${auditValue(createdContact.company)}"`,
+    `${createdContact.name} | job title project "${auditValue(contactRoleLabel(createdContact.role))}" | company "${auditValue(createdContact.company)}"`,
     "contacts"
   );
 
@@ -6200,6 +10607,138 @@ contactForm.addEventListener("submit", async (event) => {
   if (contactClientSelect) contactClientSelect.value = selectedClientId;
   syncContactProjectSelect();
   await loadAll();
+  render();
+  queueAutoSync();
+});
+
+contractFormNewBtn?.addEventListener("click", () => {
+  if (!can("manageCatalog")) return;
+  resetContractForm({ clientId: selectedClientId || contractClientSelect?.value || "" });
+  renderContractsTable();
+});
+
+contractFormDeleteBtn?.addEventListener("click", async () => {
+  if (!can("manageCatalog")) return;
+  const targetId = contractForm?.elements?.contractId?.value || selectedContractId || "";
+  if (!targetId) return;
+  const targetContract = contractById(targetId);
+  if (!targetContract) return;
+  const confirmed = confirmDeleteAction(`contract "${targetContract.title || targetContract.contractCode || targetContract.id}"`);
+  if (!confirmed) return;
+  pushEntityAudit(
+    "Contracts",
+    "deleted",
+    `${targetContract.title} | code "${auditValue(targetContract.contractCode)}"`,
+    "contracts"
+  );
+  await trashDeleteRecord(CONTRACT_STORE, targetContract, {
+    label: `Contract: ${targetContract.title || targetContract.contractCode || targetContract.id}`,
+    scope: "contracts",
+  });
+  resetContractForm({ clientId: selectedClientId || targetContract.clientId || "" });
+  await loadAll();
+  render();
+  queueAutoSync();
+});
+
+contractForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!can("manageCatalog")) return;
+
+  const data = new FormData(contractForm);
+  const contractId = data.get("contractId")?.toString() || "";
+  const targetContract = contractId ? contractById(contractId) : null;
+  const clientId = data.get("clientId")?.toString().trim() || "";
+  const projectId = data.get("projectId")?.toString().trim() || "";
+  const title = data.get("title")?.toString().trim() || "";
+  const contractCode = data.get("contractCode")?.toString().trim() || "";
+  const status = data.get("status")?.toString().trim() || "draft";
+  const signedDate = data.get("signedDate")?.toString().trim() || "";
+  const startDate = data.get("startDate")?.toString().trim() || "";
+  const endDate = data.get("endDate")?.toString().trim() || "";
+  const amount = data.get("amount")?.toString().trim() || "";
+  const notes = data.get("notes")?.toString().trim() || "";
+
+  if (!clientId || !title) {
+    alert("Client and contract title are required.");
+    return;
+  }
+
+  if (projectId) {
+    const linkedProject = projectById(projectId);
+    if (!linkedProject) {
+      alert("Selected project was not found.");
+      return;
+    }
+    if (linkedProject.clientId !== clientId) {
+      alert("Selected project does not belong to the selected client.");
+      return;
+    }
+  }
+
+  if (
+    contractCode &&
+    contracts.some(
+      (entry) => entry.clientId === clientId && entry.contractCode.toLowerCase() === contractCode.toLowerCase() && entry.id !== targetContract?.id
+    )
+  ) {
+    alert("This contract code already exists for the selected client.");
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const savedContract = normalizeContract({
+    ...(targetContract || {}),
+    id: targetContract?.id || uid(),
+    clientId,
+    projectId,
+    title,
+    contractCode,
+    status,
+    signedDate,
+    startDate,
+    endDate,
+    amount,
+    notes,
+    createdAt: targetContract?.createdAt || nowIso,
+    updatedAt: nowIso,
+  });
+
+  await put(CONTRACT_STORE, savedContract);
+  const linkedClient = clientById(savedContract.clientId);
+  const linkedProject = projectById(savedContract.projectId);
+  if (!targetContract) {
+    pushEntityAudit(
+      "Contracts",
+      "created",
+      `${savedContract.title} | client "${auditValue(linkedClient?.name || "-")}" | project "${auditValue(linkedProject?.name || "-")}" | status "${auditValue(contractStatusLabel(savedContract.status))}"`,
+      "contracts"
+    );
+  } else {
+    const changes = collectAuditChanges(targetContract, savedContract, [
+      { key: "title", label: "Title" },
+      { key: "contractCode", label: "Code" },
+      { key: "status", label: "Status", map: (value) => contractStatusLabel(value) },
+      { key: "signedDate", label: "Signed date" },
+      { key: "startDate", label: "Start date" },
+      { key: "endDate", label: "End date" },
+      { key: "amount", label: "Amount (USD)" },
+      { key: "notes", label: "Notes" },
+      { key: "clientId", label: "Client", map: (value) => clientById(value)?.name || "-" },
+      { key: "projectId", label: "Project", map: (value) => projectById(value)?.name || "-" },
+    ]);
+    pushEntityAudit(
+      "Contracts",
+      "updated",
+      `${savedContract.title}${changes.length ? ` | ${changes.join("; ")}` : " | no field changes"}`,
+      "contracts"
+    );
+  }
+
+  selectedClientId = clientId;
+  selectedContractId = "";
+  await loadAll();
+  resetContractForm({ clientId: selectedClientId, projectId: projectId || "" });
   render();
   queueAutoSync();
 });
@@ -6250,13 +10789,24 @@ projectClientSelect.addEventListener("change", () => {
     contactClientSelect.value = projectClientSelect.value;
     syncContactProjectSelect();
   }
+  if (contractClientSelect && projectClientSelect.value) {
+    contractClientSelect.value = projectClientSelect.value;
+    syncContractProjectSelect();
+  }
   renderProjectsTable();
   renderContactsTable();
+  renderContractsTable();
 });
 contactClientSelect.addEventListener("change", () => {
   if (contactClientSelect.value) selectedClientId = contactClientSelect.value;
   syncContactProjectSelect();
   renderContactsTable();
+  renderContractsTable();
+});
+contractClientSelect?.addEventListener("change", () => {
+  if (contractClientSelect.value) selectedClientId = contractClientSelect.value;
+  syncContractProjectSelect();
+  renderContractsTable();
 });
 unitProjectSelect.addEventListener("change", syncUnitProjectInfo);
 
@@ -6344,6 +10894,7 @@ filterSelect.addEventListener("change", renderUnits);
 qrLookupForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   lastQrLookupCode = qrLookupInput?.value?.trim() || "";
+  if (qrFlowCodeInput && lastQrLookupCode) qrFlowCodeInput.value = lastQrLookupCode;
   renderQrLookupPanel();
 });
 qrLookupInput?.addEventListener("input", () => {
@@ -6351,6 +10902,340 @@ qrLookupInput?.addEventListener("input", () => {
     lastQrLookupCode = "";
     renderQrLookupPanel();
   }
+});
+qrLookupScanBtn?.addEventListener("click", async () => {
+  await scanQrIntoInput(qrLookupInput, "Scan QR to search history");
+  lastQrLookupCode = qrLookupInput?.value?.trim() || "";
+  if (qrFlowCodeInput && lastQrLookupCode) qrFlowCodeInput.value = lastQrLookupCode;
+  renderQrLookupPanel();
+});
+qrFlowScanBtn?.addEventListener("click", async () => {
+  if (!canUpdateQrWorkflow()) return;
+  const scanned = await scanQrIntoInput(qrFlowCodeInput, "Scan QR to update workflow");
+  syncQrFlowStageOptions();
+  if (!scanned) return;
+  await submitQrFlowUpdate({ fromScan: true });
+});
+qrFlowStageSelect?.addEventListener("change", () => {
+  updateQrFlowStageCustomVisibility();
+});
+qrFlowStatusSelect?.addEventListener("change", () => {
+  updateQrFlowIssueVisibility();
+});
+qrFlowForm?.addEventListener("reset", () => {
+  setTimeout(() => {
+    syncQrFlowStageOptions({ preserveSelection: false });
+    if (qrFlowStatusSelect) qrFlowStatusSelect.value = "in-progress";
+    updateQrFlowStageCustomVisibility();
+    updateQrFlowIssueVisibility();
+    renderQrFlowAccessHint();
+    setQrFlowResult("");
+  }, 0);
+});
+qrFlowForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitQrFlowUpdate();
+});
+
+deliveryAssignClientSelect?.addEventListener("change", () => {
+  syncDeliveryAssignProjectSelect();
+  if (deliveryAssignProjectSelect) deliveryAssignProjectSelect.value = "";
+  syncDeliveryAssignUnitSelect();
+});
+
+deliveryAssignProjectSelect?.addEventListener("change", () => {
+  syncDeliveryAssignUnitSelect();
+  if (deliveryAssignUnitSelect) deliveryAssignUnitSelect.value = "";
+});
+
+deliveryScanBtn?.addEventListener("click", async () => {
+  if (deliveryScanBtn.disabled) return;
+  await scanQrIntoInput(deliveryScanQrInput, "Scan delivery inventory QR");
+});
+
+deliveryImportTargetSelect?.addEventListener("change", () => {
+  refreshDeliveryImportTargetUi();
+  syncDeliveryImportApplyState();
+});
+
+deliveryImportFileInput?.addEventListener("change", () => {
+  clearDeliveryImportDraft({ clearFile: false, clearStatus: true });
+  const file = deliveryImportFileInput.files?.[0];
+  if (!file) return;
+  const info = detectImportFileKind(file);
+  setDeliveryImportStatus(`Selected file: ${file.name} (${info.label}, ${formatBytes(file.size)}). Click Analyze file.`);
+});
+
+deliveryImportAnalyzeBtn?.addEventListener("click", async () => {
+  if (deliveryImportAnalyzeBtn.disabled) return;
+  await analyzeDeliveryImportFile();
+});
+
+deliveryImportApplyBtn?.addEventListener("click", async () => {
+  if (deliveryImportApplyBtn.disabled) return;
+  await applyDeliveryImportDraft();
+});
+
+deliveryImportClearBtn?.addEventListener("click", () => {
+  if (deliveryImportClearBtn.disabled) return;
+  clearDeliveryImportDraft({ clearFile: true, clearStatus: true });
+});
+
+ocrImportTargetSelect?.addEventListener("change", () => {
+  refreshOcrImportTargetUi();
+  syncOcrImportApplyState();
+});
+
+ocrImportFileInput?.addEventListener("change", () => {
+  clearOcrImportDraft({ clearFile: false, clearStatus: true });
+  const file = ocrImportFileInput.files?.[0];
+  if (!file) return;
+  const info = detectImportFileKind(file);
+  setOcrImportStatus(`Selected file: ${file.name} (${info.label}, ${formatBytes(file.size)}). Click Run OCR / Analyze.`);
+});
+
+ocrImportAnalyzeBtn?.addEventListener("click", async () => {
+  if (ocrImportAnalyzeBtn.disabled) return;
+  await analyzeOcrImportFile();
+});
+
+ocrImportApplyBtn?.addEventListener("click", async () => {
+  if (ocrImportApplyBtn.disabled) return;
+  await applyOcrImportDraft();
+});
+
+ocrImportClearBtn?.addEventListener("click", () => {
+  if (ocrImportClearBtn.disabled) return;
+  clearOcrImportDraft({ clearFile: true, clearStatus: true });
+});
+
+deliveryInventorySeedBtn?.addEventListener("click", async () => {
+  if (deliveryInventorySeedBtn.disabled) return;
+  const seedRows = deliverySkuSeedRows();
+  const hasExistingRows = deliverySkuItems.length > 0;
+  if (hasExistingRows) {
+    const proceed = window.confirm(
+      "Inventory already has rows. Reloading seed will update container baseline quantities and keep your current assignments/scans."
+    );
+    if (!proceed) return;
+  }
+  const now = new Date().toISOString();
+  const containerSources = new Set(["Container 2", "Container 3"]);
+  const existingByKey = new Map(deliverySkuItems.map((entry) => [deliverySkuKey(entry.sku, entry.finish), entry]));
+  const output = [...deliverySkuItems];
+
+  seedRows.forEach((seedItem) => {
+    const key = deliverySkuKey(seedItem.sku, seedItem.finish);
+    const existing = existingByKey.get(key);
+    if (!existing) {
+      output.push(seedItem);
+      return;
+    }
+
+    const preservedRefs = ensureArray(existing.sourceRefs).filter((entry) => !containerSources.has(entry.source));
+    const updated = normalizeDeliverySkuItem({
+      ...existing,
+      totalQty: Math.max(existing.totalQty, seedItem.totalQty),
+      sourceRefs: [...seedItem.sourceRefs, ...preservedRefs],
+      updatedAt: now,
+    });
+    const index = output.findIndex((entry) => entry.id === existing.id);
+    if (index >= 0) output[index] = updated;
+  });
+
+  await writeDeliverySkuItems(output, { replace: true });
+  pushEntityAudit("Delivery Inventory", "seeded", `Loaded ${seedRows.length} consolidated rows from container lists`, "delivery");
+  setDeliveryInventoryStatus(`Inventory loaded: ${seedRows.length} unique material variants cataloged with QR.`);
+});
+
+deliveryInventoryResetBtn?.addEventListener("click", async () => {
+  if (deliveryInventoryResetBtn.disabled) return;
+  const totalRows = deliverySkuItems.length;
+  const confirmed = window.confirm(
+    `This will remove all delivery inventory rows (${totalRows}). You can restore this reset for up to ${RESTORE_WINDOW_LABEL}. Continue?`
+  );
+  if (!confirmed) return;
+  if (deliverySkuItems.length) {
+    await saveTrashRecord({
+      storeName: DELIVERY_SKU_STORE,
+      recordId: "delivery-reset",
+      label: `Delivery inventory reset (${deliverySkuItems.length} rows)`,
+      scope: "delivery",
+      payload: deliverySkuItems,
+      restoreType: "delivery-inventory-reset",
+      context: {},
+    });
+  }
+  await writeDeliverySkuItems([], { replace: true });
+  pushEntityAudit("Delivery Inventory", "cleared", "All delivery inventory rows removed", "delivery");
+  setDeliveryInventoryStatus("Delivery inventory cleared.");
+  resetDeliveryScanDestination();
+  if (deliveryScanQrInput) deliveryScanQrInput.value = "";
+});
+
+deliveryAddForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!deliveryAddForm || deliveryAddForm.querySelector("button[type='submit']")?.disabled) return;
+  const sku = normalizeDeliverySkuValue(deliveryAddSkuInput?.value || "");
+  const finish = normalizeFinishValue(deliveryAddFinishInput?.value || "");
+  const qty = Math.max(1, Math.trunc(toNumber(deliveryAddQtyInput?.value || 1)));
+  const description = String(deliveryAddDescriptionInput?.value || "").trim();
+  if (!sku || !finish || qty <= 0) {
+    setDeliveryInventoryStatus("Enter SKU, finish, and a valid quantity.", true);
+    return;
+  }
+
+  const matchKey = deliverySkuKey(sku, finish);
+  const existing = deliverySkuItems.find((entry) => deliverySkuKey(entry.sku, entry.finish) === matchKey);
+  const now = new Date().toISOString();
+
+  if (existing) {
+    const updatedItem = normalizeDeliverySkuItem({
+      ...existing,
+      description: description || existing.description || sku,
+      totalQty: existing.totalQty + qty,
+      sourceRefs: [
+        ...ensureArray(existing.sourceRefs),
+        { source: "Manual entry", qty },
+      ],
+      updatedAt: now,
+    });
+    await saveDeliverySkuItem(updatedItem);
+    pushEntityAudit(
+      "Delivery Inventory",
+      "updated",
+      `${updatedItem.sku} ${updatedItem.finish}: total qty +${qty} (new total ${updatedItem.totalQty})`,
+      "delivery"
+    );
+    if (deliveryScanQrInput) deliveryScanQrInput.value = updatedItem.qrCode;
+    setDeliveryInventoryStatus(`Quantity increased for ${updatedItem.sku} (${updatedItem.finish}).`);
+  } else {
+    const createdItem = normalizeDeliverySkuItem({
+      id: uid(),
+      sku,
+      description: description || sku,
+      finish,
+      totalQty: qty,
+      scannedQty: 0,
+      sourceRefs: [{ source: "Manual entry", qty }],
+      scanLog: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    await saveDeliverySkuItem(createdItem);
+    pushEntityAudit(
+      "Delivery Inventory",
+      "created",
+      `${createdItem.sku} ${createdItem.finish}: qty ${createdItem.totalQty} with QR ${createdItem.qrCode}`,
+      "delivery"
+    );
+    if (deliveryScanQrInput) deliveryScanQrInput.value = createdItem.qrCode;
+    setDeliveryInventoryStatus(`Item created: ${createdItem.sku} (${createdItem.finish}).`);
+  }
+
+  deliveryAddForm.reset();
+  if (deliveryAddQtyInput) deliveryAddQtyInput.value = "1";
+});
+
+deliverySaveDestinationBtn?.addEventListener("click", async () => {
+  if (deliverySaveDestinationBtn.disabled) return;
+  const qrCode = String(deliveryScanQrInput?.value || "").trim();
+  if (!qrCode) {
+    setDeliveryInventoryStatus("Scan or paste a QR code first to save destination.", true);
+    return;
+  }
+  const target = deliverySkuByQrCode(qrCode);
+  if (!target) {
+    setDeliveryInventoryStatus(`QR not found in delivery inventory: ${qrCode}`, true);
+    return;
+  }
+  const now = new Date().toISOString();
+  const updatedItem = normalizeDeliverySkuItem({
+    ...target,
+    clientId: deliveryAssignClientSelect?.value || "",
+    projectId: deliveryAssignProjectSelect?.value || "",
+    unitId: deliveryAssignUnitSelect?.value || "",
+    destinationNote: String(deliveryDestinationNoteInput?.value || "").trim(),
+    updatedAt: now,
+  });
+  await saveDeliverySkuItem(updatedItem);
+  pushEntityAudit(
+    "Delivery Inventory",
+    "destination-updated",
+    `${updatedItem.sku} ${updatedItem.finish}: ${deliveryDestinationLabel(updatedItem)}`,
+    "delivery"
+  );
+  setDeliveryInventoryStatus(`Destination saved for ${updatedItem.sku} (${updatedItem.finish}).`);
+});
+
+deliveryScanForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (deliveryScanForm.querySelector("button[type='submit']")?.disabled) return;
+
+  const qrCode = String(deliveryScanQrInput?.value || "").trim();
+  const qty = Math.max(1, Math.trunc(toNumber(deliveryScanQtyInput?.value || 1)));
+  if (!qrCode || qty <= 0) {
+    setDeliveryInventoryStatus("Scan a QR code and enter quantity before consuming.", true);
+    return;
+  }
+
+  const item = deliverySkuByQrCode(qrCode);
+  if (!item) {
+    setDeliveryInventoryStatus(`QR not found in delivery inventory: ${qrCode}`, true);
+    return;
+  }
+
+  const availableBefore = deliverySkuAvailableQty(item);
+  if (availableBefore < qty) {
+    setDeliveryInventoryStatus(
+      `Insufficient available quantity for ${item.sku} (${item.finish}). Available: ${availableBefore}.`,
+      true
+    );
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const clientId = deliveryAssignClientSelect?.value || item.clientId || "";
+  const projectId = deliveryAssignProjectSelect?.value || item.projectId || "";
+  const unitId = deliveryAssignUnitSelect?.value || item.unitId || "";
+  const destinationNote = String(deliveryDestinationNoteInput?.value || item.destinationNote || "").trim();
+
+  const updatedItem = normalizeDeliverySkuItem({
+    ...item,
+    scannedQty: item.scannedQty + qty,
+    clientId,
+    projectId,
+    unitId,
+    destinationNote,
+    scanLog: [
+      ...ensureArray(item.scanLog),
+      {
+        id: uid(),
+        qty,
+        scannedAt: now,
+        scannedByUserId: currentUser?.id || "",
+        scannedByName: currentUser?.name || "User",
+        clientId,
+        projectId,
+        unitId,
+        destinationNote,
+      },
+    ],
+    updatedAt: now,
+  });
+
+  await saveDeliverySkuItem(updatedItem);
+  const availableAfter = deliverySkuAvailableQty(updatedItem);
+  pushEntityAudit(
+    "Delivery Inventory",
+    "consumed-by-qr",
+    `${updatedItem.sku} ${updatedItem.finish}: -${qty} (available ${availableAfter}) via ${updatedItem.qrCode}`,
+    "delivery"
+  );
+  setDeliveryInventoryStatus(
+    `QR processed: ${updatedItem.sku} (${updatedItem.finish}) -${qty}. Remaining available: ${availableAfter}.`
+  );
+  if (deliveryScanQtyInput) deliveryScanQtyInput.value = "1";
 });
 
 projectReportBtn.addEventListener("click", () => {
@@ -6369,8 +11254,11 @@ exportBtn.addEventListener("click", async () => {
     clients,
     projects,
     contacts,
+    contracts,
     containers,
     materials,
+    deliverySkuItems,
+    trashRecords,
     settings: [{ id: "syncConfig", ...syncConfig }],
   };
 
@@ -6402,8 +11290,13 @@ importInput.addEventListener("change", async () => {
     if (Array.isArray(payload.clients)) for (const client of payload.clients) await put(CLIENT_STORE, normalizeClient(client));
     if (Array.isArray(payload.projects)) for (const project of payload.projects) await put(PROJECT_STORE, normalizeProject(project));
     if (Array.isArray(payload.contacts)) for (const contact of payload.contacts) await put(CONTACT_STORE, normalizeContact(contact));
+    if (Array.isArray(payload.contracts)) for (const contract of payload.contracts) await put(CONTRACT_STORE, normalizeContract(contract));
     if (Array.isArray(payload.containers)) for (const container of payload.containers) await put(CONTAINER_STORE, normalizeContainer(container));
     if (Array.isArray(payload.materials)) for (const material of payload.materials) await put(MATERIAL_STORE, normalizeMaterial(material));
+    if (Array.isArray(payload.deliverySkuItems)) {
+      for (const item of payload.deliverySkuItems) await put(DELIVERY_SKU_STORE, normalizeDeliverySkuItem(item));
+    }
+    if (Array.isArray(payload.trashRecords)) for (const item of payload.trashRecords) await put(TRASH_STORE, normalizeTrashRecord(item));
     if (Array.isArray(payload.settings)) for (const setting of payload.settings) await put(SETTINGS_STORE, setting);
 
     await loadAll();
@@ -6419,19 +11312,35 @@ importInput.addEventListener("change", async () => {
 syncConfigForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!can("sync")) return;
+  if (hasPresetSyncConfig()) {
+    updateSyncStatus("Cloud sync is centrally configured for all devices.", false);
+    return;
+  }
 
   const data = new FormData(syncConfigForm);
+  const nextSupabaseUrl = data.get("supabaseUrl")?.toString().trim();
+  const nextSupabaseAnonKey = data.get("supabaseAnonKey")?.toString().trim();
+  const nextTenant = data.get("tenant")?.toString().trim();
+  const syncTargetChanged =
+    nextSupabaseUrl !== (syncConfig.supabaseUrl || "").trim() ||
+    nextSupabaseAnonKey !== (syncConfig.supabaseAnonKey || "").trim() ||
+    nextTenant !== (syncConfig.tenant || "").trim();
+
   syncConfig = {
     ...syncConfig,
     id: "syncConfig",
-    supabaseUrl: data.get("supabaseUrl")?.toString().trim(),
-    supabaseAnonKey: data.get("supabaseAnonKey")?.toString().trim(),
-    tenant: data.get("tenant")?.toString().trim(),
+    supabaseUrl: nextSupabaseUrl,
+    supabaseAnonKey: nextSupabaseAnonKey,
+    tenant: nextTenant,
     autoSync: data.get("autoSync")?.toString() === "true",
+    lastPullCursor: syncTargetChanged ? null : syncConfig.lastPullCursor || null,
+    lastSyncAt: syncTargetChanged ? null : syncConfig.lastSyncAt || null,
   };
 
   await saveSetting(syncConfig);
   updateSyncStatus(t("Configuracao salva."));
+  if (navigator.onLine) startAutoPullLoop();
+  else stopAutoPullLoop();
 });
 
 pushSyncBtn.addEventListener("click", () => pushCloud());
@@ -6443,7 +11352,12 @@ function updateConnectivity() {
   connectionBadge.style.borderColor = online ? "#94c5a8" : "#e7b6b6";
   connectionBadge.style.background = online ? "#f4fcf7" : "#fff5f5";
 
-  if (online) queueAutoSync();
+  if (online) {
+    queueAutoSync();
+    startAutoPullLoop();
+  } else {
+    stopAutoPullLoop();
+  }
 }
 
 window.addEventListener("online", updateConnectivity);
@@ -6487,6 +11401,41 @@ openUserAdminCoiFileBtn?.addEventListener("click", () => {
   window.open(dataUrl, "_blank", "noopener");
 });
 
+cameraScanCloseBtn?.addEventListener("click", () => closeCameraScanModal(""));
+cameraScanManualBtn?.addEventListener("click", () => {
+  const manual = window.prompt("Paste or type the QR code:");
+  closeCameraScanModal(manual ? String(manual).trim() : "");
+});
+cameraScanPhotoBtn?.addEventListener("click", () => {
+  cameraScanPhotoInput?.click();
+});
+cameraScanPhotoInput?.addEventListener("change", async () => {
+  const file = Array.from(cameraScanPhotoInput.files || [])[0];
+  if (!file) return;
+  setCameraScanStatus("Reading photo...");
+  try {
+    const scanned = await decodeQrFromImageFile(file);
+    if (scanned) {
+      playScanFeedbackSound();
+      closeCameraScanModal(scanned);
+      return;
+    }
+    setCameraScanStatus("No QR code found in this image. Try another one.");
+  } catch {
+    setCameraScanStatus("Could not read this image. Try another one or enter manually.");
+  } finally {
+    cameraScanPhotoInput.value = "";
+  }
+});
+cameraScanModal?.addEventListener("click", (event) => {
+  if (event.target === cameraScanModal) closeCameraScanModal("");
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!cameraScanModal || cameraScanModal.classList.contains("hidden")) return;
+  closeCameraScanModal("");
+});
+
 [signupPhoneInput, signupCellPhoneInput, userEditPhoneInput, userEditCellPhoneInput, userAdminPhoneInput, userAdminCellPhoneInput].forEach((input) => {
   if (!input) return;
   input.addEventListener("input", () => {
@@ -6500,6 +11449,54 @@ openUserAdminCoiFileBtn?.addEventListener("click", () => {
 toggleSubcontractorExtras("signup", signupEmploymentTypeSelect?.value || "tag");
 toggleSubcontractorExtras("edit", userEditEmploymentTypeSelect?.value || "tag");
 toggleSubcontractorExtras("admin", userAdminEmploymentTypeSelect?.value || "tag");
+if (signupGenderSelect && !signupGenderSelect.value) signupGenderSelect.value = "unspecified";
+if (userAdminGenderSelect && !userAdminGenderSelect.value) userAdminGenderSelect.value = "unspecified";
+if (userEditGenderSelect && !userEditGenderSelect.value) userEditGenderSelect.value = "unspecified";
+setAvatarPreview(userAdminPhotoPreview, defaultAvatarForGender(userAdminGenderSelect?.value || "unspecified"));
+setAvatarPreview(userEditPhotoPreview, defaultAvatarForGender(userEditGenderSelect?.value || "unspecified"));
+renderUserIdCard(null);
+setUserAdminFormOpen(false);
+resetQrFlowForm();
+
+document.addEventListener(
+  "input",
+  (event) => {
+    const form = formForSyncLock(event.target);
+    if (!form) return;
+    setFormSyncDirty(form, true);
+  },
+  true
+);
+
+document.addEventListener(
+  "change",
+  (event) => {
+    const form = formForSyncLock(event.target);
+    if (!form) return;
+    setFormSyncDirty(form, true);
+  },
+  true
+);
+
+document.addEventListener(
+  "reset",
+  (event) => {
+    const form = formForSyncLock(event.target);
+    if (!form) return;
+    setFormSyncDirty(form, false);
+  },
+  true
+);
+
+document.addEventListener(
+  "submit",
+  (event) => {
+    const form = formForSyncLock(event.target);
+    if (!form) return;
+    blockAutoPullTemporarily();
+  },
+  true
+);
 
 appMain?.addEventListener("click", (event) => {
   const sendCoiBtn = event.target.closest("[data-send-coi-reminder]");
@@ -6564,6 +11561,10 @@ async function registerServiceWorker() {
     setLanguage(DEFAULT_LANG, { rerender: false });
     db = await openDB();
     await loadAll();
+    await migrateLegacyUserRoleKey();
+    await ensureDeveloperRolePresence();
+    await pullCloud({ silent: true, force: true });
+    await migrateLegacyUserRoleKey();
     await ensureDeveloperRolePresence();
     await tryRestoreSession();
     updateConnectivity();

@@ -841,6 +841,7 @@ let autoSyncTimer = null;
 let autoPullTimer = null;
 let autoPullInFlight = false;
 let autoPullBlockedUntil = 0;
+let clientsNavHoverTimer = null;
 const AUTO_PULL_INTERVAL_MS = 30 * 1000;
 const AUTO_PULL_SUBMIT_GRACE_MS = 12 * 1000;
 const AUTO_PULL_KINDS = ["unit", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "trash"];
@@ -861,7 +862,7 @@ let selectedClientDetailsProjectId = "";
 let keepClientFormBlank = false;
 let clientSearchQuery = "";
 let projectsViewMode = "overview";
-let clientsWorkspaceMode = "newClients";
+let clientsWorkspaceMode = "hub";
 let manufactureSubView = "schedule";
 let warehouseSubView = "operations";
 let appAuditLog = loadAppAuditLog();
@@ -901,6 +902,7 @@ const permissionLine = document.getElementById("permissionLine");
 const homePanel = document.getElementById("homePanel");
 const coiReminderPanel = document.getElementById("coiReminderPanel");
 const quickNavPanel = document.getElementById("quickNavPanel");
+const clientsNavGroup = document.querySelector('.nav-group-clients[data-nav-group="clients"]');
 const ocrImporterPanel = document.getElementById("ocrImporterPanel");
 
 const masterDataPanel = document.getElementById("masterDataPanel");
@@ -922,6 +924,8 @@ const materialForm = document.getElementById("materialForm");
 const clientsSummaryScroll = document.getElementById("clientsSummaryScroll");
 const clientsCreateView = document.getElementById("clientsCreateView");
 const clientDetailsView = document.getElementById("clientDetailsView");
+const clientsHubView = document.getElementById("clientsHubView");
+const clientsHubList = document.getElementById("clientsHubList");
 const clientDetailsBackBtn = document.getElementById("clientDetailsBackBtn");
 const clientDetailsPanel = document.getElementById("clientDetailsPanel");
 const clientProjectsList = document.getElementById("clientProjectsList");
@@ -5255,10 +5259,11 @@ function applyMasterSubpanelMode() {
   masterDataPanel?.classList.toggle("clients-mode", showClients);
 
   if (showClients) {
+    const showHub = clientsWorkspaceMode === "hub";
     const showNewClients = clientsWorkspaceMode === "newClients";
     const showProjectsCatalog = clientsWorkspaceMode === "projects";
     const showContracts = clientsWorkspaceMode === "contracts";
-    clientsSubpanel.classList.toggle("hidden-view", !showNewClients);
+    clientsSubpanel.classList.toggle("hidden-view", !(showHub || showNewClients));
     projectsSubpanel.classList.toggle("hidden-view", !showProjectsCatalog);
     contactsSubpanel.classList.toggle("hidden-view", !showProjectsCatalog);
     contractsSubpanel?.classList.toggle("hidden-view", !showContracts);
@@ -5407,6 +5412,8 @@ function setView(view, { updateHash = true } = {}) {
       selectedClientDetailsProjectId = "";
       keepClientFormBlank = true;
       setClientsSectionMode("create");
+    } else if (clientsWorkspaceMode === "hub") {
+      setClientsSectionMode("hub");
     }
   }
   applyViewMode();
@@ -5580,6 +5587,16 @@ function openProjectCatalog(projectId) {
   pushAppAudit(`Navigation to projects catalog: ${project.name}`, "navigation", project.name || "-");
 }
 
+function openClientsHub() {
+  if (!can("manageCatalog")) {
+    setView("home");
+    return;
+  }
+  setUsersViewFilter("all");
+  setClientsWorkspaceMode("hub");
+  setView("clients");
+}
+
 function handleQuickNavAction(action) {
   if (action === "home") {
     setUsersViewFilter("all");
@@ -5629,13 +5646,7 @@ function handleQuickNavAction(action) {
   }
 
   if (action === "clients") {
-    if (!can("manageCatalog")) {
-      setView("home");
-      return;
-    }
-    setUsersViewFilter("all");
-    setClientsWorkspaceMode("newClients");
-    setView("clients");
+    openClientsHub();
     return;
   }
 
@@ -6006,19 +6017,50 @@ function renderMasterSelects() {
 }
 
 function setClientsSectionMode(mode = "create") {
-  const detailsMode = mode === "details";
-  clientsCreateView?.classList.toggle("hidden", detailsMode);
+  const normalized = mode === "details" || mode === "hub" ? mode : "create";
+  const detailsMode = normalized === "details";
+  const hubMode = normalized === "hub";
+  clientsCreateView?.classList.toggle("hidden", detailsMode || hubMode);
   clientDetailsView?.classList.toggle("hidden", !detailsMode);
+  clientsHubView?.classList.toggle("hidden", !hubMode);
 }
 
-function setClientsWorkspaceMode(mode = "newClients") {
-  const normalized = mode === "projects" || mode === "contracts" ? mode : "newClients";
+function setClientsWorkspaceMode(mode = "hub") {
+  const normalized = ["hub", "newClients", "projects", "contracts"].includes(mode) ? mode : "hub";
   clientsWorkspaceMode = normalized;
   if (normalized === "newClients") {
     selectedClientDetailsProjectId = "";
     keepClientFormBlank = true;
     setClientsSectionMode("create");
+    return;
   }
+  if (normalized === "hub") setClientsSectionMode("hub");
+}
+
+function renderClientsHubList() {
+  if (!clientsHubList) return;
+  const rows = clients
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+    .map(
+      (client) => `<button class="client-summary-item${client.id === selectedClientId ? " active" : ""}" type="button" data-client-hub="${client.id}">
+        ${escapeHtml(client.name || "-")}
+      </button>`
+    )
+    .join("");
+  clientsHubList.innerHTML = rows || '<p class="hint">No clients registered yet.</p>';
+  clientsHubList.querySelectorAll("[data-client-hub]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedClientId = button.dataset.clientHub || "";
+      selectedProjectId = "";
+      selectedContractId = "";
+      selectedClientDetailsProjectId = "";
+      renderClientsHubList();
+      renderProjectsTable();
+      renderContactsTable();
+      renderContractsTable();
+    });
+  });
 }
 
 function renderClientSelectedProjectDetails(project) {
@@ -6831,6 +6873,7 @@ function renderMasterData() {
   renderProjectDraftPills();
   renderMaterialsTable();
   if (!canManage) return;
+  renderClientsHubList();
   renderClientsTable();
   renderProjectsTable();
   renderContactsTable();
@@ -11527,6 +11570,20 @@ appMain?.addEventListener("click", (event) => {
   if (!trigger) return;
   event.preventDefault();
   handleQuickNavAction(trigger.dataset.navView || "home");
+});
+
+clientsNavGroup?.addEventListener("mouseenter", () => {
+  if (!window.matchMedia("(hover: hover)").matches) return;
+  if (!currentUser || !can("manageCatalog")) return;
+  clearTimeout(clientsNavHoverTimer);
+  clientsNavHoverTimer = window.setTimeout(() => {
+    if (!currentUser || !can("manageCatalog")) return;
+    openClientsHub();
+  }, 180);
+});
+
+clientsNavGroup?.addEventListener("mouseleave", () => {
+  clearTimeout(clientsNavHoverTimer);
 });
 
 projectSectorPanel?.addEventListener("click", (event) => {

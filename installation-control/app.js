@@ -14,6 +14,7 @@ const DELIVERY_SKU_STORE = "deliverySkuItems";
 const TRASH_STORE = "deletedRecords";
 const SESSION_KEY = "cc-session-user-id";
 const APP_AUDIT_KEY = "cc-app-audit-log";
+const LOCAL_BACKUP_META_KEY = "cc-last-local-backup-at";
 const APP_AUDIT_MAX = 3000;
 const DELETE_RETENTION_MS = 48 * 60 * 60 * 1000;
 const RESTORE_WINDOW_LABEL = "48 hours";
@@ -2219,11 +2220,20 @@ async function purgeExpiredTrashRecords() {
   return expiredIds.length;
 }
 
-async function permanentlyDeleteTrashRecord(trashId) {
+async function permanentlyDeleteTrashRecord(trashId, options = {}) {
   const target = trashRecords.find((entry) => entry.id === trashId);
   if (!target) return false;
   await del(TRASH_STORE, target.id);
   trashRecords = trashRecords.filter((entry) => entry.id !== target.id);
+  if (!options.silentAudit) {
+    const reasonSuffix = options.reason ? ` (${options.reason})` : "";
+    pushEntityAudit(
+      "Deleted Records",
+      "purged",
+      `${target.label || target.recordId || target.id}${reasonSuffix}`,
+      target.scope || "trash"
+    );
+  }
   return true;
 }
 
@@ -2234,9 +2244,10 @@ async function restoreTrashRecord(trashId) {
     return false;
   }
   if (isTrashRecordExpired(target)) {
-    await permanentlyDeleteTrashRecord(target.id);
+    await permanentlyDeleteTrashRecord(target.id, { reason: "expired" });
     await loadAll();
     render();
+    queueAutoSync();
     alert("This deleted record has expired and can no longer be restored.");
     return false;
   }
@@ -2316,7 +2327,7 @@ async function restoreTrashRecord(trashId) {
     return false;
   }
 
-  await permanentlyDeleteTrashRecord(target.id);
+  await permanentlyDeleteTrashRecord(target.id, { silentAudit: true });
   pushEntityAudit("Deleted Records", "restored", target.label || target.recordId || target.id, target.scope || "trash");
   await loadAll();
   if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
@@ -8687,12 +8698,47 @@ function renderRoleStrip() {
   permissionLine.textContent = rolePermissionsSummary(accessProfile);
 }
 
+function backupCountsSnapshot() {
+  return {
+    units: units.length,
+    users: users.length,
+    clients: clients.length,
+    projects: projects.length,
+    contacts: contacts.length,
+    contracts: contracts.length,
+    containers: containers.length,
+    materials: materials.length,
+    delivery: deliverySkuItems.length,
+    trash: trashRecords.length,
+  };
+}
+
+function backupCountsSummary(counts) {
+  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, trash:${counts.trash}`;
+}
+
+function lastLocalBackupAt() {
+  try {
+    return String(localStorage.getItem(LOCAL_BACKUP_META_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function localBackupStatusLabel() {
+  const lastBackupAt = lastLocalBackupAt();
+  if (!lastBackupAt) return "No local backup downloaded on this device yet.";
+  return `Last local backup downloaded: ${fmtDate(lastBackupAt)}.`;
+}
+
 function renderDeveloperAuditPanel() {
   if (!developerAuditPanel) return;
   if (!isDeveloper()) {
     developerAuditPanel.classList.add("hidden");
     return;
   }
+
+  const backupStatus = localBackupStatusLabel();
 
   const categoryLabel = (category) => {
     if (category === "navigation") return "Navigation";
@@ -8745,6 +8791,24 @@ function renderDeveloperAuditPanel() {
   developerAuditPanel.innerHTML = `
     <h3>Audit Log (Developer)</h3>
     <p class="hint">Tracks exact field changes and navigation history by user.</p>
+    <div class="developer-tools">
+      <button class="secondary developer-tool-btn" type="button" data-developer-backup-download>
+        <span class="developer-tool-code">BK</span>
+        <span class="developer-tool-text">
+          <strong>Local Full Backup</strong>
+          <small>Download complete JSON copy to this device</small>
+        </span>
+      </button>
+      <label class="file-label secondary developer-tool-btn">
+        <span class="developer-tool-code">RS</span>
+        <span class="developer-tool-text">
+          <strong>Restore Backup File</strong>
+          <small>Select a JSON backup from your computer</small>
+        </span>
+        <input data-developer-backup-import type="file" accept="application/json" />
+      </label>
+    </div>
+    <p class="hint developer-backup-status" data-developer-backup-status>${escapeHtml(backupStatus)}</p>
     <div class="table-wrap">
       <table class="data-table">
         <thead>
@@ -8795,6 +8859,21 @@ function renderDeveloperAuditPanel() {
     });
   });
 
+  const backupDownloadBtn = developerAuditPanel.querySelector("[data-developer-backup-download]");
+  backupDownloadBtn?.addEventListener("click", () => {
+    triggerLocalBackupDownload("developer-tools");
+    renderDeveloperAuditPanel();
+  });
+
+  const backupImportInput = developerAuditPanel.querySelector("[data-developer-backup-import]");
+  backupImportInput?.addEventListener("change", async () => {
+    const file = backupImportInput.files?.[0];
+    if (!file) return;
+    await importBackupFile(file);
+    backupImportInput.value = "";
+    renderDeveloperAuditPanel();
+  });
+
   developerAuditPanel.querySelectorAll("[data-trash-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
       const target = trashRecords.find((entry) => entry.id === button.dataset.trashDelete);
@@ -8811,6 +8890,9 @@ function renderDeveloperAuditPanel() {
   const purgeBtn = developerAuditPanel.querySelector("[data-trash-purge-expired]");
   purgeBtn?.addEventListener("click", async () => {
     const purgedCount = await purgeExpiredTrashRecords();
+    if (purgedCount) {
+      pushEntityAudit("Deleted Records", "purged-expired", `${purgedCount} expired record(s)`, "trash");
+    }
     await loadAll();
     render();
     if (purgedCount) queueAutoSync();
@@ -9780,6 +9862,12 @@ signupForm?.addEventListener("submit", async (event) => {
     alert("Could not save registration in the central database. Try again.");
     return;
   }
+  pushEntityAudit(
+    "Users",
+    "created",
+    `${user.name} (${user.username}) self-registration submitted with access profile "${user.accessProfile}"`,
+    "users"
+  );
   alert("Registration submitted. An admin or developer can adjust your access profile and permissions.");
   queueAutoSync();
 });
@@ -11286,10 +11374,8 @@ projectReportBtn.addEventListener("click", () => {
   generateProjectReport(projectReportSelect.value);
 });
 
-exportBtn.addEventListener("click", async () => {
-  if (!isDeveloper()) return;
-
-  const payload = {
+function buildFullBackupPayload() {
+  return {
     exportedAt: new Date().toISOString(),
     units,
     photos,
@@ -11304,6 +11390,13 @@ exportBtn.addEventListener("click", async () => {
     trashRecords,
     settings: [{ id: "syncConfig", ...syncConfig }],
   };
+}
+
+function triggerLocalBackupDownload(source = "toolbar") {
+  if (!isDeveloper()) return false;
+  const payload = buildFullBackupPayload();
+  const counts = backupCountsSnapshot();
+  pushEntityAudit("Backups", "exported", `${backupCountsSummary(counts)} | source:${source}`, "backup");
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -11312,19 +11405,23 @@ exportBtn.addEventListener("click", async () => {
   a.download = `cabinets-control-backup-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
-});
 
-importInput.addEventListener("change", async () => {
-  if (!isDeveloper()) return;
-  const file = importInput.files?.[0];
-  if (!file) return;
+  try {
+    localStorage.setItem(LOCAL_BACKUP_META_KEY, payload.exportedAt);
+  } catch {
+    // Keep backup download flow even if local storage is unavailable.
+  }
+  return true;
+}
 
+async function importBackupFile(file) {
+  if (!isDeveloper() || !file) return false;
   try {
     const text = await file.text();
     const payload = JSON.parse(text);
 
     if (!Array.isArray(payload.units) || !Array.isArray(payload.photos)) {
-      throw new Error("Formato invalido");
+      throw new Error("Invalid backup format");
     }
 
     for (const unit of payload.units) await put(UNIT_STORE, normalizeUnit(unit));
@@ -11344,12 +11441,30 @@ importInput.addEventListener("change", async () => {
 
     await loadAll();
     if (currentUser) currentUser = users.find((user) => user.id === currentUser.id) || currentUser;
+    pushEntityAudit(
+      "Backups",
+      "imported",
+      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, trash:${ensureArray(payload.trashRecords).length}`,
+      "backup"
+    );
     render();
+    queueAutoSync();
+    return true;
   } catch {
-    alert(t("Falha ao importar backup. Verifique o arquivo."));
-  } finally {
-    importInput.value = "";
+    alert("Failed to import backup. Check the selected file.");
+    return false;
   }
+}
+
+exportBtn.addEventListener("click", () => {
+  triggerLocalBackupDownload("toolbar");
+});
+
+importInput.addEventListener("change", async () => {
+  const file = importInput.files?.[0];
+  if (!file) return;
+  await importBackupFile(file);
+  importInput.value = "";
 });
 
 syncConfigForm.addEventListener("submit", async (event) => {
@@ -11381,6 +11496,12 @@ syncConfigForm.addEventListener("submit", async (event) => {
   };
 
   await saveSetting(syncConfig);
+  pushEntityAudit(
+    "Cloud Sync",
+    "updated",
+    `target:${syncTargetChanged ? "changed" : "same"} | autoSync:${syncConfig.autoSync ? "on" : "off"} | tenant:${auditValue(syncConfig.tenant || "-")}`,
+    "sync"
+  );
   updateSyncStatus(t("Configuracao salva."));
   if (navigator.onLine) startAutoPullLoop();
   else stopAutoPullLoop();

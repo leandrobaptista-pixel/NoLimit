@@ -1562,6 +1562,58 @@ table.data-table th {
   align-items: center;
 }
 
+.developer-tools {
+  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.45rem;
+}
+
+.developer-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  text-align: left;
+  min-height: 58px;
+}
+
+.developer-tool-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #1f4f3e;
+  background: #1f4f3e;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.7rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.developer-tool-text {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.developer-tool-text strong {
+  font-size: 0.84rem;
+  line-height: 1.2;
+}
+
+.developer-tool-text small {
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.developer-backup-status {
+  margin-top: 0.22rem;
+}
+
 /* Warehouse-specific compact layout */
 #containerPanel {
   padding: 0.72rem;

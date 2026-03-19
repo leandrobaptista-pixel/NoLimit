@@ -12,6 +12,9 @@
   --bad: #b83232;
   --radius: 14px;
   --shadow: 0 10px 25px rgba(23, 32, 38, 0.08);
+  --action-btn-font: 0.78rem;
+  --action-btn-pad-y: 0.32rem;
+  --action-btn-pad-x: 0.62rem;
 }
 
 * {
@@ -403,6 +406,20 @@ select:focus {
   border-color: var(--primary);
 }
 
+input[data-ui-invalid="true"],
+textarea[data-ui-invalid="true"],
+select[data-ui-invalid="true"] {
+  border-color: var(--bad);
+  box-shadow: 0 0 0 3px rgba(184, 50, 50, 0.12);
+  background: #fff9f9;
+}
+
+input[data-ui-valid="true"],
+textarea[data-ui-valid="true"],
+select[data-ui-valid="true"] {
+  border-color: rgba(47, 133, 90, 0.42);
+}
+
 button,
 .file-label {
   border-radius: 10px;
@@ -465,6 +482,32 @@ select[disabled] {
   display: none;
 }
 
+.form-actions-inline,
+.auth-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.form-actions-inline {
+  grid-column: 1 / -1;
+  margin-top: 0.15rem;
+}
+
+.form-actions-inline > * {
+  flex: 0 0 auto;
+}
+
+.auth-inline-actions {
+  margin-top: 0.58rem;
+}
+
+.auth-inline-actions .hint {
+  margin: 0;
+}
+
 .row {
   margin-top: 0.55rem;
   display: flex;
@@ -474,6 +517,40 @@ select[disabled] {
 
 .row > * {
   flex: 1 1 150px;
+}
+
+.grid-form > :is(button, .file-label) {
+  justify-self: end;
+  width: auto;
+}
+
+form.row > :is(button, .file-label) {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+form.row > button:first-of-type,
+form.row > .file-label:first-of-type {
+  margin-left: auto;
+}
+
+.header-actions > :is(button, .header-home-link),
+.form-actions-inline > :is(button, .file-label),
+.auth-inline-actions > :is(button, .file-label),
+.client-form-actions > :is(button, .file-label),
+.client-shortcuts > :is(button, .file-label),
+.users-registration-actions > :is(button, .file-label),
+.users-list-actions > :is(button, .file-label),
+.sync-actions > :is(button, .file-label),
+.linked-project-actions > :is(button, .file-label),
+.unit-actions > :is(button, .file-label),
+.qr-flow-actions > :is(button, .file-label),
+.camera-scan-actions > :is(button, .file-label),
+.actions-inline > :is(button, .file-label),
+form.row > :is(button, .file-label) {
+  min-height: 32px;
+  padding: var(--action-btn-pad-y) var(--action-btn-pad-x);
+  font-size: var(--action-btn-font);
 }
 
 .badge {
@@ -888,6 +965,7 @@ select[disabled] {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+  justify-content: flex-end;
 }
 
 .linked-project-actions .xs-btn {
@@ -1144,6 +1222,11 @@ select[disabled] {
 
 .client-form-actions {
   margin-top: 0.35rem;
+  justify-content: flex-end;
+}
+
+.client-shortcuts {
+  justify-content: flex-end;
 }
 
 .user-id-card {
@@ -1359,6 +1442,7 @@ table.data-table th {
 
 .users-registration-actions {
   margin-top: 0;
+  justify-content: flex-end;
 }
 
 .users-registration-actions > * {
@@ -1390,7 +1474,7 @@ table.data-table th {
 }
 
 .users-list-actions > * {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
 }
 
 .users-form-panel {
@@ -1560,6 +1644,7 @@ table.data-table th {
 
 .sync-actions {
   align-items: center;
+  justify-content: flex-end;
 }
 
 .developer-tools {
@@ -1647,6 +1732,97 @@ table.data-table th {
   padding: 0.48rem;
 }
 
+.container-manifest-builder {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid #ddd1bf;
+  border-radius: 14px;
+  padding: 0.7rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(252, 248, 241, 0.98)),
+    #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.container-manifest-builder-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.container-manifest-builder-head strong {
+  display: block;
+  font-size: 0.92rem;
+  letter-spacing: 0.01em;
+}
+
+.container-manifest-builder-head .hint,
+.container-manifest-builder-meta .hint {
+  margin: 0;
+}
+
+.container-manifest-entry-grid {
+  padding: 0.55rem;
+  border: 1px dashed #d9cbba;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.container-manifest-builder-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  align-items: center;
+}
+
+.container-manifest-builder .table-wrap {
+  max-height: 250px;
+}
+
+.container-manifest-builder .data-table {
+  margin-top: 0;
+}
+
+.manifest-inline-hint {
+  margin: 0;
+}
+
+.manifest-filter-row {
+  margin-top: 0.15rem;
+  align-items: center;
+}
+
+.manifest-selection-status {
+  margin: 0 auto 0 0;
+  flex: 1 1 260px;
+  min-width: 240px;
+}
+
+.manifest-filter-row > :is(button, .file-label) {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+.manifest-table .manifest-select-col,
+.manifest-table .manifest-select-cell {
+  width: 52px;
+  text-align: center;
+}
+
+.manifest-table [data-manifest-select-all],
+.manifest-table [data-manifest-select] {
+  width: 16px;
+  height: 16px;
+  margin: 0 auto;
+  display: block;
+}
+
+.manifest-qr-count-btn {
+  min-width: 42px;
+}
+
 #unitEntryPanel {
   padding: 0.74rem;
 }
@@ -1724,6 +1900,8 @@ table.data-table th {
 .unit-actions {
   display: flex;
   gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .unit-title,
@@ -1740,7 +1918,7 @@ table.data-table th {
 
 .container-kpi {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
   gap: 0.45rem;
 }
 
@@ -1761,6 +1939,16 @@ table.data-table th {
   display: block;
   font-size: 1rem;
   margin-top: 0.15rem;
+}
+
+.kpi-box-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 900px) {
+  .kpi-box-wide {
+    grid-column: span 1;
+  }
 }
 
 .progress-wrap {
@@ -1851,6 +2039,12 @@ table.data-table th {
   flex: 1 1 150px;
 }
 
+.manifest-specs-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(96px, 1fr));
+  gap: 0.25rem;
+}
+
 #qrLookupScanBtn,
 #qrFlowScanBtn,
 .qd-scan-btn,
@@ -1860,6 +2054,7 @@ table.data-table th {
 
 .qr-flow-actions {
   margin-top: 0.2rem;
+  justify-content: flex-end;
 }
 
 .camera-scan-modal {
@@ -1887,8 +2082,10 @@ table.data-table th {
 }
 
 .camera-scan-actions {
+  display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+  justify-content: flex-end;
 }
 
 #cameraScanVideo {
@@ -1905,6 +2102,8 @@ table.data-table th {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .checklist-summary {
@@ -2087,11 +2286,16 @@ table.data-table th {
 
   .header-actions {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
 
   .row > * {
     flex: 1 1 100%;
+  }
+
+  form.row > :is(button, .file-label) {
+    flex: 0 0 auto;
+    width: auto;
   }
 
   .unit-head {
@@ -2133,7 +2337,7 @@ table.data-table th {
   }
 
   .users-registration-actions > * {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
   }
 
   .clients-summary-scroll {

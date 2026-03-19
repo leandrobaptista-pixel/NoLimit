@@ -99,6 +99,121 @@ function applyPresetSyncConfig(config) {
   };
 }
 
+function isManagedFormField(field) {
+  return (
+    field instanceof HTMLInputElement ||
+    field instanceof HTMLSelectElement ||
+    field instanceof HTMLTextAreaElement
+  );
+}
+
+function shouldTrackManagedField(field) {
+  return isManagedFormField(field) && field.type !== "hidden";
+}
+
+function updateManagedFieldState(field) {
+  if (!shouldTrackManagedField(field)) return;
+  const form = field.form;
+  const rawValue = field.type === "checkbox" || field.type === "radio" ? field.checked : String(field.value || "").trim();
+  const shouldReveal = field.dataset.uiTouched === "true" || form?.dataset.uiSubmitted === "true";
+
+  if (shouldReveal && !field.checkValidity()) {
+    field.dataset.uiInvalid = "true";
+  } else {
+    delete field.dataset.uiInvalid;
+  }
+
+  if (!field.checkValidity() || !rawValue) {
+    delete field.dataset.uiValid;
+  } else {
+    field.dataset.uiValid = "true";
+  }
+}
+
+function refreshManagedForm(form) {
+  if (!(form instanceof HTMLFormElement)) return;
+  form.querySelectorAll("input, select, textarea").forEach((field) => updateManagedFieldState(field));
+}
+
+function bindManagedField(field) {
+  if (!shouldTrackManagedField(field) || field.dataset.uiBound === "true") return;
+  field.dataset.uiBound = "true";
+
+  const eventName = field.type === "checkbox" || field.type === "radio" || field.tagName === "SELECT" ? "change" : "input";
+
+  field.addEventListener(eventName, () => {
+    if (field.dataset.uiTouched === "true") updateManagedFieldState(field);
+  });
+
+  field.addEventListener("blur", () => {
+    field.dataset.uiTouched = "true";
+    updateManagedFieldState(field);
+  });
+}
+
+function bindManagedForm(form) {
+  if (!(form instanceof HTMLFormElement) || form.dataset.uiFormBound === "true") return;
+  form.dataset.uiFormBound = "true";
+
+  form.addEventListener(
+    "invalid",
+    (event) => {
+      const field = event.target;
+      if (!shouldTrackManagedField(field)) return;
+      form.dataset.uiSubmitted = "true";
+      field.dataset.uiTouched = "true";
+      updateManagedFieldState(field);
+    },
+    true
+  );
+
+  form.addEventListener(
+    "submit",
+    () => {
+      form.dataset.uiSubmitted = "true";
+      refreshManagedForm(form);
+    },
+    true
+  );
+
+  form.querySelectorAll("input, select, textarea").forEach((field) => bindManagedField(field));
+}
+
+function bindManagedFormsWithin(root) {
+  if (!root) return;
+
+  if (root instanceof HTMLFormElement) {
+    bindManagedForm(root);
+  } else if (root.querySelectorAll) {
+    root.querySelectorAll("form").forEach((form) => bindManagedForm(form));
+  }
+
+  if (shouldTrackManagedField(root)) {
+    bindManagedField(root);
+  } else if (root.querySelectorAll) {
+    root.querySelectorAll("input, select, textarea").forEach((field) => bindManagedField(field));
+  }
+}
+
+function initManagedForms() {
+  bindManagedFormsWithin(document);
+  document.querySelectorAll("template").forEach((template) => bindManagedFormsWithin(template.content));
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return;
+        bindManagedFormsWithin(node);
+        node.querySelectorAll("template").forEach((template) => bindManagedFormsWithin(template.content));
+      });
+    });
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+initManagedForms();
+
 const DEFAULT_LANG = "en";
 const SUPPORTED_LANGS = ["en"];
 const PRIMARY_DEVELOPER_NAME = "leandro baptista";
@@ -880,6 +995,9 @@ let cameraScanCanvas = null;
 let jsQrLoaderPromise = null;
 let scanFeedbackAudioCtx = null;
 let legacyUserRoleKeyDetected = false;
+let containerManifestDraft = [];
+let containerManifestFilters = {};
+let containerManifestSelections = {};
 
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
@@ -966,6 +1084,20 @@ const containerPanel = document.getElementById("containerPanel");
 const containerForm = document.getElementById("containerForm");
 const containerClientSelect = document.getElementById("containerClientSelect");
 const containerProjectSelect = document.getElementById("containerProjectSelect");
+const containerDraftMaterialSelect = document.getElementById("containerDraftMaterialSelect");
+const containerDraftCodeInput = document.getElementById("containerDraftCodeInput");
+const containerDraftDescriptionInput = document.getElementById("containerDraftDescriptionInput");
+const containerDraftCategoryInput = document.getElementById("containerDraftCategoryInput");
+const containerDraftQtyInput = document.getElementById("containerDraftQtyInput");
+const containerDraftUnitInput = document.getElementById("containerDraftUnitInput");
+const containerDraftAccessibilitySelect = document.getElementById("containerDraftAccessibilitySelect");
+const containerDraftColorInput = document.getElementById("containerDraftColorInput");
+const containerDraftFormatInput = document.getElementById("containerDraftFormatInput");
+const containerDraftSizeInput = document.getElementById("containerDraftSizeInput");
+const containerDraftVendorCodeInput = document.getElementById("containerDraftVendorCodeInput");
+const containerDraftAddBtn = document.getElementById("containerDraftAddBtn");
+const containerDraftSummary = document.getElementById("containerDraftSummary");
+const containerManifestDraftTable = document.getElementById("containerManifestDraftTable");
 const containersBoard = document.getElementById("containersBoard");
 const containerTemplate = document.getElementById("containerTemplate");
 const projectSectorPanel = document.getElementById("projectSectorPanel");
@@ -1856,7 +1988,7 @@ function normalizeMaterial(material) {
     id: material.id,
     sku: material.sku || "",
     description: material.description || "",
-    category: material.category || "other",
+    category: containerCategoryKey(material.category || "other"),
     unit: material.unit || "pcs",
     kitchenType: material.kitchenType || "",
     createdAt: material.createdAt || new Date().toISOString(),
@@ -1944,62 +2076,96 @@ function normalizeDeliverySkuItem(item) {
 }
 
 function normalizeContainer(container) {
-  const materialItems = ensureArray(container.materialItems).map((item) => ({
-    id: item.id || uid(),
-    materialId: item.materialId || "",
-    code: item.code || "",
-    description: item.description || "",
-    category: item.category || "other",
-    qty: toNumber(item.qty),
-    unit: item.unit || "",
-    issueType: item.issueType || "ok",
-    issueNote: item.issueNote || "",
-    issueRoute: item.issueRoute || "",
-    createdAt: item.createdAt || new Date().toISOString(),
-    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-  }));
-  const qrItems = ensureArray(container.qrItems).map((item) => ({
-    id: item.id || uid(),
-    manifestItemId: item.manifestItemId || "",
-    qrCode: item.qrCode || "",
-    materialId: item.materialId || "",
-    code: item.code || "",
-    description: item.description || "",
-    category: item.category || "other",
-    unit: item.unit || "",
-    status: item.status || "in-warehouse",
-    clientId: item.clientId || "",
-    projectId: item.projectId || "",
-    unitId: item.unitId || "",
-    unitLabel: item.unitLabel || "",
-    kitchenType: item.kitchenType || "",
-    assignedAt: item.assignedAt || "",
-    assignedBy: item.assignedBy || "",
-    deliveredAt: item.deliveredAt || "",
-    issueType: item.issueType || "",
-    issueNote: item.issueNote || "",
-    flowStage: normalizeWorkflowStage(item.flowStage || ""),
-    flowStatus: normalizeWorkflowStatus(item.flowStatus || item.status || "generated"),
-    flowUpdatedAt: item.flowUpdatedAt || item.updatedAt || item.createdAt || new Date().toISOString(),
-    flowEvents: ensureArray(item.flowEvents).map((event) => ({
-      id: event.id || uid(),
-      at: event.at || event.createdAt || new Date().toISOString(),
-      byUserId: event.byUserId || "",
-      byName: event.byName || "",
-      byAccessProfile: event.byAccessProfile || event.byRole || "",
-      bySector: event.bySector || "",
-      stage: normalizeWorkflowStage(event.stage || ""),
-      status: normalizeWorkflowStatus(event.status || "in-progress"),
-      issueType: event.issueType || "",
-      note: event.note || "",
-      unitId: event.unitId || "",
-      unitLabel: event.unitLabel || "",
-      source: event.source || "workflow",
-    })),
-    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-    createdAt: item.createdAt || new Date().toISOString(),
-  }));
+  const lineNos = new Set();
+  const materialItems = ensureArray(container.materialItems).map((item, index) => {
+    let lineNo = Math.max(1, Math.trunc(toNumber(item.lineNo || 0)));
+    if (!lineNo || lineNos.has(lineNo)) {
+      lineNo = index + 1;
+      while (lineNos.has(lineNo)) lineNo += 1;
+    }
+    lineNos.add(lineNo);
+
+    return {
+      id: item.id || uid(),
+      lineNo,
+      materialId: item.materialId || "",
+      code: item.code || "",
+      description: item.description || "",
+      category: containerCategoryKey(item.category || "other"),
+      qty: toNumber(item.qty),
+      unit: item.unit || "",
+      accessibility: normalizeManifestAccessibility(item.accessibility || "normal"),
+      finishColor: item.finishColor || "",
+      finishFormat: item.finishFormat || "",
+      finishSize: item.finishSize || "",
+      vendorProductCode: item.vendorProductCode || "",
+      issueType: item.issueType || "ok",
+      issueNote: item.issueNote || "",
+      issueRoute: item.issueRoute || "",
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+    };
+  });
+  const manifestLineById = new Map(materialItems.map((item) => [item.id, item.lineNo]));
+  const pieceCounters = new Map();
+  const qrItems = ensureArray(container.qrItems).map((item) => {
+    const pieceCounterKey = item.manifestItemId || item.code || item.id || uid();
+    const nextPieceNo = (pieceCounters.get(pieceCounterKey) || 0) + 1;
+    const pieceNo = Math.max(1, Math.trunc(toNumber(item.pieceNo || nextPieceNo)));
+    pieceCounters.set(pieceCounterKey, Math.max(nextPieceNo, pieceNo));
+
+    return {
+      id: item.id || uid(),
+      manifestItemId: item.manifestItemId || "",
+      manifestLineNo: Math.max(1, Math.trunc(toNumber(item.manifestLineNo || manifestLineById.get(item.manifestItemId) || 1))),
+      pieceNo,
+      qrCode: item.qrCode || "",
+      materialId: item.materialId || "",
+      code: item.code || "",
+      description: item.description || "",
+      category: containerCategoryKey(item.category || "other"),
+      unit: item.unit || "",
+      accessibility: normalizeManifestAccessibility(item.accessibility || "normal"),
+      finishColor: item.finishColor || "",
+      finishFormat: item.finishFormat || "",
+      finishSize: item.finishSize || "",
+      vendorProductCode: item.vendorProductCode || "",
+      status: item.status || "in-warehouse",
+      clientId: item.clientId || "",
+      projectId: item.projectId || "",
+      unitId: item.unitId || "",
+      unitLabel: item.unitLabel || "",
+      kitchenType: item.kitchenType || "",
+      assignedAt: item.assignedAt || "",
+      assignedBy: item.assignedBy || "",
+      deliveredAt: item.deliveredAt || "",
+      issueType: item.issueType || "",
+      issueNote: item.issueNote || "",
+      flowStage: normalizeWorkflowStage(item.flowStage || ""),
+      flowStatus: normalizeWorkflowStatus(item.flowStatus || item.status || "generated"),
+      flowUpdatedAt: item.flowUpdatedAt || item.updatedAt || item.createdAt || new Date().toISOString(),
+      flowEvents: ensureArray(item.flowEvents).map((event) => ({
+        id: event.id || uid(),
+        at: event.at || event.createdAt || new Date().toISOString(),
+        byUserId: event.byUserId || "",
+        byName: event.byName || "",
+        byAccessProfile: event.byAccessProfile || event.byRole || "",
+        bySector: event.bySector || "",
+        stage: normalizeWorkflowStage(event.stage || ""),
+        status: normalizeWorkflowStatus(event.status || "in-progress"),
+        issueType: event.issueType || "",
+        note: event.note || "",
+        unitId: event.unitId || "",
+        unitLabel: event.unitLabel || "",
+        source: event.source || "workflow",
+      })),
+      updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
+      createdAt: item.createdAt || new Date().toISOString(),
+    };
+  });
   qrItems.forEach((entry) => ensureQrItemFlowDefaults(entry));
+  const manifestSummary = summarizeContainerManifestItems(materialItems);
+  const hasManifest = materialItems.length > 0;
   return {
     id: container.id,
     containerCode: container.containerCode || "",
@@ -2010,10 +2176,10 @@ function normalizeContainer(container) {
     etaDate: container.etaDate || "",
     departureAt: container.departureAt || "",
     arrivalStatus: container.arrivalStatus || "scheduled",
-    qtyKitchens: toNumber(container.qtyKitchens),
-    qtyVanities: toNumber(container.qtyVanities),
-    qtyMedCabinets: toNumber(container.qtyMedCabinets),
-    qtyCountertops: toNumber(container.qtyCountertops),
+    qtyKitchens: hasManifest ? manifestSummary.kitchen : toNumber(container.qtyKitchens),
+    qtyVanities: hasManifest ? manifestSummary.vanity : toNumber(container.qtyVanities),
+    qtyMedCabinets: hasManifest ? manifestSummary.medCabinet : toNumber(container.qtyMedCabinets),
+    qtyCountertops: hasManifest ? manifestSummary.countertop : toNumber(container.qtyCountertops),
     notes: container.notes || "",
     loosePartsNotes: container.loosePartsNotes || "",
     materialItems,
@@ -3163,74 +3329,24 @@ async function importRowsToContainerManifest(rows, fileName, containerId) {
   aggregated.forEach((row) => {
     const matchedMaterial =
       materials.find((entry) => normalizeDeliverySkuValue(entry.sku) === normalizeDeliverySkuValue(row.sku)) || null;
-    const materialId = matchedMaterial?.id || "";
-    const category = row.category || matchedMaterial?.category || "other";
-    const unit = row.unit || matchedMaterial?.unit || "pcs";
-    const description = row.description || matchedMaterial?.description || row.sku;
-    const code = row.sku || `ITEM-${String(container.materialItems.length + 1).padStart(3, "0")}`;
-    const qty = Math.max(1, Math.trunc(toNumber(row.qty || 1)));
-
-    const manifestItemId = uid();
-    container.materialItems.push({
-      id: manifestItemId,
-      materialId,
-      code,
-      description,
-      category,
-      qty,
-      unit,
-      issueType: "ok",
-      issueNote: "",
-      issueRoute: "",
-      createdAt: now,
-      updatedAt: now,
-    });
-    created += 1;
-
-    for (let index = 0; index < qty; index += 1) {
-      container.qrItems.push({
-        id: uid(),
-        manifestItemId,
-        qrCode: makeQrCode(container, code || "ITEM"),
-        materialId,
-        code,
-        description,
-        category,
-        unit,
-        status: "in-warehouse",
-        clientId: "",
-        projectId: "",
-        unitId: "",
-        unitLabel: "",
+    const built = buildContainerManifestEntry(
+      container,
+      {
+        materialId: matchedMaterial?.id || "",
+        code: row.sku || `ITEM-${String(container.materialItems.length + 1).padStart(3, "0")}`,
+        description: row.description || matchedMaterial?.description || row.sku || "Item",
+        category: row.category || matchedMaterial?.category || "other",
+        qty: Math.max(1, Math.trunc(toNumber(row.qty || 1))),
+        unit: row.unit || matchedMaterial?.unit || "pcs",
         kitchenType: row.kitchenType || matchedMaterial?.kitchenType || "",
-        assignedAt: "",
-        assignedBy: "",
-        deliveredAt: "",
-        issueType: "",
-        issueNote: "",
-        flowStage: "warehouse",
-        flowStatus: "generated",
-        flowUpdatedAt: now,
-        flowEvents: [
-          {
-            id: uid(),
-            at: now,
-            byUserId: currentUser?.id || "",
-            byName: currentUser?.name || "System",
-            stage: "warehouse",
-            status: "generated",
-            issueType: "",
-            note: `QR generated from imported file: ${fileName}`,
-            unitId: "",
-            unitLabel: "",
-            source: "manifest",
-          },
-        ],
-        createdAt: now,
-        updatedAt: now,
-      });
-      qrCreated += 1;
-    }
+      },
+      now
+    );
+
+    container.materialItems.push(built.manifestItem);
+    container.qrItems.push(...built.qrItems);
+    created += 1;
+    qrCreated += built.qrItems.length;
   });
 
   pushContainerAudit(container, `Imported ${aggregated.length} row(s) from file: ${fileName}`);
@@ -3614,16 +3730,6 @@ function contactsForProject(projectId) {
   return contacts.filter((contact) => contact.projectId === projectId);
 }
 
-function nextQrSequence(container, materialCode) {
-  const seq = container.qrItems.filter((item) => item.code === materialCode).length + 1;
-  return String(seq).padStart(4, "0");
-}
-
-function makeQrCode(container, materialCode) {
-  const seq = nextQrSequence(container, materialCode);
-  return `QR|${container.containerCode}|${materialCode}|${seq}|${uid().slice(0, 8)}`;
-}
-
 function qrImageUrl(qrCode, size = 300) {
   const normalized = encodeURIComponent(String(qrCode || ""));
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${normalized}`;
@@ -3639,6 +3745,739 @@ function qrToken(value, size = 10) {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "")
     .slice(0, size);
+}
+
+function containerCategoryKey(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-")
+    .replace(/[^a-z0-9-]+/g, "");
+
+  if (!normalized) return "other";
+
+  const aliases = {
+    kitchen: "kitchen",
+    kitchens: "kitchen",
+    vanity: "vanity",
+    vanities: "vanity",
+    "med-cabinet": "med-cabinet",
+    "med-cabinets": "med-cabinet",
+    medcabinet: "med-cabinet",
+    medcabinets: "med-cabinet",
+    countertop: "countertop",
+    countertops: "countertop",
+    "wood-floor": "wood-floor",
+    woodfloor: "wood-floor",
+    flooring: "wood-floor",
+    curtain: "curtain",
+    curtains: "curtain",
+    tile: "tile",
+    tiles: "tile",
+    millwork: "millwork",
+    millworking: "millwork",
+    hardware: "hardware",
+    "extra-material": "extra-material",
+    extramaterial: "extra-material",
+    extras: "extra-material",
+    other: "other",
+  };
+
+  return aliases[normalized] || normalized;
+}
+
+function containerCategoryLabel(value) {
+  const key = containerCategoryKey(value);
+  const labels = {
+    kitchen: "Kitchen",
+    vanity: "Vanity",
+    "med-cabinet": "Med Cabinet",
+    countertop: "Countertop",
+    "wood-floor": "Wood Floor",
+    curtain: "Curtain",
+    tile: "Tile",
+    millwork: "Millwork",
+    hardware: "Hardware",
+    "extra-material": "Extra Material",
+    other: "Other",
+  };
+
+  if (labels[key]) return labels[key];
+  return key
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function normalizeManifestAccessibility(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized || ["normal", "standard", "std"].includes(normalized)) return "normal";
+  if (["ada", "accessible", "accessibility"].includes(normalized)) return "ada";
+  return normalized;
+}
+
+function manifestAccessibilityLabel(value) {
+  return normalizeManifestAccessibility(value) === "ada" ? "ADA" : "Normal";
+}
+
+function manifestSpecsSummary(item) {
+  return [
+    item?.finishColor ? `Color: ${item.finishColor}` : "",
+    item?.finishFormat ? `Format: ${item.finishFormat}` : "",
+    item?.finishSize ? `Size: ${item.finishSize}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function summarizeContainerManifestItems(items) {
+  const summary = {
+    kitchen: 0,
+    vanity: 0,
+    medCabinet: 0,
+    countertop: 0,
+    totalQty: 0,
+    categories: [],
+  };
+
+  const categoryTotals = new Map();
+
+  ensureArray(items).forEach((item) => {
+    const qty = Math.max(0, Math.trunc(toNumber(item.qty || 0)));
+    const key = containerCategoryKey(item.category);
+    const label = containerCategoryLabel(item.category);
+    summary.totalQty += qty;
+    categoryTotals.set(label, (categoryTotals.get(label) || 0) + qty);
+
+    if (key === "kitchen") summary.kitchen += qty;
+    else if (key === "vanity") summary.vanity += qty;
+    else if (key === "med-cabinet") summary.medCabinet += qty;
+    else if (key === "countertop") summary.countertop += qty;
+  });
+
+  summary.categories = Array.from(categoryTotals.entries())
+    .map(([label, qty]) => ({ label, qty }))
+    .sort((a, b) => b.qty - a.qty || a.label.localeCompare(b.label));
+
+  return summary;
+}
+
+function nextContainerManifestLineNo(container) {
+  return (
+    ensureArray(container?.materialItems).reduce(
+      (maxLine, item) => Math.max(maxLine, Math.trunc(toNumber(item?.lineNo || 0))),
+      0
+    ) + 1
+  );
+}
+
+function makeContainerManifestCode({ code = "", description = "", category = "other" } = {}) {
+  const explicit = String(code || "").trim();
+  if (explicit) return explicit;
+
+  const categoryToken = qrToken(containerCategoryKey(category), 6) || "ITEM";
+  const descriptionToken = qrToken(description, 10) || "ITEM";
+  return `${categoryToken}-${descriptionToken}`;
+}
+
+function makeContainerItemQrCode(container, manifestItem, pieceNo = 1) {
+  const tenantToken = qrToken(window.CABINETS_SYNC?.tenant || "nolimit", 8) || "NOLIMIT";
+  const project = projectById(container?.projectId || "");
+  const projectToken = qrToken(project?.code || project?.name || container?.projectId || "", 10) || "PROJECT";
+  const containerToken = qrToken(container?.containerCode || container?.id || "", 14) || "CONTAINER";
+  const categoryToken = qrToken(containerCategoryKey(manifestItem?.category), 8) || "OTHER";
+  const itemToken = qrToken(manifestItem?.code || manifestItem?.description || manifestItem?.id || "", 12) || "ITEM";
+  const lineToken = String(Math.max(1, Math.trunc(toNumber(manifestItem?.lineNo || 1)))).padStart(4, "0");
+  const pieceToken = String(Math.max(1, Math.trunc(toNumber(pieceNo || 1)))).padStart(4, "0");
+
+  return `NLC|${tenantToken}|${projectToken}|${containerToken}|${categoryToken}|${itemToken}|L${lineToken}|P${pieceToken}`;
+}
+
+function makeQrCode(container, materialCode, options = {}) {
+  return makeContainerItemQrCode(
+    container,
+    {
+      id: options.manifestItemId || "",
+      code: materialCode,
+      description: options.description || materialCode || "",
+      category: options.category || "other",
+      lineNo: options.lineNo || 1,
+    },
+    options.pieceNo || 1
+  );
+}
+
+function buildContainerManifestQrItem(container, manifestItem, { pieceNo = 1, kitchenType = "", now = new Date().toISOString() } = {}) {
+  return {
+    id: uid(),
+    manifestItemId: manifestItem.id,
+    manifestLineNo: manifestItem.lineNo,
+    pieceNo,
+    qrCode: makeQrCode(container, manifestItem.code || "ITEM", {
+      manifestItemId: manifestItem.id,
+      description: manifestItem.description,
+      category: manifestItem.category,
+      lineNo: manifestItem.lineNo,
+      pieceNo,
+    }),
+    materialId: manifestItem.materialId,
+    code: manifestItem.code,
+    description: manifestItem.description,
+    category: manifestItem.category,
+    unit: manifestItem.unit,
+    accessibility: manifestItem.accessibility,
+    finishColor: manifestItem.finishColor,
+    finishFormat: manifestItem.finishFormat,
+    finishSize: manifestItem.finishSize,
+    vendorProductCode: manifestItem.vendorProductCode,
+    status: "in-warehouse",
+    clientId: "",
+    projectId: "",
+    unitId: "",
+    unitLabel: "",
+    kitchenType,
+    assignedAt: "",
+    assignedBy: "",
+    deliveredAt: "",
+    issueType: "",
+    issueNote: "",
+    flowStage: "warehouse",
+    flowStatus: "generated",
+    flowUpdatedAt: now,
+    flowEvents: [
+      {
+        id: uid(),
+        at: now,
+        byUserId: currentUser?.id || "",
+        byName: currentUser?.name || "System",
+        stage: "warehouse",
+        status: "generated",
+        issueType: "",
+        note: "QR generated from container manifest.",
+        unitId: "",
+        unitLabel: "",
+        source: "manifest",
+      },
+    ],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function buildContainerManifestEntry(container, entry, now = new Date().toISOString()) {
+  const qty = Math.max(1, Math.trunc(toNumber(entry.qty || 1)));
+  const manifestItemId = entry.id || uid();
+  const lineNo = Math.max(1, Math.trunc(toNumber(entry.lineNo || nextContainerManifestLineNo(container))));
+  const code = makeContainerManifestCode(entry);
+  const category = containerCategoryKey(entry.category || "other");
+  const manifestItem = {
+    id: manifestItemId,
+    lineNo,
+    materialId: entry.materialId || "",
+    code,
+    description: String(entry.description || code || "Item").trim(),
+    category,
+    qty,
+    unit: String(entry.unit || "pcs").trim() || "pcs",
+    accessibility: normalizeManifestAccessibility(entry.accessibility || "normal"),
+    finishColor: String(entry.finishColor || "").trim(),
+    finishFormat: String(entry.finishFormat || "").trim(),
+    finishSize: String(entry.finishSize || "").trim(),
+    vendorProductCode: String(entry.vendorProductCode || "").trim(),
+    issueType: entry.issueType || "ok",
+    issueNote: entry.issueNote || "",
+    issueRoute: entry.issueRoute || "",
+    createdAt: entry.createdAt || now,
+    updatedAt: entry.updatedAt || now,
+  };
+
+  const qrItems = Array.from({ length: qty }, (_, index) =>
+    buildContainerManifestQrItem(container, manifestItem, {
+      pieceNo: index + 1,
+      kitchenType: entry.kitchenType || "",
+      now,
+    })
+  );
+
+  return { manifestItem, qrItems };
+}
+
+function syncManifestQrItemMetadata(container, manifestItem, now = new Date().toISOString()) {
+  ensureArray(container?.qrItems)
+    .filter((entry) => entry.manifestItemId === manifestItem.id)
+    .forEach((entry) => {
+      entry.materialId = manifestItem.materialId || entry.materialId || "";
+      entry.code = manifestItem.code;
+      entry.description = manifestItem.description;
+      entry.category = manifestItem.category;
+      entry.unit = manifestItem.unit;
+      entry.accessibility = manifestItem.accessibility;
+      entry.finishColor = manifestItem.finishColor;
+      entry.finishFormat = manifestItem.finishFormat;
+      entry.finishSize = manifestItem.finishSize;
+      entry.vendorProductCode = manifestItem.vendorProductCode;
+      entry.updatedAt = now;
+    });
+}
+
+function reconcileManifestItemQrCount(container, manifestItem, now = new Date().toISOString()) {
+  const linked = ensureArray(container?.qrItems)
+    .filter((entry) => entry.manifestItemId === manifestItem.id)
+    .sort((a, b) => Math.trunc(toNumber(a.pieceNo || 0)) - Math.trunc(toNumber(b.pieceNo || 0)));
+  const targetQty = Math.max(1, Math.trunc(toNumber(manifestItem.qty || 1)));
+  const kitchenType = linked[0]?.kitchenType || "";
+  let added = 0;
+  let removed = 0;
+
+  if (linked.length < targetQty) {
+    for (let pieceNo = linked.length + 1; pieceNo <= targetQty; pieceNo += 1) {
+      container.qrItems.push(buildContainerManifestQrItem(container, manifestItem, { pieceNo, kitchenType, now }));
+      added += 1;
+    }
+  } else if (linked.length > targetQty) {
+    const needRemove = linked.length - targetQty;
+    const removable = linked.filter((entry) => entry.status === "in-warehouse").sort((a, b) => b.pieceNo - a.pieceNo);
+    if (removable.length < needRemove) {
+      throw new Error("Cannot reduce quantity because some QR pieces are already assigned, dispatched, or delivered.");
+    }
+    const removeIds = new Set(removable.slice(0, needRemove).map((entry) => entry.id));
+    container.qrItems = ensureArray(container.qrItems).filter((entry) => !removeIds.has(entry.id));
+    removed = needRemove;
+  }
+
+  syncManifestQrItemMetadata(container, manifestItem, now);
+  return { added, removed };
+}
+
+function normalizeManifestFieldValue(key, value, fallback = "") {
+  if (key === "category") return containerCategoryKey(value || fallback || "other");
+  if (key === "qty") return Math.max(1, Math.trunc(toNumber(value || fallback || 1)));
+  if (key === "accessibility") return normalizeManifestAccessibility(value || fallback || "normal");
+  if (key === "unit") return String(value || fallback || "pcs").trim() || "pcs";
+  return String(value || fallback || "").trim();
+}
+
+function manifestItemMatchesFilters(item, filters = {}) {
+  const accessibility = String(filters.accessibility || "").trim();
+  const color = String(filters.color || "")
+    .trim()
+    .toLowerCase();
+  const format = String(filters.format || "")
+    .trim()
+    .toLowerCase();
+  const size = String(filters.size || "")
+    .trim()
+    .toLowerCase();
+  const vendorCode = String(filters.vendorProductCode || "")
+    .trim()
+    .toLowerCase();
+
+  if (accessibility && normalizeManifestAccessibility(item.accessibility) !== normalizeManifestAccessibility(accessibility)) return false;
+  if (color && !String(item.finishColor || "").toLowerCase().includes(color)) return false;
+  if (format && !String(item.finishFormat || "").toLowerCase().includes(format)) return false;
+  if (size && !String(item.finishSize || "").toLowerCase().includes(size)) return false;
+  if (vendorCode && !String(item.vendorProductCode || "").toLowerCase().includes(vendorCode)) return false;
+  return true;
+}
+
+function manifestItemQrEntries(container, manifestItemId) {
+  return ensureArray(container?.qrItems)
+    .filter((entry) => entry.manifestItemId === manifestItemId)
+    .sort((a, b) => Math.trunc(toNumber(a.pieceNo || 0)) - Math.trunc(toNumber(b.pieceNo || 0)));
+}
+
+function filteredManifestItems(container, filters = {}) {
+  return ensureArray(container?.materialItems).filter((item) => manifestItemMatchesFilters(item, filters));
+}
+
+function normalizeManifestSelectionIds(container, selectionIds = []) {
+  const availableIds = new Set(ensureArray(container?.materialItems).map((item) => item.id));
+  return [...new Set(ensureArray(selectionIds).filter((id) => availableIds.has(id)))];
+}
+
+function selectedManifestItems(container, selectionIds = []) {
+  const selectedIds = new Set(normalizeManifestSelectionIds(container, selectionIds));
+  return ensureArray(container?.materialItems).filter((item) => selectedIds.has(item.id));
+}
+
+function manifestExportRows(container, items) {
+  const client = clientById(container?.clientId || "");
+  const project = projectById(container?.projectId || "");
+  return ensureArray(items).map((item) => ({
+    containerCode: container?.containerCode || "",
+    clientName: client?.name || "",
+    projectName: project?.name || "",
+    lineNo: item.lineNo || "",
+    code: item.code || "",
+    description: item.description || "",
+    category: containerCategoryLabel(item.category),
+    qty: Math.max(0, Math.trunc(toNumber(item.qty || 0))),
+    unit: item.unit || "",
+    accessibility: manifestAccessibilityLabel(item.accessibility),
+    color: item.finishColor || "",
+    format: item.finishFormat || "",
+    size: item.finishSize || "",
+    vendorProductCode: item.vendorProductCode || "",
+    issueType: item.issueType || "ok",
+    issueRoute: item.issueRoute || "",
+    issueNote: item.issueNote || "",
+    qrCount: manifestItemQrEntries(container, item.id).length,
+  }));
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  if (!/[",\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadTextFile(text, filename, mime = "text/plain;charset=utf-8") {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function openManifestItemQrLabels(container, manifestItem, { autoPrint = false } = {}) {
+  const qrItems = manifestItemQrEntries(container, manifestItem?.id);
+  if (!qrItems.length) return;
+  const client = clientById(container?.clientId || "");
+  const project = projectById(container?.projectId || "");
+  const win = window.open("", "_blank");
+  if (!win) return;
+  const html = `<!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <title>Manifest QR Labels</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 18px; color: #1f2937; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+        .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 12px; page-break-inside: avoid; }
+        h1 { margin: 0 0 6px; font-size: 14px; }
+        h2 { margin: 0 0 8px; font-size: 12px; color: #475569; }
+        img { width: 180px; height: 180px; border: 1px solid #e5e7eb; display: block; margin: 10px auto; }
+        p { margin: 4px 0; font-size: 12px; }
+        .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
+        .actions { margin-bottom: 10px; }
+        .spec { color: #475569; }
+        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
+        @media print { .actions { display: none; } body { margin: 0; } }
+      </style>
+    </head>
+    <body>
+      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      <div class="grid">
+        ${qrItems
+          .map(
+            (qrItem, index) => `<div class="label">
+            <h1>${escapeHtml(manifestItem.code || "-")} | ${escapeHtml(manifestItem.description || "-")}</h1>
+            <h2>Container ${escapeHtml(container?.containerCode || "-")} | Piece ${escapeHtml(qrItem.pieceNo || index + 1)} / ${qrItems.length}</h2>
+            <img src="${qrImageUrl(qrItem.qrCode, 280)}" alt="QR ${escapeHtml(qrItem.qrCode)}" />
+            <p><strong>QR:</strong> <span class="qr-code">${escapeHtml(qrItem.qrCode)}</span></p>
+            <p><strong>Client:</strong> ${escapeHtml(client?.name || "-")}</p>
+            <p><strong>Project:</strong> ${escapeHtml(project?.name || "-")}</p>
+            <p><strong>Category:</strong> ${escapeHtml(containerCategoryLabel(manifestItem.category))}</p>
+            <p><strong>Unit:</strong> ${escapeHtml(manifestItem.unit || "-")}</p>
+            <p><strong>ADA / Normal:</strong> ${escapeHtml(manifestAccessibilityLabel(manifestItem.accessibility))}</p>
+            <p class="spec"><strong>Color:</strong> ${escapeHtml(manifestItem.finishColor || "-")}</p>
+            <p class="spec"><strong>Format:</strong> ${escapeHtml(manifestItem.finishFormat || "-")}</p>
+            <p class="spec"><strong>Size:</strong> ${escapeHtml(manifestItem.finishSize || "-")}</p>
+            <p><strong>Mfr / Dist code:</strong> ${escapeHtml(manifestItem.vendorProductCode || "-")}</p>
+          </div>`
+          )
+          .join("")}
+      </div>
+    </body>
+  </html>`;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  if (autoPrint) setTimeout(() => win.print(), 450);
+}
+
+function openManifestItemQrDetails(container, manifestItem) {
+  const qrItems = manifestItemQrEntries(container, manifestItem?.id);
+  if (!qrItems.length) {
+    alert("No QR pieces available for this manifest line.");
+    return;
+  }
+
+  const client = clientById(container?.clientId || "");
+  const project = projectById(container?.projectId || "");
+  const rows = qrItems
+    .map(
+      (qrItem) => `<tr>
+        <td>${escapeHtml(qrItem.pieceNo || "-")}</td>
+        <td><span class="qr-code">${escapeHtml(qrItem.qrCode || "-")}</span></td>
+        <td>${escapeHtml(workflowStageLabel(qrItem.flowStage || "warehouse"))}</td>
+        <td>${escapeHtml(workflowStatusLabel(qrItem.flowStatus || qrItem.status || "in-warehouse"))}</td>
+        <td>${escapeHtml(deliveryDestinationLabel(qrItem))}</td>
+        <td>${escapeHtml(fmtDate(qrItem.updatedAt || qrItem.createdAt))}</td>
+      </tr>`
+    )
+    .join("");
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  const html = `<!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <title>Manifest QR Detail</title>
+      <style>
+        body { font-family: Georgia, "Times New Roman", serif; margin: 24px; color: #222; }
+        h1 { margin: 0 0 6px; }
+        p { margin: 2px 0; }
+        .meta { margin-bottom: 14px; color: #555; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin: 14px 0; }
+        .summary div { border: 1px solid #bbb; padding: 8px 10px; border-radius: 10px; background: #f8fafc; }
+        .summary span { display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .summary strong { display: block; margin-top: 4px; font-size: 14px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { border: 1px solid #bbb; padding: 6px; font-size: 12px; text-align: left; vertical-align: top; }
+        th { background: #efefef; }
+        .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
+        .actions { margin-bottom: 10px; }
+        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
+        @media print { .actions { display: none; } body { margin: 0; } }
+      </style>
+    </head>
+    <body>
+      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      <h1>Manifest QR detail: ${escapeHtml(manifestItem.code || manifestItem.description || "-")}</h1>
+      <div class="meta">
+        <p><strong>Container:</strong> ${escapeHtml(container?.containerCode || "-")}</p>
+        <p><strong>Client:</strong> ${escapeHtml(client?.name || "-")}</p>
+        <p><strong>Project:</strong> ${escapeHtml(project?.name || "-")}</p>
+        <p><strong>Description:</strong> ${escapeHtml(manifestItem.description || "-")}</p>
+      </div>
+      <div class="summary">
+        <div><span>Line</span><strong>${escapeHtml(manifestItem.lineNo || "-")}</strong></div>
+        <div><span>QR Count</span><strong>${escapeHtml(qrItems.length)}</strong></div>
+        <div><span>Category</span><strong>${escapeHtml(containerCategoryLabel(manifestItem.category))}</strong></div>
+        <div><span>ADA / Normal</span><strong>${escapeHtml(manifestAccessibilityLabel(manifestItem.accessibility))}</strong></div>
+        <div><span>Specs</span><strong>${escapeHtml(manifestSpecsSummary(manifestItem) || "-")}</strong></div>
+        <div><span>Mfr / Dist code</span><strong>${escapeHtml(manifestItem.vendorProductCode || "-")}</strong></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Piece</th>
+            <th>QR</th>
+            <th>Stage</th>
+            <th>Status</th>
+            <th>Destination</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </body>
+  </html>`;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+function openFilteredManifestQrLabels(container, manifestItems, { autoPrint = false } = {}) {
+  const client = clientById(container?.clientId || "");
+  const project = projectById(container?.projectId || "");
+  const labels = ensureArray(manifestItems).flatMap((manifestItem) =>
+    manifestItemQrEntries(container, manifestItem.id).map((qrItem) => ({ manifestItem, qrItem }))
+  );
+  if (!labels.length) {
+    alert("No QR labels available for the current manifest rows.");
+    return;
+  }
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  const html = `<!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <title>Manifest QR Labels</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 18px; color: #1f2937; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+        .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 12px; page-break-inside: avoid; }
+        h1 { margin: 0 0 6px; font-size: 14px; }
+        h2 { margin: 0 0 8px; font-size: 12px; color: #475569; }
+        img { width: 180px; height: 180px; border: 1px solid #e5e7eb; display: block; margin: 10px auto; }
+        p { margin: 4px 0; font-size: 12px; }
+        .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
+        .actions { margin-bottom: 10px; }
+        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
+        @media print { .actions { display: none; } body { margin: 0; } }
+      </style>
+    </head>
+    <body>
+      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      <div class="grid">
+        ${labels
+          .map(
+            ({ manifestItem, qrItem }) => `<div class="label">
+            <h1>${escapeHtml(manifestItem.code || "-")} | ${escapeHtml(manifestItem.description || "-")}</h1>
+            <h2>Container ${escapeHtml(container?.containerCode || "-")} | Line ${escapeHtml(manifestItem.lineNo || "-")} | Piece ${escapeHtml(qrItem.pieceNo || "-")}</h2>
+            <img src="${qrImageUrl(qrItem.qrCode, 280)}" alt="QR ${escapeHtml(qrItem.qrCode)}" />
+            <p><strong>QR:</strong> <span class="qr-code">${escapeHtml(qrItem.qrCode)}</span></p>
+            <p><strong>Client:</strong> ${escapeHtml(client?.name || "-")}</p>
+            <p><strong>Project:</strong> ${escapeHtml(project?.name || "-")}</p>
+            <p><strong>Category:</strong> ${escapeHtml(containerCategoryLabel(manifestItem.category))}</p>
+            <p><strong>Unit:</strong> ${escapeHtml(manifestItem.unit || "-")}</p>
+            <p><strong>ADA / Normal:</strong> ${escapeHtml(manifestAccessibilityLabel(manifestItem.accessibility))}</p>
+            <p><strong>Color:</strong> ${escapeHtml(manifestItem.finishColor || "-")}</p>
+            <p><strong>Format:</strong> ${escapeHtml(manifestItem.finishFormat || "-")}</p>
+            <p><strong>Size:</strong> ${escapeHtml(manifestItem.finishSize || "-")}</p>
+            <p><strong>Mfr / Dist code:</strong> ${escapeHtml(manifestItem.vendorProductCode || "-")}</p>
+          </div>`
+          )
+          .join("")}
+      </div>
+    </body>
+  </html>`;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  if (autoPrint) setTimeout(() => win.print(), 450);
+}
+
+function exportFilteredManifestCsv(container, manifestItems) {
+  const rows = manifestExportRows(container, manifestItems);
+  if (!rows.length) {
+    alert("No manifest rows available for CSV export.");
+    return;
+  }
+  const headers = [
+    "Container",
+    "Client",
+    "Project",
+    "Line",
+    "Code",
+    "Description",
+    "Category",
+    "Qty",
+    "Unit",
+    "ADA/Normal",
+    "Color",
+    "Format",
+    "Size",
+    "Mfr/Dist code",
+    "Issue",
+    "Route To",
+    "Detail",
+    "QR Count",
+  ];
+  const csv = [
+    headers.join(","),
+    ...rows.map((row) =>
+      [
+        row.containerCode,
+        row.clientName,
+        row.projectName,
+        row.lineNo,
+        row.code,
+        row.description,
+        row.category,
+        row.qty,
+        row.unit,
+        row.accessibility,
+        row.color,
+        row.format,
+        row.size,
+        row.vendorProductCode,
+        row.issueType,
+        row.issueRoute,
+        row.issueNote,
+        row.qrCount,
+      ]
+        .map(csvCell)
+        .join(",")
+    ),
+  ].join("\n");
+  const fileName = `manifest-${container?.containerCode || "container"}-${new Date().toISOString().slice(0, 10)}.csv`;
+  downloadTextFile(csv, fileName, "text/csv;charset=utf-8");
+}
+
+function exportFilteredManifestPdf(container, manifestItems, { autoPrint = true } = {}) {
+  const rows = manifestExportRows(container, manifestItems);
+  if (!rows.length) {
+    alert("No manifest rows available for PDF export.");
+    return;
+  }
+  const client = clientById(container?.clientId || "");
+  const project = projectById(container?.projectId || "");
+  const html = reportShell(
+    `Container Manifest ${container?.containerCode || ""}`,
+    `
+      <h1>Container manifest: ${escapeHtml(container?.containerCode || "-")}</h1>
+      <div class="meta">
+        <p><strong>Client:</strong> ${escapeHtml(client?.name || "-")}</p>
+        <p><strong>Project:</strong> ${escapeHtml(project?.name || "-")}</p>
+        <p><strong>Supplier:</strong> ${escapeHtml(container?.supplier || "-")}</p>
+        <p><strong>Manufacturer:</strong> ${escapeHtml(container?.manufacturer || "-")}</p>
+        <p><strong>Generated at:</strong> ${escapeHtml(fmtDate(new Date().toISOString()))}</p>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Line</th>
+            <th>Code</th>
+            <th>Description</th>
+            <th>Category</th>
+            <th>Qty</th>
+            <th>Unit</th>
+            <th>ADA/Normal</th>
+            <th>Color</th>
+            <th>Format</th>
+            <th>Size</th>
+            <th>Mfr/Dist code</th>
+            <th>Issue</th>
+            <th>Route To</th>
+            <th>Detail</th>
+            <th>QR Count</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `<tr>
+                <td>${escapeHtml(row.lineNo)}</td>
+                <td>${escapeHtml(row.code)}</td>
+                <td>${escapeHtml(row.description)}</td>
+                <td>${escapeHtml(row.category)}</td>
+                <td>${escapeHtml(row.qty)}</td>
+                <td>${escapeHtml(row.unit)}</td>
+                <td>${escapeHtml(row.accessibility)}</td>
+                <td>${escapeHtml(row.color || "-")}</td>
+                <td>${escapeHtml(row.format || "-")}</td>
+                <td>${escapeHtml(row.size || "-")}</td>
+                <td>${escapeHtml(row.vendorProductCode || "-")}</td>
+                <td>${escapeHtml(row.issueType || "-")}</td>
+                <td>${escapeHtml(row.issueRoute || "-")}</td>
+                <td>${escapeHtml(row.issueNote || "-")}</td>
+                <td>${escapeHtml(row.qrCount)}</td>
+              </tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `
+  );
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  if (autoPrint) setTimeout(() => win.print(), 300);
 }
 
 function makeUnitChecklistQrCode(unit, item, index = 1) {
@@ -5238,7 +6077,7 @@ function setManufactureSubView(view = "schedule") {
   const previous = manufactureSubView;
   manufactureSubView = normalized;
   if (previous !== manufactureSubView && currentUser) {
-    pushAppAudit(`Navigation manufacture folder: ${previous} -> ${manufactureSubView}`, "navigation", "manufacture");
+    pushAppAudit(`Navigation factory folder: ${previous} -> ${manufactureSubView}`, "navigation", "manufacture");
   }
 }
 
@@ -5939,6 +6778,81 @@ function syncContainerProjectSelect() {
   );
 }
 
+function syncContainerDraftMaterialSelect() {
+  if (!containerDraftMaterialSelect) return;
+  const current = containerDraftMaterialSelect.value;
+  const options = materials
+    .slice()
+    .sort((a, b) => a.sku.localeCompare(b.sku) || a.description.localeCompare(b.description))
+    .map(
+      (material) =>
+        `<option value="${escapeHtml(material.id)}">${escapeHtml(material.sku)} - ${escapeHtml(material.description)}</option>`
+    )
+    .join("");
+  containerDraftMaterialSelect.innerHTML = `<option value="">Select from catalog</option>${options}`;
+  if (materials.some((entry) => entry.id === current)) containerDraftMaterialSelect.value = current;
+}
+
+function clearContainerDraftEntryInputs() {
+  if (containerDraftMaterialSelect) containerDraftMaterialSelect.value = "";
+  if (containerDraftCodeInput) containerDraftCodeInput.value = "";
+  if (containerDraftDescriptionInput) containerDraftDescriptionInput.value = "";
+  if (containerDraftCategoryInput) containerDraftCategoryInput.value = "";
+  if (containerDraftQtyInput) containerDraftQtyInput.value = "1";
+  if (containerDraftUnitInput) containerDraftUnitInput.value = "pcs";
+  if (containerDraftAccessibilitySelect) containerDraftAccessibilitySelect.value = "normal";
+  if (containerDraftColorInput) containerDraftColorInput.value = "";
+  if (containerDraftFormatInput) containerDraftFormatInput.value = "";
+  if (containerDraftSizeInput) containerDraftSizeInput.value = "";
+  if (containerDraftVendorCodeInput) containerDraftVendorCodeInput.value = "";
+}
+
+function renderContainerManifestDraft() {
+  syncContainerDraftMaterialSelect();
+  if (containerDraftSummary) {
+    const summary = summarizeContainerManifestItems(containerManifestDraft);
+    const mix = summary.categories
+      .slice(0, 4)
+      .map((entry) => `${entry.label}: ${entry.qty}`)
+      .join(" | ");
+    containerDraftSummary.textContent = containerManifestDraft.length
+      ? `Lines: ${containerManifestDraft.length} | Total pieces: ${summary.totalQty}${mix ? ` | ${mix}` : ""}`
+      : "No planned items yet.";
+  }
+
+  if (!containerManifestDraftTable) return;
+
+  if (!containerManifestDraft.length) {
+    containerManifestDraftTable.innerHTML = '<p class="hint">Add the planned items for this container. QR codes will be generated automatically when the container is created.</p>';
+    return;
+  }
+
+  const rows = containerManifestDraft
+    .map(
+      (item) => `<tr>
+        <td>${escapeHtml(item.code || "-")}</td>
+        <td>${escapeHtml(item.description)}</td>
+        <td>${escapeHtml(containerCategoryLabel(item.category))}</td>
+        <td>${escapeHtml(item.qty)}</td>
+        <td>${escapeHtml(item.unit)}</td>
+        <td>${escapeHtml(manifestAccessibilityLabel(item.accessibility))}</td>
+        <td>${escapeHtml(manifestSpecsSummary(item) || "-")}</td>
+        <td>${escapeHtml(item.vendorProductCode || "-")}</td>
+        <td><button class="danger xs-btn" type="button" data-container-draft-del="${item.id}">Remove</button></td>
+      </tr>`
+    )
+    .join("");
+
+  containerManifestDraftTable.innerHTML = `<table class="data-table"><thead><tr><th>Code</th><th>Description</th><th>Category</th><th>Qty</th><th>Unit</th><th>ADA/Normal</th><th>Specs</th><th>Mfr/Dist Code</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+  containerManifestDraftTable.querySelectorAll("[data-container-draft-del]").forEach((button) => {
+    button.addEventListener("click", () => {
+      containerManifestDraft = containerManifestDraft.filter((entry) => entry.id !== button.dataset.containerDraftDel);
+      renderContainerManifestDraft();
+    });
+  });
+}
+
 function syncContactProjectSelect() {
   const clientId = contactClientSelect.value;
   populateProjectSelectByClient(contactProjectSelect, clientId, "Project (optional)", true);
@@ -6048,6 +6962,36 @@ function setClientsWorkspaceMode(mode = "hub") {
   if (normalized === "hub") setClientsSectionMode("hub");
 }
 
+function openClientDetails(clientId) {
+  const nextClientId = String(clientId || "").trim();
+  if (!nextClientId) return;
+
+  selectedClientId = nextClientId;
+  selectedProjectId = "";
+  selectedContractId = "";
+  selectedClientDetailsProjectId = "";
+  keepClientFormBlank = true;
+  setClientsSectionMode("details");
+
+  if (projectClientSelect) projectClientSelect.value = selectedClientId;
+
+  if (contactClientSelect) {
+    contactClientSelect.value = selectedClientId;
+    syncContactProjectSelect();
+  }
+
+  if (contractClientSelect) {
+    contractClientSelect.value = selectedClientId;
+    syncContractProjectSelect();
+  }
+
+  renderClientsHubList();
+  renderClientsTable();
+  renderProjectsTable();
+  renderContactsTable();
+  renderContractsTable();
+}
+
 function renderClientsHubList() {
   if (!clientsHubList) return;
   const rows = clients
@@ -6062,14 +7006,7 @@ function renderClientsHubList() {
   clientsHubList.innerHTML = rows || '<p class="hint">No clients registered yet.</p>';
   clientsHubList.querySelectorAll("[data-client-hub]").forEach((button) => {
     button.addEventListener("click", () => {
-      selectedClientId = button.dataset.clientHub || "";
-      selectedProjectId = "";
-      selectedContractId = "";
-      selectedClientDetailsProjectId = "";
-      renderClientsHubList();
-      renderProjectsTable();
-      renderContactsTable();
-      renderContractsTable();
+      openClientDetails(button.dataset.clientHub || "");
     });
   });
 }
@@ -6205,24 +7142,7 @@ function renderClientsTable() {
 
   clientsSummaryScroll.querySelectorAll("[data-client-summary]").forEach((button) => {
     button.addEventListener("click", () => {
-      selectedClientId = button.dataset.clientSummary || "";
-      selectedProjectId = "";
-      selectedContractId = "";
-      selectedClientDetailsProjectId = "";
-      setClientsSectionMode("details");
-      if (projectClientSelect && selectedClientId) projectClientSelect.value = selectedClientId;
-      if (contactClientSelect && selectedClientId) {
-        contactClientSelect.value = selectedClientId;
-        syncContactProjectSelect();
-      }
-      if (contractClientSelect && selectedClientId) {
-        contractClientSelect.value = selectedClientId;
-        syncContractProjectSelect();
-      }
-      renderClientsTable();
-      renderProjectsTable();
-      renderContactsTable();
-      renderContractsTable();
+      openClientDetails(button.dataset.clientSummary || "");
     });
   });
 
@@ -6774,7 +7694,7 @@ function renderMaterialsTable() {
       (material) => `<tr>
       <td>${escapeHtml(material.sku)}</td>
       <td>${escapeHtml(material.description)}</td>
-      <td>${escapeHtml(material.category)}</td>
+      <td>${escapeHtml(containerCategoryLabel(material.category))}</td>
       <td>${escapeHtml(material.unit)}</td>
       <td>${escapeHtml(material.kitchenType || "-")}</td>
       <td>${escapeHtml(fmtDate(material.updatedAt))}</td>
@@ -6803,7 +7723,9 @@ function renderMaterialsTable() {
       if (!sku) return;
       const description = prompt("Description:", material.description)?.trim();
       if (!description) return;
-      const category = prompt("Category (kitchen, vanity, med-cabinet, countertop, other):", material.category)?.trim() || "other";
+      const category =
+        prompt("Category (examples: kitchen, vanity, tile, curtain, wood-floor, extra-material):", material.category)?.trim() ||
+        "other";
       const unit = prompt("Unit:", material.unit || "pcs")?.trim() || "pcs";
       const kitchenType = prompt("Tipo de cozinha:", material.kitchenType || "")?.trim() || "";
 
@@ -6956,15 +7878,68 @@ async function saveUnitAndContainer(unit, container, unitAuditMessage = "") {
   queueAutoSync();
 }
 
-function renderManifestTable(wrapper, container, editable) {
-  const rows = container.materialItems
+function renderManifestTable(wrapper, container, editable, filters = {}, selectionIds = []) {
+  const hasActiveFilters = Object.values(filters).some((value) => String(value || "").trim());
+  const selectedIds = new Set(normalizeManifestSelectionIds(container, selectionIds));
+  const filteredItems = container.materialItems.filter((item) => manifestItemMatchesFilters(item, filters));
+  const selectedVisibleCount = filteredItems.filter((item) => selectedIds.has(item.id)).length;
+  const allVisibleSelected = filteredItems.length > 0 && selectedVisibleCount === filteredItems.length;
+  const rows = filteredItems
     .map(
-      (item) => `<tr>
-      <td>${escapeHtml(item.code)}</td>
-      <td>${escapeHtml(item.description)}</td>
-      <td>${escapeHtml(item.category)}</td>
-      <td>${escapeHtml(item.qty)}</td>
-      <td>${escapeHtml(item.unit)}</td>
+      (item) => {
+        const qrCount = manifestItemQrEntries(container, item.id).length;
+        return `<tr>
+      <td class="manifest-select-cell"><input type="checkbox" data-manifest-select="${item.id}" ${
+        selectedIds.has(item.id) ? "checked" : ""
+      } aria-label="Select manifest line ${escapeHtml(item.lineNo || item.code || item.description || item.id)}" /></td>
+      <td>${escapeHtml(item.lineNo)}</td>
+      <td>${
+        editable
+          ? `<input data-manifest-field="code" data-manifest-id="${item.id}" value="${escapeHtml(item.code)}" placeholder="Code" />`
+          : escapeHtml(item.code)
+      }</td>
+      <td>${
+        editable
+          ? `<input data-manifest-field="description" data-manifest-id="${item.id}" value="${escapeHtml(item.description)}" placeholder="Description" />`
+          : escapeHtml(item.description)
+      }</td>
+      <td>${
+        editable
+          ? `<input data-manifest-field="category" data-manifest-id="${item.id}" value="${escapeHtml(item.category)}" list="containerCategoryList" placeholder="Category" />`
+          : escapeHtml(containerCategoryLabel(item.category))
+      }</td>
+      <td>${
+        editable
+          ? `<input data-manifest-field="qty" data-manifest-id="${item.id}" type="number" min="1" value="${escapeHtml(item.qty)}" />`
+          : escapeHtml(item.qty)
+      }</td>
+      <td>${
+        editable
+          ? `<input data-manifest-field="unit" data-manifest-id="${item.id}" value="${escapeHtml(item.unit)}" placeholder="Unit" />`
+          : escapeHtml(item.unit)
+      }</td>
+      <td>${
+        editable
+          ? `<select data-manifest-field="accessibility" data-manifest-id="${item.id}">
+            <option value="normal" ${normalizeManifestAccessibility(item.accessibility) === "normal" ? "selected" : ""}>Normal</option>
+            <option value="ada" ${normalizeManifestAccessibility(item.accessibility) === "ada" ? "selected" : ""}>ADA</option>
+          </select>`
+          : escapeHtml(manifestAccessibilityLabel(item.accessibility))
+      }</td>
+      <td>${
+        editable
+          ? `<div class="manifest-specs-fields">
+            <input data-manifest-field="finishColor" data-manifest-id="${item.id}" value="${escapeHtml(item.finishColor || "")}" placeholder="Color" />
+            <input data-manifest-field="finishFormat" data-manifest-id="${item.id}" value="${escapeHtml(item.finishFormat || "")}" placeholder="Format" />
+            <input data-manifest-field="finishSize" data-manifest-id="${item.id}" value="${escapeHtml(item.finishSize || "")}" placeholder="Size" />
+          </div>`
+          : escapeHtml(manifestSpecsSummary(item) || "-")
+      }</td>
+      <td>${
+        editable
+          ? `<input data-manifest-field="vendorProductCode" data-manifest-id="${item.id}" value="${escapeHtml(item.vendorProductCode || "")}" placeholder="Mfr/Dist code" />`
+          : escapeHtml(item.vendorProductCode || "-")
+      }</td>
       <td>
         ${
           editable
@@ -6991,13 +7966,23 @@ function renderManifestTable(wrapper, container, editable) {
             : escapeHtml(item.issueNote || "-")
         }
       </td>
-      <td>${editable ? `<button class="danger xs-btn" data-manifest-del="${item.id}">x</button>` : "-"}</td>
-    </tr>`
+      <td>${
+        qrCount
+          ? `<button class="secondary xs-btn manifest-qr-count-btn" type="button" data-manifest-qr-list="${item.id}" title="Open QR piece list">${qrCount}</button>`
+          : "0"
+      }</td>
+      <td><div class="actions-inline">${qrCount ? `<button class="secondary xs-btn" type="button" data-manifest-print="${item.id}">Print QR</button>` : ""}${
+        editable ? `<button class="danger xs-btn" data-manifest-del="${item.id}">x</button>` : ""
+      }</div></td>
+    </tr>`;
+      }
     )
     .join("");
 
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>Code</th><th>Description</th><th>Category</th><th>Qty</th><th>Unit</th><th>Issue</th><th>Route To</th><th>Detail</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="9">No manifest items.</td></tr>'
+  wrapper.innerHTML = `<table class="data-table"><thead><tr><th class="manifest-select-col"><input type="checkbox" data-manifest-select-all ${
+    allVisibleSelected ? "checked" : ""
+  } ${filteredItems.length ? "" : "disabled"} aria-label="Select all visible manifest lines" /></th><th>Line</th><th>Code</th><th>Description</th><th>Category</th><th>Qty</th><th>Unit</th><th>ADA/Normal</th><th>Specs</th><th>Mfr/Dist Code</th><th>Issue</th><th>Route To</th><th>Detail</th><th>QR Count</th><th>Actions</th></tr></thead><tbody>${
+    rows || `<tr><td colspan="15">${hasActiveFilters ? "No manifest items for the selected filters." : "No manifest items."}</td></tr>`
   }</tbody></table>`;
 }
 
@@ -7027,6 +8012,7 @@ function renderContainers() {
   containerPanel.classList.toggle("hidden", !currentUser);
   containersBoard.innerHTML = "";
   renderManufactureCatalogSummaries();
+  renderContainerManifestDraft();
 
   if (!containers.length) {
     containersBoard.innerHTML = `<div class="panel empty">No containers registered.</div>`;
@@ -7039,6 +8025,11 @@ function renderContainers() {
     const project = projectById(container.projectId);
     const available = containerAvailableQty(container);
     const released = containerReleasedQty(container);
+    const manifestSummary = summarizeContainerManifestItems(container.materialItems);
+    const categoryMix = manifestSummary.categories
+      .slice(0, 4)
+      .map((entry) => `${entry.label}: ${entry.qty}`)
+      .join(" | ");
 
     node.querySelector(".container-title").textContent = `${container.containerCode} - ${containerStatusLabel(container.arrivalStatus)}`;
     node.querySelector(".container-meta").textContent = [
@@ -7053,9 +8044,12 @@ function renderContainers() {
       .join(" | ");
 
     node.querySelector(".container-kpi").innerHTML = `
-      <div class="kpi-box"><span>Planned (K/V/M/C)</span><strong>${container.qtyKitchens}/${container.qtyVanities}/${container.qtyMedCabinets}/${container.qtyCountertops}</strong></div>
-      <div class="kpi-box"><span>Dispatched (K/V/M/C)</span><strong>${released.kitchen}/${released.vanity}/${released.medCabinet}/${released.countertop}</strong></div>
-      <div class="kpi-box"><span>Balance (K/V/M/C)</span><strong>${available.kitchen}/${available.vanity}/${available.medCabinet}/${available.countertop}</strong></div>
+      <div class="kpi-box"><span>Manifest lines</span><strong>${container.materialItems.length}</strong></div>
+      <div class="kpi-box"><span>Total planned pieces</span><strong>${manifestSummary.totalQty}</strong></div>
+      <div class="kpi-box"><span>Release groups planned (K/V/M/C)</span><strong>${container.qtyKitchens}/${container.qtyVanities}/${container.qtyMedCabinets}/${container.qtyCountertops}</strong></div>
+      <div class="kpi-box"><span>Release groups dispatched (K/V/M/C)</span><strong>${released.kitchen}/${released.vanity}/${released.medCabinet}/${released.countertop}</strong></div>
+      <div class="kpi-box"><span>Release groups balance (K/V/M/C)</span><strong>${available.kitchen}/${available.vanity}/${available.medCabinet}/${available.countertop}</strong></div>
+      <div class="kpi-box kpi-box-wide"><span>Category mix</span><strong>${escapeHtml(categoryMix || "No manifest mix yet")}</strong></div>
       <div class="kpi-box"><span>Counter since port departure</span><strong>${elapsedFrom(container.departureAt)}</strong></div>
     `;
 
@@ -7128,6 +8122,34 @@ function renderContainers() {
     const manifestCategorySelect = manifestForm.querySelector(".mf-category");
     const manifestQtyInput = manifestForm.querySelector(".mf-qty");
     const manifestUnitInput = manifestForm.querySelector(".mf-unit");
+    const manifestAccessibilitySelect = manifestForm.querySelector(".mf-accessibility");
+    const manifestColorInput = manifestForm.querySelector(".mf-color");
+    const manifestFormatInput = manifestForm.querySelector(".mf-format");
+    const manifestSizeInput = manifestForm.querySelector(".mf-size");
+    const manifestVendorCodeInput = manifestForm.querySelector(".mf-vendor-code");
+    const manifestFilterAccessibility = node.querySelector(".manifest-filter-accessibility");
+    const manifestFilterColor = node.querySelector(".manifest-filter-color");
+    const manifestFilterFormat = node.querySelector(".manifest-filter-format");
+    const manifestFilterSize = node.querySelector(".manifest-filter-size");
+    const manifestFilterVendorCode = node.querySelector(".manifest-filter-vendor-code");
+    const manifestSelectionStatus = node.querySelector("[data-manifest-selection-status]");
+    const manifestFilterClearBtn = node.querySelector("[data-manifest-filter-clear]");
+    const manifestSelectionClearBtn = node.querySelector("[data-manifest-selection-clear]");
+    const manifestBatchPrintBtn = node.querySelector("[data-manifest-batch-print]");
+    const manifestExportCsvBtn = node.querySelector("[data-manifest-export-csv]");
+    const manifestExportPdfBtn = node.querySelector("[data-manifest-export-pdf]");
+    const manifestFilters = containerManifestFilters[container.id] || {
+      accessibility: "",
+      color: "",
+      format: "",
+      size: "",
+      vendorProductCode: "",
+    };
+    containerManifestFilters[container.id] = manifestFilters;
+    containerManifestSelections[container.id] = normalizeManifestSelectionIds(
+      container,
+      containerManifestSelections[container.id] || []
+    );
 
     manifestMaterialSelect.innerHTML = `<option value="">Catalog (optional)</option>${materials
       .map((material) => `<option value="${escapeHtml(material.id)}">${escapeHtml(material.sku)} - ${escapeHtml(material.description)}</option>`)
@@ -7140,100 +8162,85 @@ function renderContainers() {
       manifestDescInput.value = selected.description;
       manifestCategorySelect.value = selected.category || "other";
       manifestUnitInput.value = selected.unit || "pcs";
+      if (manifestAccessibilitySelect) manifestAccessibilitySelect.value = "normal";
     });
 
     if (!manifestEditable) manifestForm.querySelectorAll("input,select,button").forEach((el) => (el.disabled = true));
 
     const manifestTable = node.querySelector(".manifest-table");
-    renderManifestTable(manifestTable, container, manifestEditable);
+    if (manifestFilterAccessibility) manifestFilterAccessibility.value = manifestFilters.accessibility || "";
+    if (manifestFilterColor) manifestFilterColor.value = manifestFilters.color || "";
+    if (manifestFilterFormat) manifestFilterFormat.value = manifestFilters.format || "";
+    if (manifestFilterSize) manifestFilterSize.value = manifestFilters.size || "";
+    if (manifestFilterVendorCode) manifestFilterVendorCode.value = manifestFilters.vendorProductCode || "";
 
-    manifestForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (!manifestEditable) return;
+    const syncManifestSelections = () => {
+      const normalized = normalizeManifestSelectionIds(container, containerManifestSelections[container.id] || []);
+      containerManifestSelections[container.id] = normalized;
+      return normalized;
+    };
 
-      const materialId = manifestMaterialSelect.value;
-      const selectedMaterial = materialById(materialId);
-      const code = manifestCodeInput.value.trim() || selectedMaterial?.sku || "";
-      const description = manifestDescInput.value.trim() || selectedMaterial?.description || "";
-      const category = manifestCategorySelect.value || selectedMaterial?.category || "other";
-      const qty = Math.trunc(toNumber(manifestQtyInput.value));
-      const unit = manifestUnitInput.value.trim() || selectedMaterial?.unit || "pcs";
+    const currentFilteredManifestItems = () => filteredManifestItems(container, manifestFilters);
+    const currentSelectedManifestItems = () => selectedManifestItems(container, syncManifestSelections());
+    const currentManifestScopeItems = () => {
+      const selectedItems = currentSelectedManifestItems();
+      return selectedItems.length ? selectedItems : currentFilteredManifestItems();
+    };
 
-      if (!description || qty <= 0) {
-        alert(t("Descricao e quantidade sao obrigatorias."));
-        return;
+    const updateManifestSelectionStatus = () => {
+      const selectedCount = currentSelectedManifestItems().length;
+      if (manifestSelectionStatus) {
+        manifestSelectionStatus.textContent = selectedCount
+          ? `Selected lines: ${selectedCount}. Print/export use selected rows.`
+          : `No lines selected. Print/export use current filter (${currentFilteredManifestItems().length} row(s)).`;
       }
+      if (manifestSelectionClearBtn) manifestSelectionClearBtn.disabled = !selectedCount;
+    };
 
-      const now = new Date().toISOString();
-      const manifestItemId = uid();
-      const resolvedCode = code || `ITEM-${String(container.materialItems.length + 1).padStart(3, "0")}`;
-      container.materialItems.push({
-        id: manifestItemId,
-        materialId: materialId || "",
-        code: resolvedCode,
-        description,
-        category,
-        qty,
-        unit,
-        issueType: "ok",
-        issueNote: "",
-        issueRoute: "",
-        createdAt: now,
-        updatedAt: now,
+    const bindManifestTableEvents = () => {
+      manifestTable.querySelectorAll("[data-manifest-print]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const item = container.materialItems.find((entry) => entry.id === button.dataset.manifestPrint);
+          if (!item) return;
+          openManifestItemQrLabels(container, item, { autoPrint: true });
+        });
       });
 
-      for (let index = 0; index < qty; index += 1) {
-        container.qrItems.push({
-          id: uid(),
-          manifestItemId,
-          qrCode: makeQrCode(container, resolvedCode || "ITEM"),
-          materialId: materialId || "",
-          code: resolvedCode,
-          description,
-          category,
-          unit,
-          status: "in-warehouse",
-          clientId: "",
-          projectId: "",
-          unitId: "",
-          unitLabel: "",
-          kitchenType: selectedMaterial?.kitchenType || "",
-          assignedAt: "",
-          assignedBy: "",
-          deliveredAt: "",
-          issueType: "",
-          issueNote: "",
-          flowStage: "warehouse",
-          flowStatus: "generated",
-          flowUpdatedAt: now,
-          flowEvents: [
-            {
-              id: uid(),
-              at: now,
-              byUserId: currentUser?.id || "",
-              byName: currentUser?.name || "System",
-              stage: "warehouse",
-              status: "generated",
-              issueType: "",
-              note: "QR generated from manifest.",
-              unitId: "",
-              unitLabel: "",
-              source: "manifest",
-            },
-          ],
-          createdAt: now,
-          updatedAt: now,
+      manifestTable.querySelectorAll("[data-manifest-qr-list]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const item = container.materialItems.find((entry) => entry.id === button.dataset.manifestQrList);
+          if (!item) return;
+          openManifestItemQrDetails(container, item);
+        });
+      });
+
+      manifestTable.querySelectorAll("[data-manifest-select]").forEach((field) => {
+        field.addEventListener("change", () => {
+          const next = new Set(syncManifestSelections());
+          if (field.checked) next.add(field.dataset.manifestSelect);
+          else next.delete(field.dataset.manifestSelect);
+          containerManifestSelections[container.id] = [...next];
+          refreshManifestTable();
+        });
+      });
+
+      const selectAllVisibleField = manifestTable.querySelector("[data-manifest-select-all]");
+      if (selectAllVisibleField) {
+        const visibleIds = currentFilteredManifestItems().map((item) => item.id);
+        const selectedIds = new Set(syncManifestSelections());
+        const selectedVisibleCount = visibleIds.filter((id) => selectedIds.has(id)).length;
+        selectAllVisibleField.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length;
+        selectAllVisibleField.addEventListener("change", () => {
+          const next = new Set(syncManifestSelections());
+          if (selectAllVisibleField.checked) visibleIds.forEach((id) => next.add(id));
+          else visibleIds.forEach((id) => next.delete(id));
+          containerManifestSelections[container.id] = [...next];
+          refreshManifestTable();
         });
       }
 
-      pushContainerAudit(container, `Manifest item added: ${description} (${qty} ${unit || "un"})`);
-      pushContainerAudit(container, `QR generated for ${resolvedCode}: ${qty} unit(s)`);
+      if (!manifestEditable) return;
 
-      manifestForm.reset();
-      await saveContainer(container);
-    });
-
-    if (manifestEditable) {
       manifestTable.querySelectorAll("[data-manifest-field]").forEach((field) => {
         field.addEventListener("change", async () => {
           const item = container.materialItems.find((entry) => entry.id === field.dataset.manifestId);
@@ -7241,13 +8248,34 @@ function renderContainers() {
           const key = field.dataset.manifestField;
           if (key === "issueNote" || key === "issueRoute") return;
           const previous = item[key] || "";
-          const next = field.value;
-          if (previous === next) return;
-          item[key] = field.value;
-          item.updatedAt = new Date().toISOString();
+          let next = normalizeManifestFieldValue(key, field.value, item[key]);
+          if (key === "code" && !next) next = makeContainerManifestCode({ description: item.description, category: item.category });
+          if (key === "description" && !next) {
+            alert("Description is required.");
+            field.value = previous;
+            return;
+          }
+          if (String(previous) === String(next)) return;
+          item[key] = next;
+          const now = new Date().toISOString();
+          item.updatedAt = now;
+          let qrAdjustments = { added: 0, removed: 0 };
+          try {
+            qrAdjustments = reconcileManifestItemQrCount(container, item, now);
+          } catch (error) {
+            item[key] = previous;
+            item.updatedAt = now;
+            field.value = previous;
+            alert(error?.message || "Unable to update manifest quantity.");
+            return;
+          }
           pushContainerAudit(
             container,
-            `Manifest item ${item.description || item.code || item.id} updated: ${key} "${auditValue(previous)}" -> "${auditValue(next)}"`
+            `Manifest item ${item.description || item.code || item.id} updated: ${key} "${auditValue(previous)}" -> "${auditValue(next)}"${
+              qrAdjustments.added || qrAdjustments.removed
+                ? ` | QR sync +${qrAdjustments.added} / -${qrAdjustments.removed}`
+                : ""
+            }`
           );
           await saveContainer(container);
         });
@@ -7297,7 +8325,111 @@ function renderContainers() {
           await saveContainer(container);
         });
       });
-    }
+    };
+
+    const refreshManifestTable = () => {
+      renderManifestTable(manifestTable, container, manifestEditable, manifestFilters, syncManifestSelections());
+      bindManifestTableEvents();
+      updateManifestSelectionStatus();
+    };
+
+    refreshManifestTable();
+
+    manifestForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!manifestEditable) return;
+
+      const materialId = manifestMaterialSelect.value;
+      const selectedMaterial = materialById(materialId);
+      const code = manifestCodeInput.value.trim() || selectedMaterial?.sku || "";
+      const description = manifestDescInput.value.trim() || selectedMaterial?.description || "";
+      const category = manifestCategorySelect.value || selectedMaterial?.category || "other";
+      const qty = Math.trunc(toNumber(manifestQtyInput.value));
+      const unit = manifestUnitInput.value.trim() || selectedMaterial?.unit || "pcs";
+      const accessibility = normalizeManifestAccessibility(manifestAccessibilitySelect?.value || "normal");
+      const finishColor = manifestColorInput?.value?.trim() || "";
+      const finishFormat = manifestFormatInput?.value?.trim() || "";
+      const finishSize = manifestSizeInput?.value?.trim() || "";
+      const vendorProductCode = manifestVendorCodeInput?.value?.trim() || "";
+
+      if (!description || qty <= 0) {
+        alert(t("Descricao e quantidade sao obrigatorias."));
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const built = buildContainerManifestEntry(
+        container,
+        {
+          materialId: materialId || "",
+          code: code || `ITEM-${String(container.materialItems.length + 1).padStart(3, "0")}`,
+          description,
+          category,
+          qty,
+          unit,
+          accessibility,
+          finishColor,
+          finishFormat,
+          finishSize,
+          vendorProductCode,
+          kitchenType: selectedMaterial?.kitchenType || "",
+        },
+        now
+      );
+      container.materialItems.push(built.manifestItem);
+      container.qrItems.push(...built.qrItems);
+
+      pushContainerAudit(
+        container,
+        `Manifest item added: line ${built.manifestItem.lineNo} | ${description} (${qty} ${unit || "un"})`
+      );
+      pushContainerAudit(container, `QR generated for ${built.manifestItem.code}: ${built.qrItems.length} unit(s)`);
+
+      manifestForm.reset();
+      if (manifestAccessibilitySelect) manifestAccessibilitySelect.value = "normal";
+      await saveContainer(container);
+    });
+
+    const applyManifestFilters = () => {
+      manifestFilters.accessibility = manifestFilterAccessibility?.value || "";
+      manifestFilters.color = manifestFilterColor?.value?.trim() || "";
+      manifestFilters.format = manifestFilterFormat?.value?.trim() || "";
+      manifestFilters.size = manifestFilterSize?.value?.trim() || "";
+      manifestFilters.vendorProductCode = manifestFilterVendorCode?.value?.trim() || "";
+      refreshManifestTable();
+    };
+
+    manifestFilterAccessibility?.addEventListener("change", applyManifestFilters);
+    manifestFilterColor?.addEventListener("input", applyManifestFilters);
+    manifestFilterFormat?.addEventListener("input", applyManifestFilters);
+    manifestFilterSize?.addEventListener("input", applyManifestFilters);
+    manifestFilterVendorCode?.addEventListener("input", applyManifestFilters);
+    manifestFilterClearBtn?.addEventListener("click", () => {
+      manifestFilters.accessibility = "";
+      manifestFilters.color = "";
+      manifestFilters.format = "";
+      manifestFilters.size = "";
+      manifestFilters.vendorProductCode = "";
+      if (manifestFilterAccessibility) manifestFilterAccessibility.value = "";
+      if (manifestFilterColor) manifestFilterColor.value = "";
+      if (manifestFilterFormat) manifestFilterFormat.value = "";
+      if (manifestFilterSize) manifestFilterSize.value = "";
+      if (manifestFilterVendorCode) manifestFilterVendorCode.value = "";
+      refreshManifestTable();
+    });
+    manifestSelectionClearBtn?.addEventListener("click", () => {
+      containerManifestSelections[container.id] = [];
+      refreshManifestTable();
+    });
+    manifestBatchPrintBtn?.addEventListener("click", () => {
+      openFilteredManifestQrLabels(container, currentManifestScopeItems(), { autoPrint: true });
+    });
+    manifestExportCsvBtn?.addEventListener("click", () => {
+      exportFilteredManifestCsv(container, currentManifestScopeItems());
+    });
+    manifestExportPdfBtn?.addEventListener("click", () => {
+      exportFilteredManifestPdf(container, currentManifestScopeItems(), { autoPrint: true });
+    });
 
     const releaseEditable = can("manageContainerRelease");
     const releaseForm = node.querySelector(".release-form");
@@ -10423,6 +11555,11 @@ clientSearchInput?.addEventListener("input", () => {
 clientDetailsBackBtn?.addEventListener("click", () => {
   selectedClientDetailsProjectId = "";
   keepClientFormBlank = true;
+  if (clientsWorkspaceMode === "hub") {
+    setClientsSectionMode("hub");
+    renderClientsHubList();
+    return;
+  }
   setClientsSectionMode("create");
   resetClientForm();
 });
@@ -10892,7 +12029,7 @@ materialForm.addEventListener("submit", async (event) => {
     id: uid(),
     sku,
     description,
-    category: data.get("category")?.toString() || "other",
+    category: data.get("category")?.toString().trim() || "other",
     unit: data.get("unit")?.toString().trim() || "pcs",
     kitchenType: data.get("kitchenType")?.toString().trim() || "",
     createdAt: new Date().toISOString(),
@@ -10914,6 +12051,61 @@ materialForm.addEventListener("submit", async (event) => {
 });
 
 containerClientSelect.addEventListener("change", syncContainerProjectSelect);
+containerDraftMaterialSelect?.addEventListener("change", () => {
+  const selected = materialById(containerDraftMaterialSelect.value);
+  if (!selected) return;
+  if (containerDraftCodeInput && !containerDraftCodeInput.value.trim()) containerDraftCodeInput.value = selected.sku || "";
+  if (containerDraftDescriptionInput && !containerDraftDescriptionInput.value.trim()) {
+    containerDraftDescriptionInput.value = selected.description || "";
+  }
+  if (containerDraftCategoryInput && !containerDraftCategoryInput.value.trim()) {
+    containerDraftCategoryInput.value = selected.category || "other";
+  }
+  if (containerDraftUnitInput && !containerDraftUnitInput.value.trim()) containerDraftUnitInput.value = selected.unit || "pcs";
+});
+
+containerDraftAddBtn?.addEventListener("click", () => {
+  const selectedMaterial = materialById(containerDraftMaterialSelect?.value || "");
+  const description = containerDraftDescriptionInput?.value?.trim() || selectedMaterial?.description || "";
+  const qty = Math.max(1, Math.trunc(toNumber(containerDraftQtyInput?.value || 1)));
+  const category = containerCategoryKey(containerDraftCategoryInput?.value?.trim() || selectedMaterial?.category || "other");
+  const unit = containerDraftUnitInput?.value?.trim() || selectedMaterial?.unit || "pcs";
+  const accessibility = normalizeManifestAccessibility(containerDraftAccessibilitySelect?.value || "normal");
+  const finishColor = containerDraftColorInput?.value?.trim() || "";
+  const finishFormat = containerDraftFormatInput?.value?.trim() || "";
+  const finishSize = containerDraftSizeInput?.value?.trim() || "";
+  const vendorProductCode = containerDraftVendorCodeInput?.value?.trim() || "";
+  const code = makeContainerManifestCode({
+    code: containerDraftCodeInput?.value?.trim() || selectedMaterial?.sku || "",
+    description,
+    category,
+  });
+
+  if (!description) {
+    alert("Description is required to add a planned item.");
+    return;
+  }
+
+  containerManifestDraft.push({
+    id: uid(),
+    materialId: selectedMaterial?.id || "",
+    code,
+    description,
+    category,
+    qty,
+    unit,
+    accessibility,
+    finishColor,
+    finishFormat,
+    finishSize,
+    vendorProductCode,
+    kitchenType: selectedMaterial?.kitchenType || "",
+  });
+
+  clearContainerDraftEntryInputs();
+  renderContainerManifestDraft();
+});
+
 projectClientSelect.addEventListener("change", () => {
   selectedClientId = projectClientSelect.value || selectedClientId;
   if (contactClientSelect && projectClientSelect.value) {
@@ -10960,7 +12152,8 @@ containerForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  const createdContainer = normalizeContainer({
+  const now = new Date().toISOString();
+  const baseContainer = {
     id: uid(),
     containerCode,
     supplier: data.get("supplier")?.toString().trim(),
@@ -10970,10 +12163,6 @@ containerForm.addEventListener("submit", async (event) => {
     etaDate: data.get("etaDate")?.toString(),
     departureAt: data.get("departureAt")?.toString() || "",
     arrivalStatus: data.get("arrivalStatus")?.toString(),
-    qtyKitchens: toNumber(data.get("qtyKitchens")?.toString()),
-    qtyVanities: toNumber(data.get("qtyVanities")?.toString()),
-    qtyMedCabinets: toNumber(data.get("qtyMedCabinets")?.toString()),
-    qtyCountertops: toNumber(data.get("qtyCountertops")?.toString()),
     notes: data.get("notes")?.toString().trim(),
     loosePartsNotes: data.get("loosePartsNotes")?.toString().trim(),
     materialItems: [],
@@ -10982,13 +12171,27 @@ containerForm.addEventListener("submit", async (event) => {
     replacementQueue: [],
     factoryMissingQueue: [],
     auditLog: [],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  containerManifestDraft.forEach((entry) => {
+    const built = buildContainerManifestEntry(baseContainer, entry, now);
+    baseContainer.materialItems.push(built.manifestItem);
+    baseContainer.qrItems.push(...built.qrItems);
   });
-  pushContainerAudit(createdContainer, `Container created: ${containerCode}`);
+
+  const createdContainer = normalizeContainer(baseContainer);
+  pushContainerAudit(
+    createdContainer,
+    `Container created: ${containerCode}${createdContainer.materialItems.length ? ` | manifest lines ${createdContainer.materialItems.length} | QR ${createdContainer.qrItems.length}` : ""}`
+  );
   await put(CONTAINER_STORE, createdContainer);
 
   containerForm.reset();
+  containerManifestDraft = [];
+  clearContainerDraftEntryInputs();
+  renderContainerManifestDraft();
   syncContainerProjectSelect();
   await loadAll();
   render();

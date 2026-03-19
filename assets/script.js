@@ -7,6 +7,8 @@ const navMenu = document.getElementById('primaryNav');
 const navToggle = document.querySelector('.menu-toggle');
 const form = document.getElementById('visitForm');
 const note = document.getElementById('formNote');
+const dateField = form?.querySelector('input[name="date"]');
+const submitButton = form?.querySelector('button[type="submit"]');
 
 function syncHeaderHeight() {
   if (!header) return;
@@ -59,42 +61,197 @@ function encodeMailto(fields) {
   return `mailto:${to}?subject=${subject}&body=${body}`;
 }
 
+function getContactFormConfig() {
+  const config = window.CONTACT_FORM || {};
+  const supabaseUrl = String(config.supabaseUrl || '').trim().replace(/\/$/, '');
+  const supabaseAnonKey = String(config.supabaseAnonKey || '').trim();
+  const table = String(config.table || 'public_visit_requests').trim();
+
+  if (!supabaseUrl || !supabaseAnonKey || !table) return null;
+
+  return {
+    supabaseUrl,
+    supabaseAnonKey,
+    table
+  };
+}
+
+async function submitVisitRequest(fields) {
+  const config = getContactFormConfig();
+  if (!config) return { mode: 'mailto' };
+
+  const response = await fetch(`${config.supabaseUrl}/rest/v1/${config.table}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: config.supabaseAnonKey,
+      Authorization: `Bearer ${config.supabaseAnonKey}`,
+      Prefer: 'return=representation'
+    },
+    body: JSON.stringify({
+      source: 'website',
+      page_url: window.location.href,
+      name: fields.name,
+      email: fields.email,
+      phone: fields.phone || null,
+      address: fields.address || null,
+      city: fields.city || null,
+      preferred_date: fields.date || null,
+      project_type: fields.type || null,
+      details: fields.details || null
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || 'Could not submit request.');
+  }
+
+  return { mode: 'supabase' };
+}
+
 function getFields() {
   const data = {};
   if (!form) return data;
   new FormData(form).forEach((value, key) => {
-    data[key] = value;
+    data[key] = typeof value === 'string' ? value.trim() : value;
   });
   return data;
 }
 
-function validate(fields) {
-  const errs = [];
-  if (!fields.name) errs.push('Full Name is required.');
-  if (!fields.email) errs.push('Email is required.');
-  if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
-    errs.push('Enter a valid email.');
+function setFormNote(message, state = '') {
+  if (!note) return;
+  note.textContent = message;
+  if (state) {
+    note.dataset.state = state;
+  } else {
+    delete note.dataset.state;
   }
-  if (form && !form.querySelector('input[name="agree"]')?.checked) {
-    errs.push('Consent is required.');
-  }
-  return errs;
 }
 
-form?.addEventListener('submit', (event) => {
+function getFieldWrapper(name) {
+  return form?.querySelector(`.field[data-field="${name}"]`) || null;
+}
+
+function setFieldState(name, value, error = '', forceReveal = false) {
+  const wrapper = getFieldWrapper(name);
+  if (!wrapper) return;
+
+  const isCheckbox = wrapper.classList.contains('consent-field');
+  const hasValue = isCheckbox ? Boolean(value) : Boolean(String(value || '').trim());
+  const shouldRevealError = forceReveal || wrapper.dataset.touched === 'true';
+  wrapper.classList.toggle('is-invalid', shouldRevealError && Boolean(error));
+  wrapper.classList.toggle('is-valid', !error && hasValue);
+
+  const errorEl = wrapper.querySelector('.field-error');
+  if (errorEl) errorEl.textContent = shouldRevealError ? error : '';
+}
+
+function validate(fields) {
+  const errors = {};
+
+  if (!fields.name) {
+    errors.name = 'Please enter your full name.';
+  }
+
+  if (!fields.email) {
+    errors.email = 'Please enter your email address.';
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
+    errors.email = 'Please enter a valid email address.';
+  }
+
+  if (form && !form.querySelector('input[name="agree"]')?.checked) {
+    errors.agree = 'Please confirm that we may contact you about this request.';
+  }
+
+  return errors;
+}
+
+function syncFieldStates(fields, errors, forceReveal = false) {
+  ['name', 'email', 'phone', 'city', 'address', 'date', 'type', 'details', 'agree'].forEach((name) => {
+    const value = name === 'agree' ? form?.querySelector('input[name="agree"]')?.checked : fields[name];
+    setFieldState(name, value, errors[name] || '', forceReveal);
+  });
+}
+
+function resetVisitForm() {
+  form?.reset();
+  ['name', 'email', 'phone', 'city', 'address', 'date', 'type', 'details', 'agree'].forEach((name) => {
+    const wrapper = getFieldWrapper(name);
+    if (!wrapper) return;
+    delete wrapper.dataset.touched;
+    wrapper.classList.remove('is-valid', 'is-invalid');
+    const errorEl = wrapper.querySelector('.field-error');
+    if (errorEl) errorEl.textContent = '';
+  });
+}
+
+if (dateField) {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  dateField.min = today.toISOString().split('T')[0];
+}
+
+form?.querySelectorAll('input, select, textarea').forEach((field) => {
+  const eventName = field.type === 'checkbox' || field.tagName === 'SELECT' ? 'change' : 'input';
+  field.addEventListener(eventName, () => {
+    const wrapper = getFieldWrapper(field.name);
+    if (wrapper) wrapper.dataset.touched = 'true';
+    const fields = getFields();
+    const errors = validate(fields);
+    syncFieldStates(fields, errors);
+    if (!Object.keys(errors).length && note?.dataset.state === 'error') {
+      setFormNote('');
+    }
+  });
+
+  field.addEventListener('blur', () => {
+    const wrapper = getFieldWrapper(field.name);
+    if (wrapper) wrapper.dataset.touched = 'true';
+    const fields = getFields();
+    const errors = validate(fields);
+    syncFieldStates(fields, errors);
+  });
+});
+
+form?.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (note) note.textContent = '';
+  setFormNote('');
 
   const fields = getFields();
-  const errs = validate(fields);
+  const errors = validate(fields);
+  syncFieldStates(fields, errors, true);
 
-  if (errs.length) {
-    if (note) note.textContent = errs.join(' ');
+  if (Object.keys(errors).length) {
+    setFormNote('Please review the highlighted fields and try again.', 'error');
     return;
   }
 
-  window.location.href = encodeMailto(fields);
-  if (note) note.textContent = 'Opening your email client...';
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = 'Sending...';
+  }
+
+  try {
+    const result = await submitVisitRequest(fields);
+
+    if (result.mode === 'mailto') {
+      window.location.href = encodeMailto(fields);
+      setFormNote('Opening your email client...', 'success');
+    } else {
+      resetVisitForm();
+      setFormNote('Request sent successfully. We will get back to you shortly.', 'success');
+    }
+  } catch (error) {
+    console.error(error);
+    window.location.href = encodeMailto(fields);
+    setFormNote('Could not reach the server. Opening your email client instead.', 'error');
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Send Request';
+    }
+  }
 });
 
 const FALLBACK_GALLERY = {

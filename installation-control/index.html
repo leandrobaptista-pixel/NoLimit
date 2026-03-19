@@ -55,9 +55,14 @@
         <form id="loginForm" class="grid-form compact">
           <label>Username<input required name="username" /></label>
           <label>Password<input required type="password" name="password" /></label>
-          <button class="primary" type="submit">Sign in</button>
+          <div class="form-actions-inline full">
+            <button class="primary" type="submit">Sign in</button>
+          </div>
         </form>
-        <p class="hint">New to the system? <button id="openSignupBtn" class="secondary" type="button">Create Account</button></p>
+        <div class="auth-inline-actions">
+          <p class="hint">New to the system?</p>
+          <button id="openSignupBtn" class="secondary" type="button">Create Account</button>
+        </div>
       </article>
 
       <article id="signupPanel" class="panel hidden auth-panel">
@@ -115,8 +120,10 @@
           <label>Email<input required type="email" name="email" /></label>
           <label>Username<input required name="username" /></label>
           <label>Password<input required type="password" name="password" /></label>
-          <button class="primary" type="submit">Register</button>
-          <button id="backToLoginBtn" class="secondary" type="button">Back to login</button>
+          <div class="form-actions-inline full">
+            <button class="primary" type="submit">Register</button>
+            <button id="backToLoginBtn" class="secondary" type="button">Back to login</button>
+          </div>
         </form>
         <p class="hint">New users start as visitors. Admins and developer can grant functions and access.</p>
       </article>
@@ -158,8 +165,8 @@
             </div>
           </div>
           <div class="nav-group nav-group-manufacture" data-nav-group="manufacture">
-            <button class="secondary nav-btn" type="button" data-nav-action="manufacture"><span class="nav-icon">MF</span>Manufacture</button>
-            <div class="nav-submenu" aria-label="Manufacture sub menu">
+            <button class="secondary nav-btn" type="button" data-nav-action="manufacture"><span class="nav-icon">FC</span>Factory</button>
+            <div class="nav-submenu" aria-label="Factory sub menu">
               <button class="secondary nav-submenu-btn" type="button" data-nav-action="manufactureSchedule">Schedule Containers</button>
               <button class="secondary nav-submenu-btn" type="button" data-nav-action="manufactureCatalog">Material Catalog</button>
               <button class="secondary nav-submenu-btn" type="button" data-nav-action="manufactureSolicitation">Solicitation Material</button>
@@ -388,7 +395,7 @@
       </section>
 
       <section id="containerPanel" class="panel">
-        <h2>Manufacture</h2>
+        <h2>Factory</h2>
         <p class="hint">Manage schedule containers, material catalog, and solicitation requests.</p>
 
         <div id="manufactureScheduleView" class="manufacture-subview">
@@ -424,18 +431,67 @@
                 <option value="delayed">Delayed</option>
               </select>
             </label>
-            <label>Kitchens in container
-              <input type="number" min="0" name="qtyKitchens" value="0" />
-            </label>
-            <label>Vanities in container
-              <input type="number" min="0" name="qtyVanities" value="0" />
-            </label>
-            <label>Med Cabinets in container
-              <input type="number" min="0" name="qtyMedCabinets" value="0" />
-            </label>
-            <label>Countertops in container
-              <input type="number" min="0" name="qtyCountertops" value="0" />
-            </label>
+            <div class="full container-manifest-builder">
+              <div class="container-manifest-builder-head">
+                <div>
+                  <strong>Container manifest builder</strong>
+                  <p class="hint">
+                    Add everything that will arrive inside this container: kitchens, vanities, med cabinets, flooring, curtains,
+                    tile, extra job-site materials, or any other category you need.
+                  </p>
+                </div>
+              </div>
+              <div class="grid-form compact container-manifest-entry-grid">
+                <label>Catalog item (optional)
+                  <select id="containerDraftMaterialSelect">
+                    <option value="">Select from catalog</option>
+                  </select>
+                </label>
+                <label>Item code / SKU
+                  <input id="containerDraftCodeInput" placeholder="Ex: KIT-TYPEA-01" />
+                </label>
+                <label>Description
+                  <input id="containerDraftDescriptionInput" placeholder="Ex: Kitchen Type A - Tower pieces" />
+                </label>
+                <label>Category
+                  <input id="containerDraftCategoryInput" list="containerCategoryList" placeholder="Ex: kitchen, tile, curtain" />
+                </label>
+                <label>Quantity
+                  <input id="containerDraftQtyInput" type="number" min="1" value="1" />
+                </label>
+                <label>Unit
+                  <input id="containerDraftUnitInput" placeholder="Ex: pcs, box, set, pallet" value="pcs" />
+                </label>
+                <label>ADA / Normal
+                  <select id="containerDraftAccessibilitySelect">
+                    <option value="normal">Normal</option>
+                    <option value="ada">ADA</option>
+                  </select>
+                </label>
+                <label>Color
+                  <input id="containerDraftColorInput" placeholder="Ex: White Oak" />
+                </label>
+                <label>Format
+                  <input id="containerDraftFormatInput" placeholder="Ex: Chevron, plank, 12x24" />
+                </label>
+                <label>Size
+                  <input id="containerDraftSizeInput" placeholder="Ex: 8x48, 24x24" />
+                </label>
+                <label>Mfr / Dist code
+                  <input id="containerDraftVendorCodeInput" placeholder="Ex: TAG-WF-2480" />
+                </label>
+                <div class="form-actions-inline full">
+                  <button id="containerDraftAddBtn" class="secondary" type="button">Add item to container</button>
+                </div>
+              </div>
+              <div class="container-manifest-builder-meta">
+                <p id="containerDraftSummary" class="hint">No planned items yet.</p>
+                <p id="containerQrPatternHint" class="hint">
+                  QR standard: `NLC | TENANT | PROJECT | CONTAINER | CATEGORY | ITEM | LINE | PIECE`
+                </p>
+              </div>
+              <div id="containerManifestDraftTable" class="table-wrap"></div>
+            </div>
             <label class="full">Notes
               <textarea name="notes" rows="2" placeholder="Ex: arrival window, prioridade de descarga"></textarea>
             </label>
@@ -444,6 +500,19 @@
             </label>
             <button class="primary" type="submit">Add container</button>
           </form>
+          <datalist id="containerCategoryList">
+            <option value="kitchen"></option>
+            <option value="vanity"></option>
+            <option value="med-cabinet"></option>
+            <option value="countertop"></option>
+            <option value="wood-floor"></option>
+            <option value="curtain"></option>
+            <option value="tile"></option>
+            <option value="millwork"></option>
+            <option value="hardware"></option>
+            <option value="extra-material"></option>
+            <option value="other"></option>
+          </datalist>
           <div id="containersBoard" class="containers-board"></div>
         </div>
 
@@ -455,13 +524,7 @@
               <label>SKU/Codigo<input required name="sku" placeholder="Ex: KIT-KCH-001" /></label>
               <label>Descricao<input required name="description" placeholder="Ex: Door panel 24x30" /></label>
               <label>Categoria
-                <select name="category" required>
-                  <option value="kitchen">Kitchen</option>
-                  <option value="vanity">Vanity</option>
-                  <option value="med-cabinet">Med Cabinet</option>
-                  <option value="countertop">Countertop</option>
-                  <option value="other">Other</option>
-                </select>
+                <input name="category" list="containerCategoryList" placeholder="Ex: kitchen, tile, curtain" value="other" required />
               </label>
               <label>Unit<input required name="unit" placeholder="Ex: pcs" /></label>
               <label>Kitchen Type<input name="kitchenType" placeholder="Ex: Type A" /></label>
@@ -995,21 +1058,41 @@
 
         <div class="checklist-block" data-sectors="fabrica">
           <h4>Manifesto de materiais do fabricante</h4>
+          <p class="hint manifest-inline-hint">Edit any field directly in the table below. Quantity changes will sync the linked QR pieces.</p>
           <form class="manifest-form row">
             <select class="mf-material"></select>
             <input class="mf-code" placeholder="Cod. item" />
             <input class="mf-desc" placeholder="Descricao" />
-            <select class="mf-category">
-              <option value="kitchen">Kitchen</option>
-              <option value="vanity">Vanity</option>
-              <option value="med-cabinet">Med Cabinet</option>
-              <option value="countertop">Countertop</option>
-              <option value="other">Other</option>
-            </select>
-            <input class="mf-qty" type="number" min="0" placeholder="Qtd" />
+            <input class="mf-category" list="containerCategoryList" placeholder="Category" />
+            <input class="mf-qty" type="number" min="1" placeholder="Qtd" />
             <input class="mf-unit" placeholder="Unit (pcs/box)" />
+            <select class="mf-accessibility">
+              <option value="normal">Normal</option>
+              <option value="ada">ADA</option>
+            </select>
+            <input class="mf-color" placeholder="Color" />
+            <input class="mf-format" placeholder="Format" />
+            <input class="mf-size" placeholder="Size" />
+            <input class="mf-vendor-code" placeholder="Mfr/Dist code" />
             <button class="secondary" type="submit">Add to manifest</button>
           </form>
+          <div class="row manifest-filter-row">
+            <select class="manifest-filter-accessibility">
+              <option value="">All ADA/Normal</option>
+              <option value="normal">Normal</option>
+              <option value="ada">ADA</option>
+            </select>
+            <input class="manifest-filter-color" placeholder="Filter color" />
+            <input class="manifest-filter-format" placeholder="Filter format" />
+            <input class="manifest-filter-size" placeholder="Filter size" />
+            <input class="manifest-filter-vendor-code" placeholder="Filter Mfr/Dist code" />
+            <p class="hint manifest-selection-status" data-manifest-selection-status>No lines selected. Print/export use the current filter.</p>
+            <button class="secondary xs-btn" type="button" data-manifest-filter-clear>Clear filters</button>
+            <button class="secondary xs-btn" type="button" data-manifest-selection-clear>Clear selected</button>
+            <button class="secondary xs-btn" type="button" data-manifest-batch-print>Batch print</button>
+            <button class="secondary xs-btn" type="button" data-manifest-export-csv>Export CSV</button>
+            <button class="secondary xs-btn" type="button" data-manifest-export-pdf>Export PDF</button>
+          </div>
           <div class="table-wrap manifest-table"></div>
         </div>
 

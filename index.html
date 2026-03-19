@@ -205,56 +205,141 @@
           <h2>Request a Free On‑Site Visit</h2>
           <p>Tell us about your project. We typically respond within one business day.</p>
 
-          <form id="visitForm" class="form" action="#" method="post" data-to="leandrobaptista@me.com" novalidate>
-            <div class="grid">
-              <label>
-                <span>Full Name</span>
-                <input type="text" name="name" required placeholder="John Smith" />
-              </label>
-              <label>
-                <span>Email</span>
-                <input type="email" name="email" required placeholder="john@example.com" />
-              </label>
-              <label>
-                <span>Phone</span>
-                <input type="tel" name="phone" placeholder="+1 555 123 4567" />
-              </label>
-              <label>
-                <span>Address</span>
-                <input type="text" name="address" placeholder="Street, number" />
-              </label>
-              <label>
-                <span>City</span>
-                <input type="text" name="city" placeholder="City" />
-              </label>
-              <label>
-                <span>Preferred Date</span>
-                <input type="date" name="date" />
-              </label>
-              <label class="full">
-                <span>Project Type</span>
-                <select name="type">
-                  <option value="Trim & Molding">Trim & Molding</option>
-                  <option value="Built-ins & Cabinetry">Built-ins & Cabinetry</option>
-                  <option value="Wall Paneling / Wainscoting">Wall Paneling / Wainscoting</option>
-                  <option value="Doors & Hardware">Doors & Hardware</option>
-                  <option value="Stairs & Railings">Stairs & Railings</option>
-                  <option value="Other">Other</option>
-                </select>
-              </label>
-              <label class="full">
-                <span>Project Details</span>
-                <textarea name="details" rows="5" placeholder="Room, dimensions, materials, style…"></textarea>
-              </label>
-              <label class="check full">
-                <input type="checkbox" name="agree" required />
-                <span>I agree to be contacted about my request.</span>
-              </label>
+          <form id="visitForm" class="form" action="#" method="post" data-to="leandro@nolimitcontractor.net" novalidate>
+            <div class="form-shell">
+              <aside class="form-side">
+                <p class="form-kicker">Book your consultation</p>
+                <h3 class="form-title">Share the essentials and we will prepare the visit with you.</h3>
+                <p class="form-copy">
+                  Every request is reviewed manually. The more context you share here, the more precise we can be when planning measurements, scope, and finish options.
+                </p>
+                <div class="form-points">
+                  <div class="form-point">
+                    <strong>Free on-site visit</strong>
+                    <span>We review layout, measurements, and finish goals in person.</span>
+                  </div>
+                  <div class="form-point">
+                    <strong>Fast follow-up</strong>
+                    <span>Most inquiries receive a response within one business day.</span>
+                  </div>
+                  <div class="form-point">
+                    <strong>Tailored estimate</strong>
+                    <span>Your project details help us return with a more accurate first conversation.</span>
+                  </div>
+                </div>
+              </aside>
+
+              <div class="form-main">
+                <section class="form-section" aria-labelledby="contactDetailsTitle">
+                  <div class="form-section-head">
+                    <p class="form-section-kicker">Step 1</p>
+                    <h3 id="contactDetailsTitle">Contact details</h3>
+                    <p>Tell us who we should reach and where the project is located.</p>
+                  </div>
+
+                  <div class="grid">
+                    <label class="field" data-field="name">
+                      <span class="field-label">Full Name <em>Required</em></span>
+                      <input type="text" name="name" required autocomplete="name" placeholder="John Smith" />
+                      <small class="field-help">The primary contact for scheduling and project updates.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+
+                    <label class="field" data-field="email">
+                      <span class="field-label">Email <em>Required</em></span>
+                      <input type="email" name="email" required autocomplete="email" placeholder="john@example.com" />
+                      <small class="field-help">We will send the initial response and next steps here.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+
+                    <label class="field" data-field="phone">
+                      <span class="field-label">Phone</span>
+                      <input type="tel" name="phone" autocomplete="tel" placeholder="+1 555 123 4567" />
+                      <small class="field-help">Optional, but helpful if you prefer a faster call back.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+
+                    <label class="field" data-field="city">
+                      <span class="field-label">City</span>
+                      <input type="text" name="city" autocomplete="address-level2" placeholder="City" />
+                      <small class="field-help">Useful for confirming service area and travel planning.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+
+                    <label class="field full" data-field="address">
+                      <span class="field-label">Address</span>
+                      <input type="text" name="address" autocomplete="street-address" placeholder="Street, number" />
+                      <small class="field-help">Optional at first contact if you prefer to share it later.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+
+                    <label class="field" data-field="date">
+                      <span class="field-label">Preferred Date</span>
+                      <input type="date" name="date" />
+                      <small class="field-help">Choose a preferred visit day and we will confirm availability.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="form-section" aria-labelledby="projectDetailsTitle">
+                  <div class="form-section-head">
+                    <p class="form-section-kicker">Step 2</p>
+                    <h3 id="projectDetailsTitle">Project details</h3>
+                    <p>A short description helps us understand scope, finishes, and timeline.</p>
+                  </div>
+
+                  <div class="grid">
+                    <label class="field" data-field="type">
+                      <span class="field-label">Project Type</span>
+                      <select name="type">
+                        <option value="">Select a project type</option>
+                        <option value="Trim & Molding">Trim & Molding</option>
+                        <option value="Built-ins & Cabinetry">Built-ins & Cabinetry</option>
+                        <option value="Wall Paneling / Wainscoting">Wall Paneling / Wainscoting</option>
+                        <option value="Doors & Hardware">Doors & Hardware</option>
+                        <option value="Stairs & Railings">Stairs & Railings</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <small class="field-help">Pick the closest category. You can refine it in the notes below.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+
+                    <div class="field field-card">
+                      <span class="field-label">What helps most</span>
+                      <div class="field-card-body">
+                        Room name, approximate dimensions, inspiration references, preferred materials, and any deadline you are working toward.
+                      </div>
+                    </div>
+
+                    <label class="field full" data-field="details">
+                      <span class="field-label">Project Details</span>
+                      <textarea name="details" rows="6" placeholder="Example: living room coffered ceiling, custom trim package, painted finish, aiming to start next month..."></textarea>
+                      <small class="field-help">A few practical details here usually makes the first consultation much smoother.</small>
+                      <small class="field-error" aria-live="polite"></small>
+                    </label>
+                  </div>
+                </section>
+
+                <label class="check field consent-field" data-field="agree">
+                  <input type="checkbox" name="agree" required />
+                  <span class="check-copy">
+                    <strong>I agree to be contacted about my request.</strong>
+                    <small>We only use your information to follow up about this inquiry and scheduling.</small>
+                  </span>
+                  <small class="field-error" aria-live="polite"></small>
+                </label>
+
+                <div class="form-actions">
+                  <div class="form-action-copy">
+                    <strong>Professional response, no automated spam.</strong>
+                    <small class="hint">We typically reply within one business day.</small>
+                  </div>
+                  <button type="submit" class="btn">Send Request</button>
+                </div>
+              </div>
             </div>
-            <div class="form-actions">
-              <button type="submit" class="btn">Send Request</button>
-              <small class="hint">We respect your privacy and never spam.</small>
-            </div>
+
             <p id="formNote" class="form-note" aria-live="polite"></p>
           </form>
         </div>
@@ -272,6 +357,7 @@
       Please enable JavaScript for the best experience.
     </noscript>
     <script src="assets/gallery-manifest.js" defer></script>
+    <script src="assets/contact-config.js" defer></script>
     <script src="assets/script.js" defer></script>
   </body>
   </html>

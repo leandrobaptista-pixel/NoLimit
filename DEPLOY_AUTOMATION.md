@@ -10,6 +10,7 @@ This repository now deploys automatically to Cloudflare Pages on every push to `
    - `Account` -> `Cloudflare Pages:Edit`
    - `Zone` -> `Zone:Read`
    - Scope: your account that contains project `nolimitcontractor`
+   - Save the token as a single line, without quotes, extra spaces, or line breaks
 3. `CLOUDFLARE_ACCOUNT_ID` is already set in workflow as:
    - `47f6c1dee23ca2adee98043a07a5cd23`
 
@@ -17,6 +18,7 @@ This repository now deploys automatically to Cloudflare Pages on every push to `
 
 - Trigger: push to `main` (or manual run via Actions).
 - Pre-check: workflow fails if any file is larger than 25 MiB.
+- Credentials are normalized before deploy to strip hidden line breaks from secrets.
 - Publish command:
   - `wrangler pages deploy . --project-name=nolimitcontractor --branch=main`
 

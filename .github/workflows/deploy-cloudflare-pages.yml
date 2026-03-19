@@ -41,11 +41,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          CLOUDFLARE_API_TOKEN="$(printf '%s' "$RAW_CLOUDFLARE_API_TOKEN" | tr -d '\r\n')"
+          CLOUDFLARE_API_TOKEN="$(printf '%s' "$RAW_CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')"
           CLOUDFLARE_ACCOUNT_ID="$(printf '%s' '47f6c1dee23ca2adee98043a07a5cd23' | tr -d '\r\n')"
 
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "Missing GitHub Actions secret: CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+
+          if printf '%s' "$CLOUDFLARE_API_TOKEN" | LC_ALL=C grep -q '[^!-~]'; then
+            echo "CLOUDFLARE_API_TOKEN still contains invalid characters after whitespace cleanup."
+            echo "Recreate the GitHub secret by pasting the raw Cloudflare token as a single line without quotes."
             exit 1
           fi
 

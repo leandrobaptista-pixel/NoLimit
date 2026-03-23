@@ -16,6 +16,23 @@ function syncHeaderHeight() {
   document.documentElement.style.setProperty('--header-h', `${height}px`);
 }
 
+function closeMobileNav() {
+  navToggle?.setAttribute('aria-expanded', 'false');
+  navWrap?.classList.remove('nav-open');
+  syncHeaderHeight();
+}
+
+function scrollToSection(hash, { updateHistory = true } = {}) {
+  const id = String(hash || '').replace(/^#/, '').trim();
+  if (!id) return false;
+  const target = document.getElementById(id);
+  if (!target) return false;
+
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (updateHistory) history.replaceState(null, '', `#${id}`);
+  return true;
+}
+
 syncHeaderHeight();
 window.addEventListener('resize', syncHeaderHeight);
 
@@ -29,17 +46,30 @@ navToggle?.addEventListener('click', () => {
 navMenu?.querySelectorAll('a').forEach((link) => {
   link.addEventListener('click', () => {
     if (window.innerWidth > 980) return;
-    navToggle?.setAttribute('aria-expanded', 'false');
-    navWrap?.classList.remove('nav-open');
-    syncHeaderHeight();
+    closeMobileNav();
+  });
+});
+
+document.querySelectorAll('a[href^="#"]').forEach((link) => {
+  link.addEventListener('click', (event) => {
+    const href = link.getAttribute('href');
+    if (!href || href === '#') return;
+    if (!scrollToSection(href)) return;
+    event.preventDefault();
+    closeMobileNav();
   });
 });
 
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
-  navToggle?.setAttribute('aria-expanded', 'false');
-  navWrap?.classList.remove('nav-open');
-  syncHeaderHeight();
+  closeMobileNav();
+});
+
+window.addEventListener('load', () => {
+  if (!window.location.hash) return;
+  window.setTimeout(() => {
+    scrollToSection(window.location.hash, { updateHistory: false });
+  }, 0);
 });
 
 function encodeMailto(fields) {

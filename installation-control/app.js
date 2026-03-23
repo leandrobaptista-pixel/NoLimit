@@ -19,6 +19,12 @@ const LOCAL_BACKUP_META_KEY = "cc-last-local-backup-at";
 const APP_AUDIT_MAX = 3000;
 const DELETE_RETENTION_MS = 48 * 60 * 60 * 1000;
 const RESTORE_WINDOW_LABEL = "48 hours";
+const WORKFORCE_SITE_OPTIONS = [
+  { value: "project", label: "Project job site" },
+  { value: "office", label: "Office" },
+  { value: "warehouse", label: "Warehouse" },
+  { value: "homeworking", label: "Homeworking" },
+];
 
 const STAGES = [
   { key: "warehouse", label: "Warehouse" },
@@ -1036,6 +1042,7 @@ const permissionLine = document.getElementById("permissionLine");
 const homePanel = document.getElementById("homePanel");
 const timeClockPanel = document.getElementById("timeClockPanel");
 const timeClockForm = document.getElementById("timeClockForm");
+const timeClockSiteTypeSelect = document.getElementById("timeClockSiteTypeSelect");
 const timeClockProjectSelect = document.getElementById("timeClockProjectSelect");
 const timeClockNoteInput = document.getElementById("timeClockNoteInput");
 const timeClockCheckInBtn = document.getElementById("timeClockCheckInBtn");
@@ -1241,6 +1248,14 @@ const userIdCardPhoto = document.getElementById("userIdCardPhoto");
 const userIdCardFirstName = document.getElementById("userIdCardFirstName");
 const userIdCardLastName = document.getElementById("userIdCardLastName");
 const userIdCardRole = document.getElementById("userIdCardRole");
+const userIdCardWorkStatus = document.getElementById("userIdCardWorkStatus");
+const userWorkforceCard = document.getElementById("userWorkforceCard");
+const userWorkforceSummary = document.getElementById("userWorkforceSummary");
+const userWorkforceSiteTypeSelect = document.getElementById("userWorkforceSiteTypeSelect");
+const userWorkforceProjectSelect = document.getElementById("userWorkforceProjectSelect");
+const userWorkforceNoteInput = document.getElementById("userWorkforceNoteInput");
+const userWorkforceCheckInBtn = document.getElementById("userWorkforceCheckInBtn");
+const userWorkforceCheckOutBtn = document.getElementById("userWorkforceCheckOutBtn");
 const userAdminPhotoPreview = document.getElementById("userAdminPhotoPreview");
 const userAdminGenderSelect = document.getElementById("userAdminGender");
 const userAdminEmploymentTypeSelect = document.getElementById("userAdminEmploymentType");
@@ -1472,6 +1487,29 @@ function normalizePositiveIntegerField(value) {
   return String(Math.round(num));
 }
 
+function normalizeWorkSiteType(value, fallback = "project") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (WORKFORCE_SITE_OPTIONS.some((option) => option.value === raw)) return raw;
+  return fallback;
+}
+
+function workforceSiteLabel(value, fallback = "Project job site") {
+  const normalized = normalizeWorkSiteType(value, "");
+  return WORKFORCE_SITE_OPTIONS.find((option) => option.value === normalized)?.label || fallback;
+}
+
+function isProjectWorkSiteType(value) {
+  return normalizeWorkSiteType(value) === "project";
+}
+
+function populateWorkSiteSelect(select, { currentValue = "project" } = {}) {
+  if (!select) return;
+  select.innerHTML = WORKFORCE_SITE_OPTIONS.map(
+    (option) => `<option value="${option.value}">${escapeHtml(option.label)}</option>`
+  ).join("");
+  select.value = normalizeWorkSiteType(currentValue);
+}
+
 function projectGeofence(project) {
   if (!project) return null;
   const lat = Number(project.geoLat);
@@ -1491,6 +1529,14 @@ function projectGeofenceSummary(project) {
   const geofence = projectGeofence(project);
   if (!geofence) return "-";
   return `${Math.round(geofence.checkInRadius)}m in / ${Math.round(geofence.checkOutRadius)}m out`;
+}
+
+function timeEntryAssignmentLabel(entry) {
+  if (!entry) return "-";
+  if (entry.projectName) return entry.projectName;
+  const manualLabel = String(entry.workSiteLabel || "").trim();
+  if (manualLabel) return manualLabel;
+  return workforceSiteLabel(entry.workSiteType, "Unassigned");
 }
 
 function geoDistanceMeters(from, to) {
@@ -2098,11 +2144,64 @@ function renderUserIdCard(user = null) {
   const jobTitle = String(userForm?.jobTitle?.value || user?.jobTitle || "").trim();
   const gender = normalizeGender(userForm?.gender?.value || user?.gender || "unspecified");
   const photoSrc = formPhotoPreviewSrc() || userAvatarSrc(user) || defaultAvatarForGender(gender) || "avatar-neutral.svg";
+  const active = user?.id ? activeTimeEntryForUser(user.id) : null;
 
   userIdCardPhoto.src = photoSrc;
   userIdCardFirstName.textContent = first || "First Name";
   userIdCardLastName.textContent = last || "Last Name";
   userIdCardRole.textContent = jobTitle || "Job Title";
+  if (userIdCardWorkStatus) {
+    userIdCardWorkStatus.textContent = active
+      ? `Working at ${timeEntryAssignmentLabel(active)} • ${elapsedFrom(active.checkInAt)}`
+      : "Off shift";
+  }
+  renderUserWorkforceCard(user);
+}
+
+function renderUserWorkforceCard(user = null) {
+  if (
+    !userWorkforceCard ||
+    !userWorkforceSummary ||
+    !userWorkforceSiteTypeSelect ||
+    !userWorkforceProjectSelect ||
+    !userWorkforceCheckInBtn ||
+    !userWorkforceCheckOutBtn
+  ) {
+    return;
+  }
+
+  const allowed = Boolean(user && can("manageUsers") && canUseTimeClock(user));
+  userWorkforceCard.classList.toggle("hidden", !allowed);
+  if (!allowed) return;
+
+  const active = activeTimeEntryForUser(user.id);
+  const currentUserId = userWorkforceCard.dataset.userId || "";
+  if (currentUserId !== user.id) {
+    userWorkforceCard.dataset.userId = user.id;
+    if (userWorkforceNoteInput) userWorkforceNoteInput.value = "";
+    if (userWorkforceProjectSelect) userWorkforceProjectSelect.value = "";
+    populateWorkSiteSelect(userWorkforceSiteTypeSelect, {
+      currentValue: active?.workSiteType || "project",
+    });
+  }
+
+  const siteType = active?.workSiteType || userWorkforceSiteTypeSelect.value || "project";
+  if (userWorkforceSiteTypeSelect.value !== siteType) userWorkforceSiteTypeSelect.value = siteType;
+  populateProjectSelect(userWorkforceProjectSelect, {
+    allowBlankLabel: isProjectWorkSiteType(siteType) ? "Select a project" : "Not required for this assignment",
+    currentValue: active?.projectId || userWorkforceProjectSelect.value || "",
+  });
+  userWorkforceProjectSelect.disabled = !isProjectWorkSiteType(siteType);
+  if (!isProjectWorkSiteType(siteType)) userWorkforceProjectSelect.value = "";
+
+  userWorkforceSummary.textContent = active
+    ? `${user.name || user.username || "User"} is working at ${timeEntryAssignmentLabel(active)} since ${fmtDate(
+        active.checkInAt
+      )} (${elapsedFrom(active.checkInAt)}).`
+    : `${user.name || user.username || "User"} is off shift. Use manual attendance for project work, office support, warehouse work, or homeworking.`;
+
+  userWorkforceCheckInBtn.disabled = Boolean(active);
+  userWorkforceCheckOutBtn.disabled = !active;
 }
 
 function normalizeUser(user) {
@@ -2164,6 +2263,9 @@ function normalizeGeoSnapshot(value) {
 }
 
 function normalizeTimeEntry(entry) {
+  const hasProject = Boolean(entry.projectId || entry.projectName);
+  const workSiteType = normalizeWorkSiteType(entry.workSiteType, hasProject ? "project" : "office");
+  const projectName = entry.projectName || "";
   return {
     id: entry.id || uid(),
     userId: entry.userId || "",
@@ -2178,7 +2280,9 @@ function normalizeTimeEntry(entry) {
     clientId: entry.clientId || "",
     clientName: entry.clientName || "",
     projectId: entry.projectId || "",
-    projectName: entry.projectName || "",
+    projectName,
+    workSiteType,
+    workSiteLabel: String(entry.workSiteLabel || "").trim() || (projectName ? projectName : workforceSiteLabel(workSiteType, "Office")),
     status: entry.status === "closed" ? "closed" : "active",
     mode: entry.mode === "auto" ? "auto" : "manual",
     checkInAt: entry.checkInAt || entry.createdAt || new Date().toISOString(),
@@ -7246,7 +7350,7 @@ function renderClientSelectedProjectDetails(project) {
     return;
   }
 
-  const client = clientById(project.clientId);
+  const client = project ? clientById(project.clientId) : null;
   const scopeBase = ensureArray(project.scopeCategories).map((key) => PROJECT_SCOPE_LABELS[key] || key);
   const scopeExtra = uniqueTextList(project.scopeExtras);
   const scopeAll = uniqueTextList([...scopeBase, ...scopeExtra]);
@@ -9838,7 +9942,7 @@ async function getCurrentGeoSnapshot({ timeout = 12000 } = {}) {
 
 function timeEntrySummaryLine(entry) {
   if (!entry) return "No active shift for this user.";
-  return `${entry.projectName || "Project"} | checked in ${fmtDate(entry.checkInAt)} | elapsed ${elapsedFrom(entry.checkInAt)}`;
+  return `${timeEntryAssignmentLabel(entry)} | checked in ${fmtDate(entry.checkInAt)} | elapsed ${elapsedFrom(entry.checkInAt)}`;
 }
 
 function setTimeClockStatus(message) {
@@ -9854,39 +9958,51 @@ async function saveTimeEntryRecord(record) {
   queueAutoSync();
 }
 
-async function createTimeEntry({ projectId, mode = "manual", geoSnapshot = null, note = "", silent = false } = {}) {
-  if (!currentUser || !canUseTimeClock()) return false;
-  const active = activeTimeEntryForUser(currentUser.id);
+async function createTimeEntry({
+  targetUser = currentUser,
+  projectId,
+  workSiteType = "project",
+  mode = "manual",
+  geoSnapshot = null,
+  note = "",
+  silent = false,
+} = {}) {
+  if (!targetUser || !canUseTimeClock(targetUser)) return false;
+  const active = activeTimeEntryForUser(targetUser.id);
   if (active) {
     if (!silent) alert("This user already has an active shift. Check out first.");
     return false;
   }
+  const resolvedWorkSiteType = normalizeWorkSiteType(workSiteType);
   let resolvedProjectId = projectId;
-  if (!resolvedProjectId && geoSnapshot) {
+  if (isProjectWorkSiteType(resolvedWorkSiteType) && !resolvedProjectId && geoSnapshot) {
     const candidate = nearestProjectInsideGeofence(geoSnapshot);
     if (candidate) resolvedProjectId = candidate.project.id;
   }
   const project = projectById(resolvedProjectId);
-  if (!project) {
+  if (isProjectWorkSiteType(resolvedWorkSiteType) && !project) {
     if (!silent) alert("Select a valid project before checking in, or allow location so the nearest geofenced project can be detected.");
     return false;
   }
 
-  const client = clientById(project.clientId);
+  const client = project ? clientById(project.clientId) : null;
   const now = new Date().toISOString();
+  const assignmentLabel = project?.name || workforceSiteLabel(resolvedWorkSiteType, "Office");
   const record = normalizeTimeEntry({
     id: uid(),
-    userId: currentUser.id,
-    userName: currentUser.name || currentUser.username || "User",
-    employmentType: currentUser.employmentType || "",
-    companyName: currentUser.companyName || "",
-    jobTitle: currentUser.jobTitle || "",
-    accessProfile: userAccessProfile(currentUser),
-    workAreas: currentUser.employmentType === "subcontractor" ? ensureArray(currentUser.contractorAreas) : [],
+    userId: targetUser.id,
+    userName: targetUser.name || targetUser.username || "User",
+    employmentType: targetUser.employmentType || "",
+    companyName: targetUser.companyName || "",
+    jobTitle: targetUser.jobTitle || "",
+    accessProfile: userAccessProfile(targetUser),
+    workAreas: targetUser.employmentType === "subcontractor" ? ensureArray(targetUser.contractorAreas) : [],
     clientId: client?.id || "",
     clientName: client?.name || "",
-    projectId: project.id,
-    projectName: project.name || "",
+    projectId: project?.id || "",
+    projectName: project?.name || "",
+    workSiteType: project ? "project" : resolvedWorkSiteType,
+    workSiteLabel: assignmentLabel,
     status: "active",
     mode,
     checkInAt: now,
@@ -9899,14 +10015,14 @@ async function createTimeEntry({ projectId, mode = "manual", geoSnapshot = null,
   pushEntityAudit(
     "Workforce",
     "check-in",
-    `${record.userName} | ${record.projectName} | ${record.employmentType || "-"} | mode:${record.mode}`,
+    `${record.userName} | ${timeEntryAssignmentLabel(record)} | ${record.employmentType || "-"} | mode:${record.mode}`,
     "workforce"
   );
   await saveTimeEntryRecord(record);
   setTimeClockStatus(
     mode === "auto"
-      ? `Automatic check-in completed for ${record.projectName}.`
-      : `Checked in to ${record.projectName}.`
+      ? `Automatic check-in completed for ${timeEntryAssignmentLabel(record)}.`
+      : `Checked in to ${timeEntryAssignmentLabel(record)}.`
   );
   return true;
 }
@@ -9930,7 +10046,7 @@ async function closeTimeEntry(entry, { mode = "manual", geoSnapshot = null, note
   pushEntityAudit(
     "Workforce",
     "check-out",
-    `${updated.userName} | ${updated.projectName} | total ${formatMinutesAsHours(
+    `${updated.userName} | ${timeEntryAssignmentLabel(updated)} | total ${formatMinutesAsHours(
       timeEntryMinutesWithinRange(updated, new Date(updated.checkInAt).getTime(), new Date(updated.checkOutAt).getTime() + 1)
     )}`,
     "workforce"
@@ -9938,8 +10054,8 @@ async function closeTimeEntry(entry, { mode = "manual", geoSnapshot = null, note
   await saveTimeEntryRecord(updated);
   setTimeClockStatus(
     mode === "auto"
-      ? `Automatic check-out completed for ${updated.projectName}.`
-      : `Checked out from ${updated.projectName}.`
+      ? `Automatic check-out completed for ${timeEntryAssignmentLabel(updated)}.`
+      : `Checked out from ${timeEntryAssignmentLabel(updated)}.`
   );
   return true;
 }
@@ -9976,7 +10092,7 @@ async function processAutoTimeClockGeo(position) {
           });
           active = null;
         } else {
-          setTimeClockStatus(`Inside ${active.projectName} geofence (${Math.round(distance)}m from center).`);
+          setTimeClockStatus(`Inside ${timeEntryAssignmentLabel(active)} geofence (${Math.round(distance)}m from center).`);
           renderTimeClockPanel();
           return;
         }
@@ -10006,6 +10122,10 @@ async function processAutoTimeClockGeo(position) {
 
 function startAutoTimeClock() {
   if (!currentUser || !canUseTimeClock()) return;
+  if (!isProjectWorkSiteType(timeClockSiteTypeSelect?.value || "project")) {
+    alert("Automatic geofence tracking is only available for project job sites.");
+    return;
+  }
   if (!("geolocation" in navigator)) {
     alert("This device/browser does not support geolocation for automatic check-in.");
     return;
@@ -10073,11 +10193,12 @@ function workforceAdminAggregates() {
     const minutes = timeEntryMinutesWithinRange(entry, range.startMs, range.endMs);
     if (!minutes) return;
     const dayKeys = timeEntryDayKeysWithinRange(entry, range.startMs, range.endMs);
+    const assignmentLabel = timeEntryAssignmentLabel(entry);
     if (entry.employmentType === "subcontractor") {
-      const key = `${entry.projectId}::${entry.userId}`;
+      const key = `${entry.projectId || entry.workSiteType || "manual"}::${entry.userId}`;
       if (!subcontractorMap.has(key)) {
         subcontractorMap.set(key, {
-          projectName: entry.projectName || "-",
+          projectName: assignmentLabel || "-",
           companyName: entry.companyName || "-",
           userName: entry.userName || "-",
           jobTitle: entry.jobTitle || "-",
@@ -10112,7 +10233,7 @@ function workforceAdminAggregates() {
     const bucket = employeeMap.get(key);
     bucket.minutes += minutes;
     dayKeys.forEach((day) => bucket.days.add(day));
-    if (entry.projectName) bucket.projects.add(entry.projectName);
+    if (assignmentLabel) bucket.projects.add(assignmentLabel);
   });
 
   return {
@@ -10129,21 +10250,30 @@ function renderTimeClockPanel() {
   timeClockPanel.classList.toggle("hidden", !allowed);
   if (!allowed) return;
 
-  populateProjectSelect(timeClockProjectSelect, {
-    allowBlankLabel: "Nearest project with geofence",
-    currentValue: timeClockProjectSelect?.value || timeClockAutoPreferredProjectId || "",
-  });
   const active = activeTimeEntryForUser(currentUser?.id || "");
+  const defaultSiteType = active?.workSiteType || timeClockSiteTypeSelect?.value || "project";
+  populateWorkSiteSelect(timeClockSiteTypeSelect, { currentValue: defaultSiteType });
+  const selectedSiteType = active?.workSiteType || timeClockSiteTypeSelect?.value || "project";
+  populateProjectSelect(timeClockProjectSelect, {
+    allowBlankLabel: isProjectWorkSiteType(selectedSiteType)
+      ? "Nearest project with geofence"
+      : "Not required for this assignment",
+    currentValue: active?.projectId || timeClockProjectSelect?.value || timeClockAutoPreferredProjectId || "",
+  });
+  if (timeClockProjectSelect) timeClockProjectSelect.disabled = !isProjectWorkSiteType(selectedSiteType);
+  if (!isProjectWorkSiteType(selectedSiteType) && timeClockProjectSelect) timeClockProjectSelect.value = "";
   if (timeClockSummary) timeClockSummary.textContent = timeEntrySummaryLine(active);
   if (timeClockCheckInBtn) timeClockCheckInBtn.disabled = Boolean(active);
   if (timeClockCheckOutBtn) timeClockCheckOutBtn.disabled = !active;
-  if (timeClockAutoStartBtn) timeClockAutoStartBtn.disabled = timeClockAutoWatchId !== null;
+  if (timeClockAutoStartBtn) timeClockAutoStartBtn.disabled = timeClockAutoWatchId !== null || !isProjectWorkSiteType(selectedSiteType);
   if (timeClockAutoStopBtn) timeClockAutoStopBtn.disabled = timeClockAutoWatchId === null;
   if (timeClockStatus) {
     const fallback =
       timeClockAutoWatchId !== null
         ? "Automatic geofence tracking is running on this device."
-        : "Select a project for manual check-in, or leave it blank to auto-detect the nearest geofenced project.";
+        : isProjectWorkSiteType(selectedSiteType)
+          ? "Select a project for manual check-in, or leave it blank to auto-detect the nearest geofenced project."
+          : `Manual attendance will be recorded for ${workforceSiteLabel(selectedSiteType)}.`;
     timeClockStatus.textContent = timeClockStatusMessage || fallback;
   }
 }
@@ -10170,7 +10300,7 @@ function renderWorkforceAdminPanel() {
   }
 
   if (workforceSummaryCards) {
-    const uniqueProjects = new Set(entries.map((entry) => entry.projectId).filter(Boolean));
+    const uniqueProjects = new Set(entries.map((entry) => timeEntryAssignmentLabel(entry)).filter(Boolean));
     const uniqueSubcontractors = new Set(subcontractors.map((entry) => `${entry.projectName}::${entry.userName}`));
     const totalEmployeeMinutes = employees.reduce((sum, entry) => sum + entry.minutes, 0);
     workforceSummaryCards.innerHTML = `
@@ -10183,7 +10313,7 @@ function renderWorkforceAdminPanel() {
         <strong>${formatMinutesAsHours(totalEmployeeMinutes)}</strong>
       </article>
       <article class="workforce-summary-card">
-        <span>Projects in report</span>
+        <span>Assignments in report</span>
         <strong>${uniqueProjects.size}</strong>
       </article>
       <article class="workforce-summary-card">
@@ -10199,7 +10329,7 @@ function renderWorkforceAdminPanel() {
         <td>${escapeHtml(entry.userName || "-")}</td>
         <td>${escapeHtml(entry.companyName || "-")}</td>
         <td>${escapeHtml(entry.jobTitle || "-")}</td>
-        <td>${escapeHtml(entry.projectName || "-")}</td>
+        <td>${escapeHtml(timeEntryAssignmentLabel(entry))}</td>
         <td>${escapeHtml(entry.employmentType || "-")}</td>
         <td>${escapeHtml(entry.mode || "-")}</td>
         <td>${escapeHtml(fmtDate(entry.checkInAt))}</td>
@@ -10208,7 +10338,7 @@ function renderWorkforceAdminPanel() {
     )
     .join("");
   if (workforceActiveTable) {
-    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Project</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th></tr></thead><tbody>${
+    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Assignment</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th></tr></thead><tbody>${
       activeTableRows || '<tr><td colspan="8">No people currently checked in.</td></tr>'
     }</tbody></table>`;
   }
@@ -10228,7 +10358,7 @@ function renderWorkforceAdminPanel() {
     )
     .join("");
   if (workforceWeeklyTable) {
-    workforceWeeklyTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Type</th><th>Projects</th><th>Days</th><th>Total hours</th></tr></thead><tbody>${
+    workforceWeeklyTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Type</th><th>Projects / locations</th><th>Days</th><th>Total hours</th></tr></thead><tbody>${
       weeklyRows || '<tr><td colspan="7">No employee hours found for this week/filter.</td></tr>'
     }</tbody></table>`;
   }
@@ -10249,7 +10379,7 @@ function renderWorkforceAdminPanel() {
     )
     .join("");
   if (workforceSubcontractorTable) {
-    workforceSubcontractorTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th><th>Last checkout</th></tr></thead><tbody>${
+    workforceSubcontractorTable.innerHTML = `<table class="data-table"><thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th><th>Last checkout</th></tr></thead><tbody>${
       subcontractorRows || '<tr><td colspan="8">No Sub Contractor presence found for this week/filter.</td></tr>'
     }</tbody></table>`;
   }
@@ -10257,7 +10387,7 @@ function renderWorkforceAdminPanel() {
 
 function generateWorkforceWeeklyReport() {
   const { range, employees, subcontractors, entries } = workforceAdminAggregates();
-  const filteredProject = workforceProjectFilter ? projectById(workforceProjectFilter)?.name || "-" : "All projects";
+  const filteredProject = workforceProjectFilter ? projectById(workforceProjectFilter)?.name || "-" : "All projects / locations";
   const filteredTeam = workforceEmploymentFilter === "all" ? "All" : workforceEmploymentFilter;
 
   const employeeRows = employees
@@ -10304,13 +10434,13 @@ function generateWorkforceWeeklyReport() {
 
       <h3>Employee payroll hours</h3>
       <table>
-        <thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Type</th><th>Projects</th><th>Days</th><th>Total hours</th></tr></thead>
+        <thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Type</th><th>Projects / locations</th><th>Days</th><th>Total hours</th></tr></thead>
         <tbody>${employeeRows || '<tr><td colspan="7">No employee hours found for this report.</td></tr>'}</tbody>
       </table>
 
-      <h3>Sub Contractor list by project</h3>
+      <h3>Sub Contractor list by project / location</h3>
       <table>
-        <thead><tr><th>Project</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th></tr></thead>
+        <thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th></tr></thead>
         <tbody>${subcontractorRows || '<tr><td colspan="7">No Sub Contractor presence found for this report.</td></tr>'}</tbody>
       </table>
     `
@@ -10361,9 +10491,13 @@ function renderUsers() {
       .map((user) => {
         const profile = userAccessProfile(user);
         const pendingAssignment = isPendingUserAssignment(user);
+        const active = activeTimeEntryForUser(user.id);
+        const statusLabel = active
+          ? `${timeEntryAssignmentLabel(active)} • ${elapsedFrom(active.checkInAt)}`
+          : `${roleLabel(profile)} • ${user.companyName || "No company"}`;
         return `<button class="users-name-btn${pendingAssignment ? " pending-assignment" : ""}" type="button" data-user-rail="${user.id}">
           ${escapeHtml(user.name || user.username || "-")}
-          <small>${escapeHtml(roleLabel(profile))} • ${escapeHtml(user.companyName || "No company")}</small>
+          <small>${escapeHtml(statusLabel)}</small>
           ${pendingAssignment ? '<span class="pending-assignment-chip">Pending assignment</span>' : ""}
         </button>`;
       })
@@ -10381,11 +10515,16 @@ function renderUsers() {
       const avatarSrc = userAvatarSrc(user);
       const profile = userAccessProfile(user);
       const pendingAssignment = isPendingUserAssignment(user);
+      const active = activeTimeEntryForUser(user.id);
+      const workStatus = active
+        ? `${timeEntryAssignmentLabel(active)} • ${elapsedFrom(active.checkInAt)}`
+        : "Off shift";
       return `<tr data-user-row="${user.id}" class="${pendingAssignment ? "user-pending-assignment" : ""}">
       <td>${avatarSrc ? `<img class="avatar-xs" src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(user.name || user.username || "User")}" />` : ""}</td>
       <td>${escapeHtml(user.name)}</td>
       <td>${escapeHtml(user.companyName || "-")}</td>
       <td>${escapeHtml(user.jobTitle || "-")}</td>
+      <td>${escapeHtml(workStatus)}</td>
       <td>${escapeHtml(user.employmentType || "-")}</td>
       <td>${escapeHtml(user.email || "-")}</td>
       <td>${escapeHtml(user.username)}</td>
@@ -10399,8 +10538,8 @@ function renderUsers() {
     })
     .join("");
 
-  usersTable.innerHTML = `<table class="data-table"><thead><tr><th>Photo</th><th>Name</th><th>Company</th><th>Job Title</th><th>Type</th><th>Email</th><th>User</th><th>Access Profile</th><th>Updated</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="9">No visible users.</td></tr>'
+  usersTable.innerHTML = `<table class="data-table"><thead><tr><th>Photo</th><th>Name</th><th>Company</th><th>Job Title</th><th>Work status</th><th>Type</th><th>Email</th><th>User</th><th>Access Profile</th><th>Updated</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="10">No visible users.</td></tr>'
   }</tbody></table>`;
 
   usersTable.querySelectorAll("[data-user-row]").forEach((row) => {
@@ -11881,6 +12020,13 @@ logoutBtn.addEventListener("click", () => {
   renderAuth();
 });
 
+timeClockSiteTypeSelect?.addEventListener("change", () => {
+  if (!isProjectWorkSiteType(timeClockSiteTypeSelect.value) && timeClockAutoWatchId !== null) {
+    stopAutoTimeClock();
+  }
+  renderTimeClockPanel();
+});
+
 timeClockProjectSelect?.addEventListener("change", () => {
   if (timeClockAutoWatchId !== null) timeClockAutoPreferredProjectId = timeClockProjectSelect.value || "";
   renderTimeClockPanel();
@@ -11888,10 +12034,12 @@ timeClockProjectSelect?.addEventListener("change", () => {
 
 timeClockCheckInBtn?.addEventListener("click", async () => {
   if (!currentUser) return;
-  const projectId = timeClockProjectSelect?.value || "";
-  const geoSnapshot = await getCurrentGeoSnapshot();
+  const workSiteType = timeClockSiteTypeSelect?.value || "project";
+  const projectId = isProjectWorkSiteType(workSiteType) ? timeClockProjectSelect?.value || "" : "";
+  const geoSnapshot = isProjectWorkSiteType(workSiteType) ? await getCurrentGeoSnapshot() : null;
   await createTimeEntry({
     projectId,
+    workSiteType,
     mode: "manual",
     geoSnapshot,
     note: String(timeClockNoteInput?.value || "").trim(),
@@ -11901,7 +12049,7 @@ timeClockCheckInBtn?.addEventListener("click", async () => {
 timeClockCheckOutBtn?.addEventListener("click", async () => {
   if (!currentUser) return;
   const active = activeTimeEntryForUser(currentUser.id);
-  const geoSnapshot = await getCurrentGeoSnapshot();
+  const geoSnapshot = active?.projectId ? await getCurrentGeoSnapshot() : null;
   await closeTimeEntry(active, {
     mode: "manual",
     geoSnapshot,
@@ -11941,6 +12089,44 @@ workforceEmploymentFilterSelect?.addEventListener("change", () => {
 
 workforceWeeklyReportBtn?.addEventListener("click", () => {
   generateWorkforceWeeklyReport();
+});
+
+userWorkforceSiteTypeSelect?.addEventListener("change", () => {
+  renderUserWorkforceCard(users.find((entry) => entry.id === adminEditingUserId) || null);
+});
+
+userWorkforceProjectSelect?.addEventListener("change", () => {
+  renderUserWorkforceCard(users.find((entry) => entry.id === adminEditingUserId) || null);
+});
+
+userWorkforceCheckInBtn?.addEventListener("click", async () => {
+  const targetUser = users.find((entry) => entry.id === adminEditingUserId);
+  if (!targetUser) return;
+  const workSiteType = userWorkforceSiteTypeSelect?.value || "project";
+  const projectId = isProjectWorkSiteType(workSiteType) ? userWorkforceProjectSelect?.value || "" : "";
+  const geoSnapshot = isProjectWorkSiteType(workSiteType) ? await getCurrentGeoSnapshot() : null;
+  await createTimeEntry({
+    targetUser,
+    projectId,
+    workSiteType,
+    mode: "manual",
+    geoSnapshot,
+    note: String(userWorkforceNoteInput?.value || "").trim(),
+  });
+  if (userWorkforceNoteInput) userWorkforceNoteInput.value = "";
+});
+
+userWorkforceCheckOutBtn?.addEventListener("click", async () => {
+  const targetUser = users.find((entry) => entry.id === adminEditingUserId);
+  if (!targetUser) return;
+  const active = activeTimeEntryForUser(targetUser.id);
+  const geoSnapshot = active?.projectId ? await getCurrentGeoSnapshot() : null;
+  await closeTimeEntry(active, {
+    mode: "manual",
+    geoSnapshot,
+    note: String(userWorkforceNoteInput?.value || "").trim(),
+  });
+  if (userWorkforceNoteInput) userWorkforceNoteInput.value = "";
 });
 
 userForm.addEventListener("submit", async (event) => {

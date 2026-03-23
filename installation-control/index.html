@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260323-workforce1" />
+    <link rel="stylesheet" href="styles.css?v=20260323-workforce2" />
   </head>
   <body>
     <header class="app-header">
@@ -202,6 +202,14 @@
             Automatic geofence check-in/check-out works while this app is open, with location permission enabled on the device.
           </p>
           <form id="timeClockForm" class="grid-form compact">
+            <label>Assignment
+              <select id="timeClockSiteTypeSelect">
+                <option value="project">Project job site</option>
+                <option value="office">Office</option>
+                <option value="warehouse">Warehouse</option>
+                <option value="homeworking">Homeworking</option>
+              </select>
+            </label>
             <label>Project
               <select id="timeClockProjectSelect">
                 <option value="">Nearest project with geofence</option>
@@ -657,7 +665,37 @@
               </div>
               <div class="user-id-card-foot">
                 <span id="userIdCardRole" class="user-id-card-role">Job Title</span>
+                <small id="userIdCardWorkStatus" class="user-id-card-status">Off shift</small>
               </div>
+            </article>
+            <article id="userWorkforceCard" class="panel user-workforce-card hidden">
+              <h3>Work control</h3>
+              <p id="userWorkforceSummary" class="hint">Select a user to review hours, current location, and manual attendance.</p>
+              <div class="grid-form compact">
+                <label>Assignment
+                  <select id="userWorkforceSiteTypeSelect">
+                    <option value="project">Project job site</option>
+                    <option value="office">Office</option>
+                    <option value="warehouse">Warehouse</option>
+                    <option value="homeworking">Homeworking</option>
+                  </select>
+                </label>
+                <label>Project
+                  <select id="userWorkforceProjectSelect">
+                    <option value="">Select a project</option>
+                  </select>
+                </label>
+                <label class="full">Shift note
+                  <input id="userWorkforceNoteInput" placeholder="Ex: office support, warehouse loading, remote coordination" />
+                </label>
+              </div>
+              <div class="row">
+                <button id="userWorkforceCheckInBtn" class="primary" type="button">Manual check in</button>
+                <button id="userWorkforceCheckOutBtn" class="secondary" type="button">Manual check out</button>
+              </div>
+              <p class="hint">
+                Use manual attendance when the person is working in the office, warehouse, or homeworking, so the day is not lost just because it is not tied to a project.
+              </p>
             </article>
           </div>
         </div>
@@ -754,7 +792,7 @@
             <div>
               <h3>Workforce Control</h3>
               <p class="hint">
-                Weekly manpower by employee, automatic/manual check-ins, and subcontractor presence listing by project.
+                Weekly manpower by employee, automatic/manual check-ins, and support locations such as office, warehouse, or homeworking.
               </p>
             </div>
             <button id="workforceWeeklyReportBtn" class="secondary" type="button">Open weekly report</button>
@@ -789,7 +827,7 @@
               <div id="workforceWeeklyTable" class="table-wrap"></div>
             </article>
             <article class="subpanel">
-              <h4>Sub Contractor list by project</h4>
+              <h4>Sub Contractor list by project / location</h4>
               <div id="workforceSubcontractorTable" class="table-wrap"></div>
             </article>
           </div>
@@ -1348,6 +1386,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260323-workforce1" defer></script>
+    <script src="app.js?v=20260323-workforce2" defer></script>
   </body>
 </html>

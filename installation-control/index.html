@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260323-cachefix1" />
+    <link rel="stylesheet" href="styles.css?v=20260323-workforce1" />
   </head>
   <body>
     <header class="app-header">
@@ -196,6 +196,30 @@
       <section id="homePanel" class="panel">
         <h2>Dashboard</h2>
         <p class="hint">Use the top menu to navigate between system sections.</p>
+        <article id="timeClockPanel" class="subpanel hidden">
+          <h3>Workforce Time Clock</h3>
+          <p class="hint">
+            Automatic geofence check-in/check-out works while this app is open, with location permission enabled on the device.
+          </p>
+          <form id="timeClockForm" class="grid-form compact">
+            <label>Project
+              <select id="timeClockProjectSelect">
+                <option value="">Nearest project with geofence</option>
+              </select>
+            </label>
+            <label>Shift note
+              <input id="timeClockNoteInput" placeholder="Optional note for this shift" />
+            </label>
+            <div class="row full">
+              <button id="timeClockCheckInBtn" class="primary" type="button">Check in now</button>
+              <button id="timeClockCheckOutBtn" class="secondary" type="button">Check out now</button>
+              <button id="timeClockAutoStartBtn" class="secondary" type="button">Start auto check-in</button>
+              <button id="timeClockAutoStopBtn" class="secondary" type="button">Stop auto check-in</button>
+            </div>
+          </form>
+          <p id="timeClockSummary" class="hint">No active shift for this user.</p>
+          <p id="timeClockStatus" class="hint"></p>
+        </article>
         <div id="coiReminderPanel" class="subpanel reminder-panel hidden"></div>
       </section>
 
@@ -284,6 +308,22 @@
                 <label>Address / Job Site<input name="address" /></label>
                 <label>Number of Floors<input type="number" min="0" name="floorsCount" placeholder="Ex: 18" /></label>
                 <label>Number of Apartments<input type="number" min="0" name="apartmentsCount" placeholder="Ex: 220" /></label>
+                <label>Geofence Latitude
+                  <input name="geoLat" inputmode="decimal" placeholder="Ex: 40.296540" />
+                </label>
+                <label>Geofence Longitude
+                  <input name="geoLng" inputmode="decimal" placeholder="Ex: -74.059870" />
+                </label>
+                <label>Auto check-in radius (meters)
+                  <input type="number" min="10" name="checkInRadiusMeters" placeholder="Ex: 120" />
+                </label>
+                <label>Auto check-out radius (meters)
+                  <input type="number" min="10" name="checkOutRadiusMeters" placeholder="Ex: 180" />
+                </label>
+                <p class="hint full">
+                  Workforce geofence uses these coordinates to check employees in automatically when they enter the project radius and
+                  check them out when they move away.
+                </p>
                 <label class="full">Scope of Work (base)</label>
                 <div class="checkbox-group full project-scope-checkboxes">
                   <label><input type="checkbox" name="scopeCategories" value="kitchens" /> Kitchens</label>
@@ -708,6 +748,52 @@
               </form>
           </div>
         </div>
+
+        <article id="workforceAdminPanel" class="subpanel workforce-admin-panel">
+          <div class="row workforce-admin-head">
+            <div>
+              <h3>Workforce Control</h3>
+              <p class="hint">
+                Weekly manpower by employee, automatic/manual check-ins, and subcontractor presence listing by project.
+              </p>
+            </div>
+            <button id="workforceWeeklyReportBtn" class="secondary" type="button">Open weekly report</button>
+          </div>
+          <form id="workforceFiltersForm" class="grid-form compact">
+            <label>Week reference date
+              <input id="workforceWeekInput" type="date" />
+            </label>
+            <label>Project
+              <select id="workforceProjectFilterSelect">
+                <option value="">All projects</option>
+              </select>
+            </label>
+            <label>Team type
+              <select id="workforceEmploymentFilterSelect">
+                <option value="all">All</option>
+                <option value="tag">TAG Employees</option>
+                <option value="subcontractor">Sub Contractors</option>
+                <option value="supplier">Suppliers</option>
+              </select>
+            </label>
+          </form>
+          <p id="workforceAdminStatus" class="hint"></p>
+          <div id="workforceSummaryCards" class="workforce-summary-grid"></div>
+          <div class="workforce-admin-sections">
+            <article class="subpanel">
+              <h4>People currently checked in</h4>
+              <div id="workforceActiveTable" class="table-wrap"></div>
+            </article>
+            <article class="subpanel">
+              <h4>Weekly payroll hours</h4>
+              <div id="workforceWeeklyTable" class="table-wrap"></div>
+            </article>
+            <article class="subpanel">
+              <h4>Sub Contractor list by project</h4>
+              <div id="workforceSubcontractorTable" class="table-wrap"></div>
+            </article>
+          </div>
+        </article>
       </section>
 
       <section id="userEditPanel" class="panel hidden">
@@ -1262,6 +1348,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260323-cachefix1" defer></script>
+    <script src="app.js?v=20260323-workforce1" defer></script>
   </body>
 </html>

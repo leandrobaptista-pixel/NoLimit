@@ -1538,6 +1538,60 @@ table.data-table th {
   font-size: 0.78rem;
 }
 
+#timeClockPanel {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+#timeClockPanel .row {
+  margin-top: 0.15rem;
+}
+
+.workforce-admin-panel {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.workforce-admin-head {
+  margin-top: 0;
+  align-items: center;
+}
+
+.workforce-admin-head > * {
+  flex: 1 1 220px;
+}
+
+.workforce-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.45rem;
+}
+
+.workforce-summary-card {
+  border: 1px solid #d8e4da;
+  border-radius: 12px;
+  background: #f8fcf9;
+  padding: 0.55rem 0.62rem;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.workforce-summary-card span {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+.workforce-summary-card strong {
+  font-size: 1.15rem;
+}
+
+.workforce-admin-sections {
+  display: grid;
+  gap: 0.55rem;
+}
+
 #userAdminPhotoPreview.avatar-lg {
   width: 96px;
   height: 96px;

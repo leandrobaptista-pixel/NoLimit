@@ -1,5 +1,5 @@
 const DB_NAME = "cabinets-control-db";
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const UNIT_STORE = "units";
 const PHOTO_STORE = "photos";
 const USER_STORE = "users";
@@ -11,6 +11,7 @@ const CONTRACT_STORE = "contracts";
 const CONTAINER_STORE = "containers";
 const MATERIAL_STORE = "materials";
 const DELIVERY_SKU_STORE = "deliverySkuItems";
+const TIME_ENTRY_STORE = "timeEntries";
 const TRASH_STORE = "deletedRecords";
 const SESSION_KEY = "cc-session-user-id";
 const APP_AUDIT_KEY = "cc-app-audit-log";
@@ -279,6 +280,10 @@ const DELIVERY_IMPORT_SUPPORTED_HINT =
   "Supported auto-import: CSV, TSV, TXT, JSON, XLS, XLSX, PDF, JPG/PNG, DOCX. Legacy .DOC should be converted to DOCX.";
 const COI_REMINDER_DAYS = 30;
 const COI_MAX_FILE_SIZE = 8 * 1024 * 1024;
+const WORKFORCE_DEFAULT_CHECKIN_RADIUS_M = 120;
+const WORKFORCE_DEFAULT_CHECKOUT_RADIUS_M = 180;
+const WORKFORCE_GEO_ACCURACY_LIMIT_M = 150;
+const WORKFORCE_AUTO_GEO_MIN_INTERVAL_MS = 15000;
 const SECTOR_STAGE_MAP = {
   fabrica: [],
   warehouse: ["warehouse"],
@@ -946,6 +951,7 @@ let contracts = [];
 let containers = [];
 let materials = [];
 let deliverySkuItems = [];
+let timeEntries = [];
 let trashRecords = [];
 let deliveryImportDraft = null;
 let ocrImportDraft = null;
@@ -960,7 +966,7 @@ let autoPullBlockedUntil = 0;
 let clientsNavHoverTimer = null;
 const AUTO_PULL_INTERVAL_MS = 30 * 1000;
 const AUTO_PULL_SUBMIT_GRACE_MS = 12 * 1000;
-const AUTO_PULL_KINDS = ["unit", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "trash"];
+const AUTO_PULL_KINDS = ["unit", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "timeEntry", "trash"];
 let currentView = "home";
 let editingUserId = "";
 let userEditReturnView = "home";
@@ -998,6 +1004,15 @@ let legacyUserRoleKeyDetected = false;
 let containerManifestDraft = [];
 let containerManifestFilters = {};
 let containerManifestSelections = {};
+let timeClockAutoWatchId = null;
+let timeClockAutoPreferredProjectId = "";
+let timeClockStatusMessage = "";
+let timeClockLastGeoPoint = null;
+let timeClockLastHandledAt = 0;
+let timeClockProcessing = false;
+let workforceWeekAnchor = "";
+let workforceProjectFilter = "";
+let workforceEmploymentFilter = "all";
 
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
@@ -1019,6 +1034,16 @@ const appMain = document.getElementById("appMain");
 const roleLine = document.getElementById("roleLine");
 const permissionLine = document.getElementById("permissionLine");
 const homePanel = document.getElementById("homePanel");
+const timeClockPanel = document.getElementById("timeClockPanel");
+const timeClockForm = document.getElementById("timeClockForm");
+const timeClockProjectSelect = document.getElementById("timeClockProjectSelect");
+const timeClockNoteInput = document.getElementById("timeClockNoteInput");
+const timeClockCheckInBtn = document.getElementById("timeClockCheckInBtn");
+const timeClockCheckOutBtn = document.getElementById("timeClockCheckOutBtn");
+const timeClockAutoStartBtn = document.getElementById("timeClockAutoStartBtn");
+const timeClockAutoStopBtn = document.getElementById("timeClockAutoStopBtn");
+const timeClockSummary = document.getElementById("timeClockSummary");
+const timeClockStatus = document.getElementById("timeClockStatus");
 const coiReminderPanel = document.getElementById("coiReminderPanel");
 const quickNavPanel = document.getElementById("quickNavPanel");
 const clientsNavGroup = document.querySelector('.nav-group-clients[data-nav-group="clients"]');
@@ -1195,6 +1220,17 @@ const usersRegistrationTabBtn = document.getElementById("usersRegistrationTabBtn
 const usersDirectoryTabBtn = document.getElementById("usersDirectoryTabBtn");
 const usersDirectoryView = document.getElementById("usersDirectoryView");
 const usersRegistrationView = document.getElementById("usersRegistrationView");
+const workforceAdminPanel = document.getElementById("workforceAdminPanel");
+const workforceFiltersForm = document.getElementById("workforceFiltersForm");
+const workforceWeekInput = document.getElementById("workforceWeekInput");
+const workforceProjectFilterSelect = document.getElementById("workforceProjectFilterSelect");
+const workforceEmploymentFilterSelect = document.getElementById("workforceEmploymentFilterSelect");
+const workforceAdminStatus = document.getElementById("workforceAdminStatus");
+const workforceSummaryCards = document.getElementById("workforceSummaryCards");
+const workforceActiveTable = document.getElementById("workforceActiveTable");
+const workforceWeeklyTable = document.getElementById("workforceWeeklyTable");
+const workforceSubcontractorTable = document.getElementById("workforceSubcontractorTable");
+const workforceWeeklyReportBtn = document.getElementById("workforceWeeklyReportBtn");
 const userForm = document.getElementById("userForm");
 const userFormPanel = document.getElementById("userFormPanel");
 const usersNameRail = document.getElementById("usersNameRail");
@@ -1418,6 +1454,132 @@ function elapsedFrom(startIso) {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
+function normalizeCoordinateField(value) {
+  const raw = String(value ?? "")
+    .trim()
+    .replace(",", ".");
+  if (!raw) return "";
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return "";
+  return String(Math.round(num * 1000000) / 1000000);
+}
+
+function normalizePositiveIntegerField(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return "";
+  return String(Math.round(num));
+}
+
+function projectGeofence(project) {
+  if (!project) return null;
+  const lat = Number(project.geoLat);
+  const lng = Number(project.geoLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const checkInRadius = Number(project.checkInRadiusMeters) || WORKFORCE_DEFAULT_CHECKIN_RADIUS_M;
+  const checkOutRadius = Number(project.checkOutRadiusMeters) || Math.max(checkInRadius + 60, WORKFORCE_DEFAULT_CHECKOUT_RADIUS_M);
+  return {
+    lat,
+    lng,
+    checkInRadius,
+    checkOutRadius,
+  };
+}
+
+function projectGeofenceSummary(project) {
+  const geofence = projectGeofence(project);
+  if (!geofence) return "-";
+  return `${Math.round(geofence.checkInRadius)}m in / ${Math.round(geofence.checkOutRadius)}m out`;
+}
+
+function geoDistanceMeters(from, to) {
+  if (!from || !to) return Number.POSITIVE_INFINITY;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const dLat = toRad(to.lat - from.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthRadius * Math.asin(Math.sqrt(a));
+}
+
+function formatMinutesAsHours(totalMinutes) {
+  const value = Number(totalMinutes || 0);
+  if (!Number.isFinite(value) || value <= 0) return "0.00 h";
+  return `${(value / 60).toFixed(2)} h`;
+}
+
+function formatMinutesCompact(totalMinutes) {
+  const value = Math.max(0, Math.round(Number(totalMinutes || 0)));
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+function isoDateFromValue(value = new Date()) {
+  const base = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+  if (!Number.isFinite(base.getTime())) return "";
+  const year = base.getFullYear();
+  const month = String(base.getMonth() + 1).padStart(2, "0");
+  const day = String(base.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function weekStartIso(value = new Date()) {
+  const base =
+    value instanceof Date
+      ? new Date(value.getFullYear(), value.getMonth(), value.getDate())
+      : new Date(`${String(value || "").trim() || isoDateFromValue()}T12:00:00`);
+  if (!Number.isFinite(base.getTime())) return isoDateFromValue();
+  const weekday = (base.getDay() + 6) % 7;
+  base.setDate(base.getDate() - weekday);
+  return isoDateFromValue(base);
+}
+
+function weekRangeFromAnchor(value = new Date()) {
+  const startIso = weekStartIso(value);
+  const start = new Date(`${startIso}T00:00:00`);
+  const end = new Date(start.getTime());
+  end.setDate(end.getDate() + 7);
+  return {
+    startIso,
+    startMs: start.getTime(),
+    endMs: end.getTime(),
+  };
+}
+
+function timeEntryEndIso(entry) {
+  return entry?.checkOutAt || new Date().toISOString();
+}
+
+function timeEntryMinutesWithinRange(entry, rangeStartMs, rangeEndMs) {
+  if (!entry?.checkInAt) return 0;
+  const startMs = new Date(entry.checkInAt).getTime();
+  const endMs = new Date(timeEntryEndIso(entry)).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  const from = Math.max(startMs, rangeStartMs);
+  const to = Math.min(endMs, rangeEndMs);
+  if (to <= from) return 0;
+  return Math.round((to - from) / 60000);
+}
+
+function timeEntryDayKeysWithinRange(entry, rangeStartMs, rangeEndMs) {
+  const overlapMinutes = timeEntryMinutesWithinRange(entry, rangeStartMs, rangeEndMs);
+  if (!overlapMinutes) return [];
+  const entryStart = Math.max(new Date(entry.checkInAt).getTime(), rangeStartMs);
+  const entryEnd = Math.min(new Date(timeEntryEndIso(entry)).getTime(), rangeEndMs - 1);
+  const cursor = new Date(entryStart);
+  const out = [];
+  while (cursor.getTime() <= entryEnd) {
+    out.push(isoDateFromValue(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(0, 0, 0, 0);
+  }
+  return [...new Set(out)];
+}
+
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -1565,6 +1727,7 @@ function openDB() {
       if (!dbRef.objectStoreNames.contains(DELIVERY_SKU_STORE)) {
         dbRef.createObjectStore(DELIVERY_SKU_STORE, { keyPath: "id" });
       }
+      if (!dbRef.objectStoreNames.contains(TIME_ENTRY_STORE)) dbRef.createObjectStore(TIME_ENTRY_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(TRASH_STORE)) dbRef.createObjectStore(TRASH_STORE, { keyPath: "id" });
     };
 
@@ -1796,6 +1959,10 @@ function normalizeProject(project) {
     address: project.address || "",
     floorsCount: String(project.floorsCount || "").trim(),
     apartmentsCount: String(project.apartmentsCount || "").trim(),
+    geoLat: normalizeCoordinateField(project.geoLat),
+    geoLng: normalizeCoordinateField(project.geoLng),
+    checkInRadiusMeters: normalizePositiveIntegerField(project.checkInRadiusMeters),
+    checkOutRadiusMeters: normalizePositiveIntegerField(project.checkOutRadiusMeters),
     scopeCategories: ensureArray(project.scopeCategories).filter((entry) => Object.prototype.hasOwnProperty.call(PROJECT_SCOPE_LABELS, entry)),
     scopeExtras: normalizeTextList(project.scopeExtras),
     unitChecklistTemplate: normalizeTextList(project.unitChecklistTemplate),
@@ -1980,6 +2147,48 @@ function normalizeUser(user) {
     accessProfile,
     createdAt: user.createdAt || new Date().toISOString(),
     updatedAt: user.updatedAt || user.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeGeoSnapshot(value) {
+  if (!value || typeof value !== "object") return null;
+  const lat = Number(value.lat);
+  const lng = Number(value.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const accuracy = Number(value.accuracy);
+  return {
+    lat,
+    lng,
+    accuracy: Number.isFinite(accuracy) && accuracy > 0 ? Math.round(accuracy) : 0,
+  };
+}
+
+function normalizeTimeEntry(entry) {
+  return {
+    id: entry.id || uid(),
+    userId: entry.userId || "",
+    userName: entry.userName || "",
+    employmentType: entry.employmentType || "",
+    companyName: entry.companyName || "",
+    jobTitle: entry.jobTitle || "",
+    accessProfile: entry.accessProfile || "visitor",
+    workAreas: ensureArray(entry.workAreas)
+      .map((item) => String(item || "").trim())
+      .filter(Boolean),
+    clientId: entry.clientId || "",
+    clientName: entry.clientName || "",
+    projectId: entry.projectId || "",
+    projectName: entry.projectName || "",
+    status: entry.status === "closed" ? "closed" : "active",
+    mode: entry.mode === "auto" ? "auto" : "manual",
+    checkInAt: entry.checkInAt || entry.createdAt || new Date().toISOString(),
+    checkOutAt: entry.checkOutAt || "",
+    checkInNote: String(entry.checkInNote || "").trim(),
+    checkOutNote: String(entry.checkOutNote || "").trim(),
+    checkInLocation: normalizeGeoSnapshot(entry.checkInLocation),
+    checkOutLocation: normalizeGeoSnapshot(entry.checkOutLocation),
+    createdAt: entry.createdAt || entry.checkInAt || new Date().toISOString(),
+    updatedAt: entry.updatedAt || entry.checkOutAt || entry.checkInAt || entry.createdAt || new Date().toISOString(),
   };
 }
 
@@ -2194,7 +2403,21 @@ function normalizeContainer(container) {
 }
 
 async function loadAll() {
-  const [unitRows, photoRows, userRows, settingsRows, clientRows, projectRows, contactRows, contractRows, containerRows, materialRows, deliverySkuRows, trashRows] =
+  const [
+    unitRows,
+    photoRows,
+    userRows,
+    settingsRows,
+    clientRows,
+    projectRows,
+    contactRows,
+    contractRows,
+    containerRows,
+    materialRows,
+    deliverySkuRows,
+    timeEntryRows,
+    trashRows,
+  ] =
     await Promise.all([
       getAll(UNIT_STORE),
       getAll(PHOTO_STORE),
@@ -2207,6 +2430,7 @@ async function loadAll() {
       getAll(CONTAINER_STORE),
       getAll(MATERIAL_STORE),
       getAll(DELIVERY_SKU_STORE),
+      getAll(TIME_ENTRY_STORE),
       getAll(TRASH_STORE),
     ]);
 
@@ -2229,6 +2453,9 @@ async function loadAll() {
   deliverySkuItems = deliverySkuRows
     .map(normalizeDeliverySkuItem)
     .sort((a, b) => a.sku.localeCompare(b.sku) || a.finish.localeCompare(b.finish));
+  timeEntries = timeEntryRows
+    .map(normalizeTimeEntry)
+    .sort((a, b) => new Date(b.updatedAt || b.checkInAt || 0).getTime() - new Date(a.updatedAt || a.checkInAt || 0).getTime());
   const normalizedTrash = trashRows.map(normalizeTrashRecord);
   const expiredTrashIds = normalizedTrash.filter((row) => isTrashRecordExpired(row)).map((row) => row.id);
   trashRecords = normalizedTrash
@@ -5982,6 +6209,7 @@ function renderAuth() {
   }
 
   stopAutoPullLoop();
+  stopAutoTimeClock({ clearStatus: true });
   appMain.classList.add("hidden");
   authView.classList.remove("hidden");
   userBadge.classList.add("hidden");
@@ -7290,6 +7518,10 @@ function populateProjectForm(project) {
   projectForm.elements.address.value = project.address || "";
   projectForm.elements.floorsCount.value = project.floorsCount || "";
   projectForm.elements.apartmentsCount.value = project.apartmentsCount || "";
+  projectForm.elements.geoLat.value = project.geoLat || "";
+  projectForm.elements.geoLng.value = project.geoLng || "";
+  projectForm.elements.checkInRadiusMeters.value = project.checkInRadiusMeters || "";
+  projectForm.elements.checkOutRadiusMeters.value = project.checkOutRadiusMeters || "";
   setCheckedValues(projectForm, "scopeCategories", ensureArray(project.scopeCategories));
 
   const baseChecklist = projectChecklistTemplate(project).filter((item) =>
@@ -7403,6 +7635,7 @@ function renderProjectsTable() {
       const client = clientById(project.clientId);
       const scopeSummary = projectScopeSummary(project) || "-";
       const unitTemplateCount = projectChecklistTemplate(project).length;
+      const geofenceSummary = projectGeofenceSummary(project);
       return `<tr class="${project.id === selectedProjectId ? "selected-row" : ""}">
         <td>${escapeHtml(project.name)}</td>
         <td>${escapeHtml(client?.name || "-")}</td>
@@ -7410,6 +7643,7 @@ function renderProjectsTable() {
         <td>${escapeHtml(project.address)}</td>
         <td>${escapeHtml(project.floorsCount || "-")}</td>
         <td>${escapeHtml(project.apartmentsCount || "-")}</td>
+        <td>${escapeHtml(geofenceSummary)}</td>
         <td>${escapeHtml(scopeSummary)}</td>
         <td>${unitTemplateCount}</td>
         <td>
@@ -7423,8 +7657,8 @@ function renderProjectsTable() {
     })
     .join("");
 
-  projectsTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Client</th><th>Code</th><th>Address</th><th>Floors</th><th>Apartments</th><th>Scope</th><th>Unit checklist</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="9">No projects for the selected client.</td></tr>'
+  projectsTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Client</th><th>Code</th><th>Address</th><th>Floors</th><th>Apartments</th><th>Geofence</th><th>Scope</th><th>Unit checklist</th><th>Actions</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="10">No projects for the selected client.</td></tr>'
   }</tbody></table>`;
 
   projectsTable.querySelectorAll("[data-select-project]").forEach((button) => {
@@ -9529,11 +9763,573 @@ function selectAdminUser(userId) {
   syncSelectedUserRow();
 }
 
+function canUseTimeClock(user = currentUser) {
+  return Boolean(user && userAccessProfile(user) !== "visitor");
+}
+
+function activeTimeEntries() {
+  return timeEntries.filter((entry) => entry.status === "active" && !entry.checkOutAt);
+}
+
+function activeTimeEntryForUser(userId = currentUser?.id || "") {
+  if (!userId) return null;
+  return activeTimeEntries().find((entry) => entry.userId === userId) || null;
+}
+
+function workforceProjectOptions() {
+  return projects.slice().sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function populateProjectSelect(select, { allowBlankLabel = "", currentValue = "" } = {}) {
+  if (!select) return;
+  const options = [];
+  if (allowBlankLabel) options.push(`<option value="">${escapeHtml(allowBlankLabel)}</option>`);
+  options.push(
+    ...workforceProjectOptions().map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`)
+  );
+  select.innerHTML = options.join("");
+  if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+function timeClockGeoSnapshotFromCoords(coords) {
+  if (!coords) return null;
+  const lat = Number(coords.latitude ?? coords.lat);
+  const lng = Number(coords.longitude ?? coords.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const accuracy = Number(coords.accuracy);
+  return {
+    lat,
+    lng,
+    accuracy: Number.isFinite(accuracy) && accuracy > 0 ? Math.round(accuracy) : 0,
+  };
+}
+
+function nearestProjectInsideGeofence(geoPoint, preferredProjectId = "") {
+  const pool = preferredProjectId
+    ? projects.filter((project) => project.id === preferredProjectId)
+    : workforceProjectOptions();
+  let best = null;
+  pool.forEach((project) => {
+    const geofence = projectGeofence(project);
+    if (!geofence) return;
+    const distance = geoDistanceMeters(geoPoint, geofence);
+    if (distance > geofence.checkInRadius) return;
+    if (!best || distance < best.distance) best = { project, geofence, distance };
+  });
+  return best;
+}
+
+async function getCurrentGeoSnapshot({ timeout = 12000 } = {}) {
+  if (!("geolocation" in navigator)) return null;
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve(timeClockGeoSnapshotFromCoords(position.coords)),
+      () => resolve(null),
+      {
+        enableHighAccuracy: true,
+        timeout,
+        maximumAge: 10000,
+      }
+    );
+  });
+}
+
+function timeEntrySummaryLine(entry) {
+  if (!entry) return "No active shift for this user.";
+  return `${entry.projectName || "Project"} | checked in ${fmtDate(entry.checkInAt)} | elapsed ${elapsedFrom(entry.checkInAt)}`;
+}
+
+function setTimeClockStatus(message) {
+  timeClockStatusMessage = String(message || "").trim();
+  if (timeClockStatus) timeClockStatus.textContent = timeClockStatusMessage;
+}
+
+async function saveTimeEntryRecord(record) {
+  await put(TIME_ENTRY_STORE, normalizeTimeEntry(record));
+  await loadAll();
+  if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
+  render();
+  queueAutoSync();
+}
+
+async function createTimeEntry({ projectId, mode = "manual", geoSnapshot = null, note = "", silent = false } = {}) {
+  if (!currentUser || !canUseTimeClock()) return false;
+  const active = activeTimeEntryForUser(currentUser.id);
+  if (active) {
+    if (!silent) alert("This user already has an active shift. Check out first.");
+    return false;
+  }
+  let resolvedProjectId = projectId;
+  if (!resolvedProjectId && geoSnapshot) {
+    const candidate = nearestProjectInsideGeofence(geoSnapshot);
+    if (candidate) resolvedProjectId = candidate.project.id;
+  }
+  const project = projectById(resolvedProjectId);
+  if (!project) {
+    if (!silent) alert("Select a valid project before checking in, or allow location so the nearest geofenced project can be detected.");
+    return false;
+  }
+
+  const client = clientById(project.clientId);
+  const now = new Date().toISOString();
+  const record = normalizeTimeEntry({
+    id: uid(),
+    userId: currentUser.id,
+    userName: currentUser.name || currentUser.username || "User",
+    employmentType: currentUser.employmentType || "",
+    companyName: currentUser.companyName || "",
+    jobTitle: currentUser.jobTitle || "",
+    accessProfile: userAccessProfile(currentUser),
+    workAreas: currentUser.employmentType === "subcontractor" ? ensureArray(currentUser.contractorAreas) : [],
+    clientId: client?.id || "",
+    clientName: client?.name || "",
+    projectId: project.id,
+    projectName: project.name || "",
+    status: "active",
+    mode,
+    checkInAt: now,
+    checkInNote: note,
+    checkInLocation: geoSnapshot,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  pushEntityAudit(
+    "Workforce",
+    "check-in",
+    `${record.userName} | ${record.projectName} | ${record.employmentType || "-"} | mode:${record.mode}`,
+    "workforce"
+  );
+  await saveTimeEntryRecord(record);
+  setTimeClockStatus(
+    mode === "auto"
+      ? `Automatic check-in completed for ${record.projectName}.`
+      : `Checked in to ${record.projectName}.`
+  );
+  return true;
+}
+
+async function closeTimeEntry(entry, { mode = "manual", geoSnapshot = null, note = "", silent = false } = {}) {
+  if (!entry) {
+    if (!silent) alert("There is no active shift to check out.");
+    return false;
+  }
+  const now = new Date().toISOString();
+  const updated = normalizeTimeEntry({
+    ...entry,
+    status: "closed",
+    mode: entry.mode || mode,
+    checkOutAt: now,
+    checkOutNote: note,
+    checkOutLocation: geoSnapshot,
+    updatedAt: now,
+  });
+
+  pushEntityAudit(
+    "Workforce",
+    "check-out",
+    `${updated.userName} | ${updated.projectName} | total ${formatMinutesAsHours(
+      timeEntryMinutesWithinRange(updated, new Date(updated.checkInAt).getTime(), new Date(updated.checkOutAt).getTime() + 1)
+    )}`,
+    "workforce"
+  );
+  await saveTimeEntryRecord(updated);
+  setTimeClockStatus(
+    mode === "auto"
+      ? `Automatic check-out completed for ${updated.projectName}.`
+      : `Checked out from ${updated.projectName}.`
+  );
+  return true;
+}
+
+async function processAutoTimeClockGeo(position) {
+  if (!currentUser || !canUseTimeClock() || timeClockProcessing) return;
+  const geoSnapshot = timeClockGeoSnapshotFromCoords(position?.coords || position);
+  if (!geoSnapshot) return;
+  timeClockLastGeoPoint = geoSnapshot;
+  const now = Date.now();
+  if (now - timeClockLastHandledAt < WORKFORCE_AUTO_GEO_MIN_INTERVAL_MS) return;
+  timeClockLastHandledAt = now;
+
+  if (geoSnapshot.accuracy && geoSnapshot.accuracy > WORKFORCE_GEO_ACCURACY_LIMIT_M) {
+    setTimeClockStatus(`GPS accuracy is too low right now (${geoSnapshot.accuracy}m). Move to an open area and keep the app open.`);
+    renderTimeClockPanel();
+    return;
+  }
+
+  timeClockProcessing = true;
+  try {
+    let active = activeTimeEntryForUser(currentUser.id);
+    if (active) {
+      const activeProject = projectById(active.projectId);
+      const geofence = projectGeofence(activeProject);
+      if (geofence) {
+        const distance = geoDistanceMeters(geoSnapshot, geofence);
+        if (distance > geofence.checkOutRadius) {
+          await closeTimeEntry(active, {
+            mode: "auto",
+            geoSnapshot,
+            note: `Automatic check-out after leaving ${Math.round(distance)}m from the job site radius.`,
+            silent: true,
+          });
+          active = null;
+        } else {
+          setTimeClockStatus(`Inside ${active.projectName} geofence (${Math.round(distance)}m from center).`);
+          renderTimeClockPanel();
+          return;
+        }
+      }
+    }
+
+    if (!active) {
+      const candidate = nearestProjectInsideGeofence(geoSnapshot, timeClockAutoPreferredProjectId);
+      if (candidate) {
+        await createTimeEntry({
+          projectId: candidate.project.id,
+          mode: "auto",
+          geoSnapshot,
+          note: `Automatic check-in within ${Math.round(candidate.distance)}m of project center.`,
+          silent: true,
+        });
+        return;
+      }
+    }
+
+    setTimeClockStatus("No project geofence matched this location yet.");
+    renderTimeClockPanel();
+  } finally {
+    timeClockProcessing = false;
+  }
+}
+
+function startAutoTimeClock() {
+  if (!currentUser || !canUseTimeClock()) return;
+  if (!("geolocation" in navigator)) {
+    alert("This device/browser does not support geolocation for automatic check-in.");
+    return;
+  }
+  if (timeClockAutoWatchId !== null) {
+    setTimeClockStatus("Automatic geofence tracking is already running.");
+    renderTimeClockPanel();
+    return;
+  }
+
+  timeClockAutoPreferredProjectId = timeClockProjectSelect?.value || "";
+  timeClockAutoWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      void processAutoTimeClockGeo(position);
+    },
+    (error) => {
+      setTimeClockStatus(`Location tracking error: ${error?.message || "permission denied"}.`);
+      renderTimeClockPanel();
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 10000,
+      timeout: 20000,
+    }
+  );
+  setTimeClockStatus("Automatic geofence tracking started.");
+  renderTimeClockPanel();
+}
+
+function stopAutoTimeClock({ clearStatus = false } = {}) {
+  if (timeClockAutoWatchId !== null && "geolocation" in navigator) {
+    navigator.geolocation.clearWatch(timeClockAutoWatchId);
+  }
+  timeClockAutoWatchId = null;
+  timeClockAutoPreferredProjectId = "";
+  timeClockLastHandledAt = 0;
+  timeClockProcessing = false;
+  if (clearStatus) setTimeClockStatus("");
+  else setTimeClockStatus("Automatic geofence tracking stopped.");
+}
+
+function workforceMatchesEntry(entry, { projectId = workforceProjectFilter, employment = workforceEmploymentFilter } = {}) {
+  if (projectId && entry.projectId !== projectId) return false;
+  if (employment && employment !== "all" && entry.employmentType !== employment) return false;
+  return true;
+}
+
+function workforceWeekEntries() {
+  const range = weekRangeFromAnchor(workforceWeekAnchor || new Date());
+  const entries = timeEntries.filter((entry) => {
+    if (!workforceMatchesEntry(entry)) return false;
+    return timeEntryMinutesWithinRange(entry, range.startMs, range.endMs) > 0;
+  });
+  return { range, entries };
+}
+
+function workforceAdminAggregates() {
+  const { range, entries } = workforceWeekEntries();
+  const employees = [];
+  const employeeMap = new Map();
+  const subcontractors = [];
+  const subcontractorMap = new Map();
+
+  entries.forEach((entry) => {
+    const minutes = timeEntryMinutesWithinRange(entry, range.startMs, range.endMs);
+    if (!minutes) return;
+    const dayKeys = timeEntryDayKeysWithinRange(entry, range.startMs, range.endMs);
+    if (entry.employmentType === "subcontractor") {
+      const key = `${entry.projectId}::${entry.userId}`;
+      if (!subcontractorMap.has(key)) {
+        subcontractorMap.set(key, {
+          projectName: entry.projectName || "-",
+          companyName: entry.companyName || "-",
+          userName: entry.userName || "-",
+          jobTitle: entry.jobTitle || "-",
+          workAreas: ensureArray(entry.workAreas),
+          minutes: 0,
+          days: new Set(),
+          lastOut: "",
+        });
+        subcontractors.push(subcontractorMap.get(key));
+      }
+      const bucket = subcontractorMap.get(key);
+      bucket.minutes += minutes;
+      dayKeys.forEach((day) => bucket.days.add(day));
+      if (entry.checkOutAt && (!bucket.lastOut || new Date(entry.checkOutAt) > new Date(bucket.lastOut))) bucket.lastOut = entry.checkOutAt;
+      return;
+    }
+
+    const key = entry.userId || entry.userName;
+    if (!employeeMap.has(key)) {
+      employeeMap.set(key, {
+        userName: entry.userName || "-",
+        companyName: entry.companyName || "-",
+        jobTitle: entry.jobTitle || "-",
+        employmentType: entry.employmentType || "-",
+        accessProfile: entry.accessProfile || "-",
+        minutes: 0,
+        days: new Set(),
+        projects: new Set(),
+      });
+      employees.push(employeeMap.get(key));
+    }
+    const bucket = employeeMap.get(key);
+    bucket.minutes += minutes;
+    dayKeys.forEach((day) => bucket.days.add(day));
+    if (entry.projectName) bucket.projects.add(entry.projectName);
+  });
+
+  return {
+    range,
+    entries,
+    employees,
+    subcontractors,
+  };
+}
+
+function renderTimeClockPanel() {
+  if (!timeClockPanel) return;
+  const allowed = canUseTimeClock();
+  timeClockPanel.classList.toggle("hidden", !allowed);
+  if (!allowed) return;
+
+  populateProjectSelect(timeClockProjectSelect, {
+    allowBlankLabel: "Nearest project with geofence",
+    currentValue: timeClockProjectSelect?.value || timeClockAutoPreferredProjectId || "",
+  });
+  const active = activeTimeEntryForUser(currentUser?.id || "");
+  if (timeClockSummary) timeClockSummary.textContent = timeEntrySummaryLine(active);
+  if (timeClockCheckInBtn) timeClockCheckInBtn.disabled = Boolean(active);
+  if (timeClockCheckOutBtn) timeClockCheckOutBtn.disabled = !active;
+  if (timeClockAutoStartBtn) timeClockAutoStartBtn.disabled = timeClockAutoWatchId !== null;
+  if (timeClockAutoStopBtn) timeClockAutoStopBtn.disabled = timeClockAutoWatchId === null;
+  if (timeClockStatus) {
+    const fallback =
+      timeClockAutoWatchId !== null
+        ? "Automatic geofence tracking is running on this device."
+        : "Select a project for manual check-in, or leave it blank to auto-detect the nearest geofenced project.";
+    timeClockStatus.textContent = timeClockStatusMessage || fallback;
+  }
+}
+
+function renderWorkforceAdminPanel() {
+  if (!workforceAdminPanel) return;
+  const allowed = can("manageUsers");
+  workforceAdminPanel.classList.toggle("hidden", !allowed);
+  if (!allowed) return;
+
+  if (!workforceWeekAnchor) workforceWeekAnchor = weekStartIso(new Date());
+  if (workforceWeekInput && workforceWeekInput.value !== workforceWeekAnchor) workforceWeekInput.value = workforceWeekAnchor;
+  populateProjectSelect(workforceProjectFilterSelect, {
+    allowBlankLabel: "All projects",
+    currentValue: workforceProjectFilter,
+  });
+  if (workforceEmploymentFilterSelect) workforceEmploymentFilterSelect.value = workforceEmploymentFilter;
+
+  const activeRows = activeTimeEntries().filter((entry) => workforceMatchesEntry(entry));
+  const { range, employees, subcontractors, entries } = workforceAdminAggregates();
+
+  if (workforceAdminStatus) {
+    workforceAdminStatus.textContent = `Week starting ${fmtDateOnly(range.startIso)} | ${entries.length} time record(s) matched the current filter.`;
+  }
+
+  if (workforceSummaryCards) {
+    const uniqueProjects = new Set(entries.map((entry) => entry.projectId).filter(Boolean));
+    const uniqueSubcontractors = new Set(subcontractors.map((entry) => `${entry.projectName}::${entry.userName}`));
+    const totalEmployeeMinutes = employees.reduce((sum, entry) => sum + entry.minutes, 0);
+    workforceSummaryCards.innerHTML = `
+      <article class="workforce-summary-card">
+        <span>Checked in now</span>
+        <strong>${activeRows.length}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Employee hours (week)</span>
+        <strong>${formatMinutesAsHours(totalEmployeeMinutes)}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Projects in report</span>
+        <strong>${uniqueProjects.size}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Sub Contractors listed</span>
+        <strong>${uniqueSubcontractors.size}</strong>
+      </article>
+    `;
+  }
+
+  const activeTableRows = activeRows
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(entry.userName || "-")}</td>
+        <td>${escapeHtml(entry.companyName || "-")}</td>
+        <td>${escapeHtml(entry.jobTitle || "-")}</td>
+        <td>${escapeHtml(entry.projectName || "-")}</td>
+        <td>${escapeHtml(entry.employmentType || "-")}</td>
+        <td>${escapeHtml(entry.mode || "-")}</td>
+        <td>${escapeHtml(fmtDate(entry.checkInAt))}</td>
+        <td>${escapeHtml(elapsedFrom(entry.checkInAt))}</td>
+      </tr>`
+    )
+    .join("");
+  if (workforceActiveTable) {
+    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Project</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th></tr></thead><tbody>${
+      activeTableRows || '<tr><td colspan="8">No people currently checked in.</td></tr>'
+    }</tbody></table>`;
+  }
+
+  const weeklyRows = employees
+    .sort((a, b) => a.jobTitle.localeCompare(b.jobTitle) || a.userName.localeCompare(b.userName))
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(entry.userName)}</td>
+        <td>${escapeHtml(entry.companyName)}</td>
+        <td>${escapeHtml(entry.jobTitle)}</td>
+        <td>${escapeHtml(entry.employmentType)}</td>
+        <td>${escapeHtml([...entry.projects].join(", ") || "-")}</td>
+        <td>${entry.days.size}</td>
+        <td>${escapeHtml(formatMinutesAsHours(entry.minutes))}</td>
+      </tr>`
+    )
+    .join("");
+  if (workforceWeeklyTable) {
+    workforceWeeklyTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Type</th><th>Projects</th><th>Days</th><th>Total hours</th></tr></thead><tbody>${
+      weeklyRows || '<tr><td colspan="7">No employee hours found for this week/filter.</td></tr>'
+    }</tbody></table>`;
+  }
+
+  const subcontractorRows = subcontractors
+    .sort((a, b) => a.projectName.localeCompare(b.projectName) || a.companyName.localeCompare(b.companyName) || a.userName.localeCompare(b.userName))
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(entry.projectName)}</td>
+        <td>${escapeHtml(entry.companyName)}</td>
+        <td>${escapeHtml(entry.userName)}</td>
+        <td>${escapeHtml(entry.jobTitle)}</td>
+        <td>${escapeHtml(entry.workAreas.join(", ") || "-")}</td>
+        <td>${entry.days.size}</td>
+        <td>${escapeHtml(formatMinutesAsHours(entry.minutes))}</td>
+        <td>${escapeHtml(fmtDate(entry.lastOut))}</td>
+      </tr>`
+    )
+    .join("");
+  if (workforceSubcontractorTable) {
+    workforceSubcontractorTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th><th>Last checkout</th></tr></thead><tbody>${
+      subcontractorRows || '<tr><td colspan="8">No Sub Contractor presence found for this week/filter.</td></tr>'
+    }</tbody></table>`;
+  }
+}
+
+function generateWorkforceWeeklyReport() {
+  const { range, employees, subcontractors, entries } = workforceAdminAggregates();
+  const filteredProject = workforceProjectFilter ? projectById(workforceProjectFilter)?.name || "-" : "All projects";
+  const filteredTeam = workforceEmploymentFilter === "all" ? "All" : workforceEmploymentFilter;
+
+  const employeeRows = employees
+    .sort((a, b) => a.jobTitle.localeCompare(b.jobTitle) || a.userName.localeCompare(b.userName))
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(entry.userName)}</td>
+        <td>${escapeHtml(entry.companyName)}</td>
+        <td>${escapeHtml(entry.jobTitle)}</td>
+        <td>${escapeHtml(entry.employmentType)}</td>
+        <td>${escapeHtml([...entry.projects].join(", ") || "-")}</td>
+        <td>${entry.days.size}</td>
+        <td>${escapeHtml(formatMinutesAsHours(entry.minutes))}</td>
+      </tr>`
+    )
+    .join("");
+
+  const subcontractorRows = subcontractors
+    .sort((a, b) => a.projectName.localeCompare(b.projectName) || a.companyName.localeCompare(b.companyName) || a.userName.localeCompare(b.userName))
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(entry.projectName)}</td>
+        <td>${escapeHtml(entry.companyName)}</td>
+        <td>${escapeHtml(entry.userName)}</td>
+        <td>${escapeHtml(entry.jobTitle)}</td>
+        <td>${escapeHtml(entry.workAreas.join(", ") || "-")}</td>
+        <td>${entry.days.size}</td>
+        <td>${escapeHtml(formatMinutesAsHours(entry.minutes))}</td>
+      </tr>`
+    )
+    .join("");
+
+  const html = reportShell(
+    `Workforce weekly report ${range.startIso}`,
+    `
+      <h1>Workforce weekly report</h1>
+      <div class="meta">
+        <p><strong>Week starting:</strong> ${escapeHtml(fmtDateOnly(range.startIso))}</p>
+        <p><strong>Project filter:</strong> ${escapeHtml(filteredProject)}</p>
+        <p><strong>Team filter:</strong> ${escapeHtml(filteredTeam)}</p>
+        <p><strong>Total time records:</strong> ${entries.length}</p>
+        <p><strong>Generated at:</strong> ${escapeHtml(fmtDate(new Date().toISOString()))}</p>
+      </div>
+
+      <h3>Employee payroll hours</h3>
+      <table>
+        <thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Type</th><th>Projects</th><th>Days</th><th>Total hours</th></tr></thead>
+        <tbody>${employeeRows || '<tr><td colspan="7">No employee hours found for this report.</td></tr>'}</tbody>
+      </table>
+
+      <h3>Sub Contractor list by project</h3>
+      <table>
+        <thead><tr><th>Project</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th></tr></thead>
+        <tbody>${subcontractorRows || '<tr><td colspan="7">No Sub Contractor presence found for this report.</td></tr>'}</tbody>
+      </table>
+    `
+  );
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => win.print(), 300);
+}
+
 function renderUsers() {
   if (!can("manageUsers")) {
     setUsersSubView("directory");
     setUserAdminFormOpen(false);
     usersPanel.classList.add("hidden");
+    workforceAdminPanel?.classList.add("hidden");
     return;
   }
 
@@ -9629,6 +10425,7 @@ function renderUsers() {
     if (!userAdminFormOpen) renderUserIdCard(null);
   }
   syncSelectedUserRow();
+  renderWorkforceAdminPanel();
 }
 
 function populateUserEditForm(user) {
@@ -9821,6 +10618,7 @@ function renderHomePanel() {
   toggleNav("changeOrders", canProjects && visibleSectors.has("punchlist"));
   toggleNav("projectReports", canProjects && canReports);
   toggleNav("ocrImporter", can("manageCatalog") || can("manageContainerManifest") || isAdmin() || isDeveloper());
+  renderTimeClockPanel();
   renderCoiReminderPanel();
 }
 
@@ -9841,12 +10639,13 @@ function backupCountsSnapshot() {
     containers: containers.length,
     materials: materials.length,
     delivery: deliverySkuItems.length,
+    workforce: timeEntries.length,
     trash: trashRecords.length,
   };
 }
 
 function backupCountsSummary(counts) {
-  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, trash:${counts.trash}`;
+  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, workforce:${counts.workforce}, trash:${counts.trash}`;
 }
 
 function lastLocalBackupAt() {
@@ -10253,7 +11052,7 @@ function syncEndpoint() {
 
 function normalizeSyncKinds(kinds) {
   if (!Array.isArray(kinds) || kinds.length === 0) return null;
-  const validKinds = new Set(["unit", "photo", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "trash"]);
+  const validKinds = new Set(["unit", "photo", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "timeEntry", "trash"]);
   const normalized = kinds
     .map((kind) => String(kind || "").trim())
     .filter((kind) => validKinds.has(kind));
@@ -10301,6 +11100,7 @@ function toCloudRecords({ kinds = null } = {}) {
     ...mapRecords(containers, "container"),
     ...mapRecords(materials, "material"),
     ...mapRecords(deliverySkuItems, "deliverySku"),
+    ...mapRecords(timeEntries, "timeEntry"),
     ...mapRecords(trashRecords, "trash"),
   ];
 }
@@ -10406,6 +11206,7 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
     const containerMap = new Map(containers.map((item) => [item.id, item]));
     const materialMap = new Map(materials.map((item) => [item.id, item]));
     const deliverySkuMap = new Map(deliverySkuItems.map((item) => [item.id, item]));
+    const timeEntryMap = new Map(timeEntries.map((item) => [item.id, item]));
     const trashMap = new Map(trashRecords.map((item) => [item.id, item]));
 
     for (const row of records) {
@@ -10490,6 +11291,14 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
         const local = deliverySkuMap.get(item.id);
         if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
           await put(DELIVERY_SKU_STORE, normalizeDeliverySkuItem(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "timeEntry") {
+        const local = timeEntryMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(TIME_ENTRY_STORE, normalizeTimeEntry(item));
           hasChanges = true;
         }
       }
@@ -11070,6 +11879,68 @@ logoutBtn.addEventListener("click", () => {
   clearSession();
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
   renderAuth();
+});
+
+timeClockProjectSelect?.addEventListener("change", () => {
+  if (timeClockAutoWatchId !== null) timeClockAutoPreferredProjectId = timeClockProjectSelect.value || "";
+  renderTimeClockPanel();
+});
+
+timeClockCheckInBtn?.addEventListener("click", async () => {
+  if (!currentUser) return;
+  const projectId = timeClockProjectSelect?.value || "";
+  const geoSnapshot = await getCurrentGeoSnapshot();
+  await createTimeEntry({
+    projectId,
+    mode: "manual",
+    geoSnapshot,
+    note: String(timeClockNoteInput?.value || "").trim(),
+  });
+});
+
+timeClockCheckOutBtn?.addEventListener("click", async () => {
+  if (!currentUser) return;
+  const active = activeTimeEntryForUser(currentUser.id);
+  const geoSnapshot = await getCurrentGeoSnapshot();
+  await closeTimeEntry(active, {
+    mode: "manual",
+    geoSnapshot,
+    note: String(timeClockNoteInput?.value || "").trim(),
+  });
+});
+
+timeClockAutoStartBtn?.addEventListener("click", () => {
+  startAutoTimeClock();
+});
+
+timeClockAutoStopBtn?.addEventListener("click", () => {
+  stopAutoTimeClock();
+  renderTimeClockPanel();
+});
+
+if (workforceWeekInput && !workforceWeekAnchor) {
+  workforceWeekAnchor = weekStartIso(new Date());
+  workforceWeekInput.value = workforceWeekAnchor;
+}
+
+workforceWeekInput?.addEventListener("change", () => {
+  workforceWeekAnchor = weekStartIso(workforceWeekInput.value || new Date());
+  if (workforceWeekInput.value !== workforceWeekAnchor) workforceWeekInput.value = workforceWeekAnchor;
+  renderWorkforceAdminPanel();
+});
+
+workforceProjectFilterSelect?.addEventListener("change", () => {
+  workforceProjectFilter = workforceProjectFilterSelect.value || "";
+  renderWorkforceAdminPanel();
+});
+
+workforceEmploymentFilterSelect?.addEventListener("change", () => {
+  workforceEmploymentFilter = workforceEmploymentFilterSelect.value || "all";
+  renderWorkforceAdminPanel();
+});
+
+workforceWeeklyReportBtn?.addEventListener("click", () => {
+  generateWorkforceWeeklyReport();
 });
 
 userForm.addEventListener("submit", async (event) => {
@@ -11749,6 +12620,10 @@ projectForm.addEventListener("submit", async (event) => {
   const address = data.get("address")?.toString().trim() || "";
   const floorsCount = data.get("floorsCount")?.toString().trim() || "";
   const apartmentsCount = data.get("apartmentsCount")?.toString().trim() || "";
+  const geoLat = data.get("geoLat")?.toString().trim() || "";
+  const geoLng = data.get("geoLng")?.toString().trim() || "";
+  const checkInRadiusMeters = data.get("checkInRadiusMeters")?.toString().trim() || "";
+  const checkOutRadiusMeters = data.get("checkOutRadiusMeters")?.toString().trim() || "";
   const scopeCategories = collectCheckedValues(projectForm, "scopeCategories");
   const scopeExtras = uniqueTextList(collectCheckedValues(projectForm, "scopeExtrasDynamic"));
   const checklistBase = collectCheckedValues(projectForm, "unitChecklistBase");
@@ -11783,6 +12658,10 @@ projectForm.addEventListener("submit", async (event) => {
     address,
     floorsCount,
     apartmentsCount,
+    geoLat,
+    geoLng,
+    checkInRadiusMeters,
+    checkOutRadiusMeters,
     scopeCategories,
     scopeExtras,
     unitChecklistTemplate,
@@ -11808,6 +12687,10 @@ projectForm.addEventListener("submit", async (event) => {
       { key: "address", label: "Project address" },
       { key: "floorsCount", label: "Floors" },
       { key: "apartmentsCount", label: "Apartments" },
+      { key: "geoLat", label: "Geofence latitude" },
+      { key: "geoLng", label: "Geofence longitude" },
+      { key: "checkInRadiusMeters", label: "Check-in radius" },
+      { key: "checkOutRadiusMeters", label: "Check-out radius" },
       { key: "scopeCategories", label: "Scope categories", map: (value) => ensureArray(value).join(", ") },
       { key: "scopeExtras", label: "Scope extras", map: (value) => ensureArray(value).join(", ") },
       { key: "unitChecklistTemplate", label: "Unit checklist template", map: (value) => ensureArray(value).join(", ") },
@@ -12590,6 +13473,7 @@ function buildFullBackupPayload() {
     containers,
     materials,
     deliverySkuItems,
+    timeEntries,
     trashRecords,
     settings: [{ id: "syncConfig", ...syncConfig }],
   };
@@ -12639,6 +13523,7 @@ async function importBackupFile(file) {
     if (Array.isArray(payload.deliverySkuItems)) {
       for (const item of payload.deliverySkuItems) await put(DELIVERY_SKU_STORE, normalizeDeliverySkuItem(item));
     }
+    if (Array.isArray(payload.timeEntries)) for (const item of payload.timeEntries) await put(TIME_ENTRY_STORE, normalizeTimeEntry(item));
     if (Array.isArray(payload.trashRecords)) for (const item of payload.trashRecords) await put(TRASH_STORE, normalizeTrashRecord(item));
     if (Array.isArray(payload.settings)) for (const setting of payload.settings) await put(SETTINGS_STORE, setting);
 
@@ -12647,7 +13532,7 @@ async function importBackupFile(file) {
     pushEntityAudit(
       "Backups",
       "imported",
-      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, trash:${ensureArray(payload.trashRecords).length}`,
+      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, workforce:${ensureArray(payload.timeEntries).length}, trash:${ensureArray(payload.trashRecords).length}`,
       "backup"
     );
     render();

@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260324-admincheckout1" />
+    <link rel="stylesheet" href="styles.css?v=20260324-admincontrols1" />
   </head>
   <body>
     <header class="app-header">
@@ -135,11 +135,71 @@
         <small id="permissionLine"></small>
       </section>
 
+      <section id="workdayPanel" class="panel hidden-view">
+        <div class="row workday-panel-head">
+          <div>
+            <p class="eyebrow">Workday Quick Access</p>
+            <h2>
+              Start the day before entering the rest of the app
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="Select where you are working, review your location status, and then check in or enable automatic project check-in."
+                aria-label="Workday Quick Access help"
+              >?</button>
+            </h2>
+            <p class="hint">
+              This page opens automatically right after login so every employee can start the shift correctly, even when working from
+              office, warehouse, or homeworking.
+            </p>
+          </div>
+          <button id="workdayContinueBtn" class="secondary" type="button">Continue to dashboard</button>
+        </div>
+        <div class="workday-status-grid">
+          <article class="subpanel" id="workdayLocationSection">
+            <h3>
+              Location and distance
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="The app checks your GPS position against the selected project radius. If you are outside the range, use Start auto check-in."
+                aria-label="Location and distance help"
+              >?</button>
+            </h3>
+            <p id="workdayGeoStatus" class="hint">Checking your current location against project geofences.</p>
+          </article>
+          <article class="subpanel" id="workdayRulesSection">
+            <h3>
+              How this works
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="Manual check-in is for office, warehouse, homeworking, or when you are already inside the project radius. Auto check-in keeps tracking while the app remains open."
+                aria-label="How this works help"
+              >?</button>
+            </h3>
+            <ul class="plain-list">
+              <li>Choose the assignment below before starting the shift.</li>
+              <li>Project work can be manual or automatic by geofence.</li>
+              <li>Office, warehouse, and homeworking are always manual to avoid missing worked days.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
       <section id="timeClockPanel" class="panel time-clock-entry-panel hidden">
         <div class="time-clock-entry-head">
           <div>
             <p class="eyebrow">Workday Quick Access</p>
-            <h2>Start or close the workday right after login</h2>
+            <h2>
+              Start or close the workday right after login
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="Use this panel for manual office, warehouse, or homeworking attendance, or enable automatic project check-in based on geofence."
+                aria-label="Time clock help"
+              >?</button>
+            </h2>
           </div>
           <p class="hint time-clock-entry-copy">
             Use manual check-in for office, warehouse, or homeworking, or start automatic project geofence check-in while this app stays open.
@@ -147,6 +207,12 @@
         </div>
         <form id="timeClockForm" class="grid-form compact">
           <label>Assignment
+            <button
+              class="help-tip"
+              type="button"
+              data-help-tip="Project job site enables geofence automation. Office, warehouse, and homeworking create manual attendance only."
+              aria-label="Assignment help"
+            >?</button>
             <select id="timeClockSiteTypeSelect">
               <option value="project">Project job site</option>
               <option value="office">Office</option>
@@ -155,11 +221,23 @@
             </select>
           </label>
           <label>Project
+            <button
+              class="help-tip"
+              type="button"
+              data-help-tip="Select a project for manual site attendance, or leave it blank so the system can detect the nearest project geofence."
+              aria-label="Project help"
+            >?</button>
             <select id="timeClockProjectSelect">
               <option value="">Nearest project with geofence</option>
             </select>
           </label>
           <label>Shift note
+            <button
+              class="help-tip"
+              type="button"
+              data-help-tip="Add a short note only when extra context is needed, such as office support, warehouse loading, or remote coordination."
+              aria-label="Shift note help"
+            >?</button>
             <input id="timeClockNoteInput" placeholder="Optional note for this shift" />
           </label>
           <div class="row full">
@@ -175,6 +253,7 @@
 
       <section id="quickNavPanel" class="panel quick-nav">
         <div class="row">
+          <button class="secondary nav-btn" type="button" data-nav-action="workday"><span class="nav-icon">WD</span>Workday</button>
           <button class="secondary nav-btn" type="button" data-nav-action="developer"><span class="nav-icon">DV</span>Developer</button>
           <button class="secondary nav-btn" type="button" data-nav-action="admin"><span class="nav-icon">AD</span>Admin</button>
           <div class="nav-group nav-group-users" data-nav-group="users">
@@ -231,6 +310,14 @@
           <p class="quick-nav-branding-address">151 Industrial Way E, Suite A5 Eatontown NJ 07724</p>
         </div>
       </section>
+
+      <aside id="sectionShortcutPanel" class="panel section-shortcut-panel hidden-view" aria-label="Section shortcuts">
+        <div class="section-shortcut-head">
+          <p class="eyebrow">Inside this folder</p>
+          <h3>Shortcuts</h3>
+        </div>
+        <div id="sectionShortcutList" class="section-shortcut-list"></div>
+      </aside>
 
       <section id="homePanel" class="panel">
         <h2>Dashboard</h2>
@@ -606,8 +693,16 @@
       <section class="panel stats" id="statsPanel"></section>
 
       <section class="panel" id="syncPanel">
-        <h2>Cloud Sync (multi-device)</h2>
-        <p class="hint">Modo offline-first: dados locais continuam funcionando sem internet. Quando online, use push/pull para sincronizar dispositivos.</p>
+        <h2 id="syncSettingsSection">
+          Cloud Sync (multi-device)
+          <button
+            class="help-tip"
+            type="button"
+            data-help-tip="This section manages the connection used to keep the same data across devices. Developer access only."
+            aria-label="Cloud Sync help"
+          >?</button>
+        </h2>
+        <p class="hint">Offline-first mode keeps local data working without internet. When online, use push/pull to synchronize devices.</p>
         <form id="syncConfigForm" class="grid-form compact">
           <label>Supabase URL
             <input name="supabaseUrl" placeholder="https://xxxx.supabase.co" />
@@ -655,6 +750,26 @@
             </div>
           </div>
           <div class="users-right-column">
+            <article id="usersSelfQuickAccessCard" class="subpanel users-self-quick-card hidden">
+              <div class="row admin-section-head">
+                <div>
+                  <h3 id="usersSelfWorkdaySection">
+                    Workday Quick Access
+                    <button
+                      class="help-tip"
+                      type="button"
+                      data-help-tip="Employees can open the workday page from here at any time to start or close a shift."
+                      aria-label="Users workday quick access help"
+                    >?</button>
+                  </h3>
+                  <p id="usersSelfWorkdaySummary" class="hint">Use the workday page to control your attendance and location-based check-in.</p>
+                </div>
+                <button id="usersSelfOpenWorkdayBtn" class="secondary" type="button">Open workday page</button>
+              </div>
+              <div class="row users-self-actions">
+                <button id="usersSelfEditBtn" class="primary" type="button">Edit my profile</button>
+              </div>
+            </article>
             <article id="userIdCard" class="user-id-card">
               <div class="user-id-card-head">
                 <div class="user-id-card-brand">
@@ -676,7 +791,7 @@
               </div>
             </article>
             <article id="userWorkforceCard" class="panel user-workforce-card hidden">
-              <h3>Work control</h3>
+              <h3 id="usersPeopleSection">Work control</h3>
               <p id="userWorkforceSummary" class="hint">Select a user to review hours, current location, and manual attendance.</p>
               <div class="grid-form compact">
                 <label>Assignment
@@ -776,7 +891,7 @@
                     <option value="employee">Employee</option>
                     <option value="supervisor">Supervisor</option>
                     <option value="admin">Admin</option>
-                    <option value="owner">Owner</option>
+                    <option value="owner">Director</option>
                     <option value="developer">Developer</option>
                   </select>
                 </label>
@@ -803,51 +918,6 @@
           </div>
         </div>
 
-        <article id="workforceAdminPanel" class="subpanel workforce-admin-panel">
-          <div class="row workforce-admin-head">
-            <div>
-              <h3>Workforce Control</h3>
-              <p class="hint">
-                Weekly manpower by employee, automatic/manual check-ins, and support locations such as office, warehouse, or homeworking.
-              </p>
-            </div>
-            <button id="workforceWeeklyReportBtn" class="secondary" type="button">Open weekly report</button>
-          </div>
-          <form id="workforceFiltersForm" class="grid-form compact">
-            <label>Week reference date
-              <input id="workforceWeekInput" type="date" />
-            </label>
-            <label>Project
-              <select id="workforceProjectFilterSelect">
-                <option value="">All projects</option>
-              </select>
-            </label>
-            <label>Team type
-              <select id="workforceEmploymentFilterSelect">
-                <option value="all">All</option>
-                <option value="tag">TAG Employees</option>
-                <option value="subcontractor">Sub Contractors</option>
-                <option value="supplier">Suppliers</option>
-              </select>
-            </label>
-          </form>
-          <p id="workforceAdminStatus" class="hint"></p>
-          <div id="workforceSummaryCards" class="workforce-summary-grid"></div>
-          <div class="workforce-admin-sections">
-            <article class="subpanel">
-              <h4>People currently checked in</h4>
-              <div id="workforceActiveTable" class="table-wrap"></div>
-            </article>
-            <article class="subpanel">
-              <h4>Weekly payroll hours</h4>
-              <div id="workforceWeeklyTable" class="table-wrap"></div>
-            </article>
-            <article class="subpanel">
-              <h4>Sub Contractor list by project / location</h4>
-              <div id="workforceSubcontractorTable" class="table-wrap"></div>
-            </article>
-          </div>
-        </article>
       </section>
 
       <section id="adminPanel" class="panel hidden-view">
@@ -871,7 +941,7 @@
           <label>System Role
             <select id="adminRoleFilterSelect">
               <option value="all">All roles</option>
-              <option value="owner">Owner</option>
+              <option value="owner">Director</option>
               <option value="admin">Admin</option>
               <option value="supervisor">Supervisor</option>
               <option value="developer">Developer</option>
@@ -904,7 +974,7 @@
         <div id="adminSummaryCards" class="admin-summary-grid"></div>
 
         <div class="admin-primary-grid">
-          <article class="subpanel admin-directory-card">
+          <article id="adminEmployeeListSection" class="subpanel admin-directory-card">
             <div class="row admin-section-head">
               <div>
                 <h3>Complete Employee List</h3>
@@ -915,13 +985,15 @@
             <div id="adminEmployeesTable" class="table-wrap"></div>
           </article>
 
-          <article class="subpanel admin-editor-card">
+          <article id="adminEmployeeControlsSection" class="subpanel admin-editor-card">
             <h3>Employee Controls</h3>
-            <p id="adminEmployeeEditorStatus" class="hint">Select an employee to edit role and payment settings.</p>
+            <p id="adminEmployeeEditorStatus" class="hint">Select an employee to edit role, rates, and payment details.</p>
             <form id="adminEmployeeForm" class="grid-form compact">
               <input type="hidden" name="userId" />
               <label>Employee
-                <input name="employeeName" readonly />
+                <select id="adminEmployeeSelect" name="selectedUserId">
+                  <option value="">Select an employee</option>
+                </select>
               </label>
               <label>Company
                 <input name="companyName" readonly />
@@ -934,7 +1006,7 @@
                   <option value="employee">Employee</option>
                   <option value="supervisor">Supervisor</option>
                   <option value="admin">Admin</option>
-                  <option value="owner">Owner</option>
+                  <option value="owner">Director</option>
                   <option value="developer">Developer</option>
                 </select>
               </label>
@@ -964,6 +1036,15 @@
               <label>Daily Rate
                 <input name="dailyRate" type="number" min="0" step="0.01" placeholder="0.00" />
               </label>
+              <label>Bank Name
+                <input name="bankName" placeholder="Bank name" />
+              </label>
+              <label>Routing / Host Number
+                <input name="bankRoutingNumber" inputmode="numeric" placeholder="Routing or host number" />
+              </label>
+              <label class="full">Bank Account Number
+                <input name="bankAccountNumber" inputmode="numeric" placeholder="Bank account number" />
+              </label>
               <div class="row full">
                 <button id="adminEmployeeSaveBtn" class="primary" type="submit">Save</button>
                 <button id="adminEmployeeCancelBtn" class="secondary" type="button">Cancel</button>
@@ -973,13 +1054,21 @@
         </div>
 
         <div class="admin-secondary-grid">
-          <article class="subpanel">
-            <h3>Weekly Payment Control</h3>
+          <article id="adminWeeklyPaymentSection" class="subpanel">
+            <h3>
+              Weekly Payment Control
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="This table calculates worked hours, worked days, approved reimbursements, tolls, extra expenses, and the total payment due for the selected week."
+                aria-label="Weekly Payment Control help"
+              >?</button>
+            </h3>
             <p class="hint">Calculated hours, worked days, base pay, reimbursements, tolls, extra expenses, and approval status.</p>
             <div id="adminPaymentsTable" class="table-wrap"></div>
           </article>
 
-          <article class="subpanel">
+          <article id="adminReceiptSection" class="subpanel">
             <div class="row admin-section-head">
               <div>
                 <h3>Receipt Upload & Expense Management</h3>
@@ -1038,18 +1127,66 @@
         </div>
 
         <div class="admin-tertiary-grid">
-          <article class="subpanel">
+          <article id="adminSubcontractorSection" class="subpanel">
             <h3>Sub Contractor Presence</h3>
             <p class="hint">Weekly list by project for Sub Contractors who worked with the company.</p>
             <div id="adminSubcontractorTable" class="table-wrap"></div>
           </article>
-
-          <article class="subpanel">
-            <h3>Audit Trail</h3>
-            <p class="hint">Track who created, edited, approved, rejected, or deleted payroll and expense records.</p>
-            <div id="adminAuditTable" class="table-wrap"></div>
-          </article>
         </div>
+
+        <article id="workforceAdminPanel" class="subpanel workforce-admin-panel">
+          <div class="row workforce-admin-head">
+            <div>
+              <h3>
+                Workforce Control
+                <button
+                  class="help-tip"
+                  type="button"
+                  data-help-tip="Central manpower view with active check-ins, weekly tracked hours, and Sub Contractor presence by project or support location."
+                  aria-label="Workforce Control help"
+                >?</button>
+              </h3>
+              <p class="hint">
+                Weekly manpower by employee, automatic/manual check-ins, and support locations such as office, warehouse, or homeworking.
+              </p>
+            </div>
+            <button id="workforceWeeklyReportBtn" class="secondary" type="button">Open weekly report</button>
+          </div>
+          <form id="workforceFiltersForm" class="grid-form compact">
+            <label>Week reference date
+              <input id="workforceWeekInput" type="date" />
+            </label>
+            <label>Project
+              <select id="workforceProjectFilterSelect">
+                <option value="">All projects</option>
+              </select>
+            </label>
+            <label>Team type
+              <select id="workforceEmploymentFilterSelect">
+                <option value="all">All</option>
+                <option value="tag">TAG Employees</option>
+                <option value="subcontractor">Sub Contractors</option>
+                <option value="supplier">Suppliers</option>
+              </select>
+            </label>
+          </form>
+          <p id="workforceAdminStatus" class="hint"></p>
+          <div id="workforceSummaryCards" class="workforce-summary-grid"></div>
+          <div class="workforce-admin-sections">
+            <article id="adminCheckedInSection" class="subpanel">
+              <h4>People currently checked in</h4>
+              <div id="workforceActiveTable" class="table-wrap"></div>
+            </article>
+            <article id="adminPayrollHoursSection" class="subpanel">
+              <h4>Weekly payroll hours</h4>
+              <div id="workforceWeeklyTable" class="table-wrap"></div>
+            </article>
+            <article id="adminSubcontractorPresenceSection" class="subpanel">
+              <h4>Sub Contractor list by project / location</h4>
+              <div id="workforceSubcontractorTable" class="table-wrap"></div>
+            </article>
+          </div>
+        </article>
       </section>
 
       <section id="userEditPanel" class="panel hidden">
@@ -1604,6 +1741,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260324-admincheckout1" defer></script>
+    <script src="app.js?v=20260324-admincontrols1" defer></script>
   </body>
 </html>

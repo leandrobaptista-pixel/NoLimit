@@ -51,7 +51,7 @@ const ROLE_LABEL = {
 };
 
 const SYSTEM_ROLE_LABEL = {
-  owner: "Owner",
+  owner: "Director",
   admin: "Admin",
   supervisor: "Supervisor",
   developer: "Developer",
@@ -59,7 +59,7 @@ const SYSTEM_ROLE_LABEL = {
 };
 
 const SYSTEM_ROLE_OPTIONS = [
-  { value: "owner", label: "Owner" },
+  { value: "owner", label: "Director" },
   { value: "admin", label: "Admin" },
   { value: "supervisor", label: "Supervisor" },
   { value: "developer", label: "Developer" },
@@ -83,6 +83,35 @@ const PAY_RATE_TYPE_OPTIONS = [
   { value: "hourly", label: "Hourly rate" },
   { value: "daily", label: "Daily rate" },
 ];
+
+const SECTION_SHORTCUTS = {
+  workday: [
+    { id: "workdayLocationSection", label: "Location and distance" },
+    { id: "workdayRulesSection", label: "How this works" },
+    { id: "timeClockPanel", label: "Check-in controls" },
+  ],
+  sync: [
+    { id: "syncSettingsSection", label: "Cloud Sync" },
+    { id: "developerAuditPanel", label: "Audit Log" },
+    { id: "developerDeletedRecoverySection", label: "Deleted Records Recovery" },
+  ],
+  users: [
+    { id: "usersSelfWorkdaySection", label: "Workday Quick Access", requiresSelfService: true },
+    { id: "userIdCard", label: "My badge", requiresSelfService: true },
+    { id: "usersDirectoryView", label: "People Folder", requiresManager: true },
+    { id: "usersRegistrationView", label: "Registration Folder", requiresManager: true },
+  ],
+  admin: [
+    { id: "adminEmployeeListSection", label: "Complete Employee List" },
+    { id: "adminEmployeeControlsSection", label: "Employee Controls" },
+    { id: "adminWeeklyPaymentSection", label: "Weekly Payment Control" },
+    { id: "adminReceiptSection", label: "Receipt Upload & Expense Management" },
+    { id: "adminSubcontractorSection", label: "Sub Contractor Presence" },
+    { id: "workforceAdminPanel", label: "Workforce Control" },
+    { id: "adminCheckedInSection", label: "People currently checked in" },
+    { id: "adminPayrollHoursSection", label: "Weekly payroll hours" },
+  ],
+};
 
 const RECEIPT_CATEGORY_OPTIONS = [
   { value: "reimbursement", label: "Reimbursement" },
@@ -882,6 +911,13 @@ function payRateTypeLabel(value) {
   return PAY_RATE_TYPE_OPTIONS.find((option) => option.value === normalizePayRateType(value))?.label || "Hourly rate";
 }
 
+function maskedBankAccountNumber(value) {
+  const digits = String(value || "").replace(/\s+/g, "");
+  if (!digits) return "-";
+  if (digits.length <= 4) return digits;
+  return `****${digits.slice(-4)}`;
+}
+
 function normalizeApprovalStatus(value, fallback = "pending") {
   const raw = String(value || "").trim().toLowerCase();
   if (APPROVAL_STATUS_OPTIONS.some((option) => option.value === raw)) return raw;
@@ -1157,6 +1193,7 @@ let timeClockLastGeoPoint = null;
 let timeClockLastHandledAt = 0;
 let timeClockProcessing = false;
 let pendingTimeClockFocus = false;
+let pendingPostLoginLanding = false;
 let workforceWeekAnchor = "";
 let workforceProjectFilter = "";
 let workforceEmploymentFilter = "all";
@@ -1180,6 +1217,9 @@ const signupEmploymentTypeSelect = document.getElementById("signupEmploymentType
 const appMain = document.getElementById("appMain");
 const roleLine = document.getElementById("roleLine");
 const permissionLine = document.getElementById("permissionLine");
+const workdayPanel = document.getElementById("workdayPanel");
+const workdayContinueBtn = document.getElementById("workdayContinueBtn");
+const workdayGeoStatus = document.getElementById("workdayGeoStatus");
 const homePanel = document.getElementById("homePanel");
 const timeClockPanel = document.getElementById("timeClockPanel");
 const timeClockForm = document.getElementById("timeClockForm");
@@ -1194,6 +1234,8 @@ const timeClockSummary = document.getElementById("timeClockSummary");
 const timeClockStatus = document.getElementById("timeClockStatus");
 const coiReminderPanel = document.getElementById("coiReminderPanel");
 const quickNavPanel = document.getElementById("quickNavPanel");
+const sectionShortcutPanel = document.getElementById("sectionShortcutPanel");
+const sectionShortcutList = document.getElementById("sectionShortcutList");
 const clientsNavGroup = document.querySelector('.nav-group-clients[data-nav-group="clients"]');
 const ocrImporterPanel = document.getElementById("ocrImporterPanel");
 
@@ -1368,6 +1410,10 @@ const usersRegistrationTabBtn = document.getElementById("usersRegistrationTabBtn
 const usersDirectoryTabBtn = document.getElementById("usersDirectoryTabBtn");
 const usersDirectoryView = document.getElementById("usersDirectoryView");
 const usersRegistrationView = document.getElementById("usersRegistrationView");
+const usersSelfQuickAccessCard = document.getElementById("usersSelfQuickAccessCard");
+const usersSelfWorkdaySummary = document.getElementById("usersSelfWorkdaySummary");
+const usersSelfOpenWorkdayBtn = document.getElementById("usersSelfOpenWorkdayBtn");
+const usersSelfEditBtn = document.getElementById("usersSelfEditBtn");
 const workforceAdminPanel = document.getElementById("workforceAdminPanel");
 const workforceFiltersForm = document.getElementById("workforceFiltersForm");
 const workforceWeekInput = document.getElementById("workforceWeekInput");
@@ -1390,6 +1436,7 @@ const adminSortSelect = document.getElementById("adminSortSelect");
 const adminSummaryCards = document.getElementById("adminSummaryCards");
 const adminEmployeesTable = document.getElementById("adminEmployeesTable");
 const adminEmployeeForm = document.getElementById("adminEmployeeForm");
+const adminEmployeeSelect = document.getElementById("adminEmployeeSelect");
 const adminEmployeeEditorStatus = document.getElementById("adminEmployeeEditorStatus");
 const adminEmployeeCancelBtn = document.getElementById("adminEmployeeCancelBtn");
 const adminOpenUserRegistrationBtn = document.getElementById("adminOpenUserRegistrationBtn");
@@ -1407,7 +1454,6 @@ const receiptFormDeleteBtn = document.getElementById("receiptFormDeleteBtn");
 const receiptFormCancelBtn = document.getElementById("receiptFormCancelBtn");
 const adminReceiptsTable = document.getElementById("adminReceiptsTable");
 const adminSubcontractorTable = document.getElementById("adminSubcontractorTable");
-const adminAuditTable = document.getElementById("adminAuditTable");
 const userForm = document.getElementById("userForm");
 const userFormPanel = document.getElementById("userFormPanel");
 const usersNameRail = document.getElementById("usersNameRail");
@@ -2281,11 +2327,11 @@ async function refreshAdminPhotoPreview() {
   const pickedFile = photoInput?.files?.[0];
   if (pickedFile) {
     setAvatarPreview(userAdminPhotoPreview, await fileToDataUrl(pickedFile));
-    renderUserIdCard(adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null);
+    renderUserIdCard(adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null, { useFormValues: true });
     return;
   }
   setAvatarPreview(userAdminPhotoPreview, adminPreviewFallbackSrc());
-  renderUserIdCard(adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null);
+  renderUserIdCard(adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null, { useFormValues: true });
 }
 
 async function refreshUserEditPhotoPreview() {
@@ -2298,9 +2344,9 @@ async function refreshUserEditPhotoPreview() {
   setAvatarPreview(userEditPhotoPreview, userEditPreviewFallbackSrc());
 }
 
-function splitNameParts(user = null) {
-  const firstFromForm = String(userForm?.firstName?.value || "").trim();
-  const lastFromForm = String(userForm?.lastName?.value || "").trim();
+function splitNameParts(user = null, { useFormValues = false } = {}) {
+  const firstFromForm = useFormValues ? String(userForm?.firstName?.value || "").trim() : "";
+  const lastFromForm = useFormValues ? String(userForm?.lastName?.value || "").trim() : "";
 
   let first = firstFromForm || String(user?.firstName || "").trim();
   let last = lastFromForm || String(user?.lastName || "").trim();
@@ -2319,12 +2365,12 @@ function formPhotoPreviewSrc() {
   return String(src).trim();
 }
 
-function renderUserIdCard(user = null) {
+function renderUserIdCard(user = null, { useFormValues = false } = {}) {
   if (!userIdCard || !userIdCardPhoto || !userIdCardFirstName || !userIdCardLastName || !userIdCardRole) return;
-  const { first, last } = splitNameParts(user);
-  const jobTitle = String(userForm?.jobTitle?.value || user?.jobTitle || "").trim();
-  const gender = normalizeGender(userForm?.gender?.value || user?.gender || "unspecified");
-  const photoSrc = formPhotoPreviewSrc() || userAvatarSrc(user) || defaultAvatarForGender(gender) || "avatar-neutral.svg";
+  const { first, last } = splitNameParts(user, { useFormValues });
+  const jobTitle = String(useFormValues ? userForm?.jobTitle?.value || "" : user?.jobTitle || "").trim();
+  const gender = normalizeGender(useFormValues ? userForm?.gender?.value || user?.gender || "unspecified" : user?.gender || "unspecified");
+  const photoSrc = (useFormValues ? formPhotoPreviewSrc() : "") || userAvatarSrc(user) || defaultAvatarForGender(gender) || "avatar-neutral.svg";
   const active = user?.id ? activeTimeEntryForUser(user.id) : null;
 
   userIdCardPhoto.src = photoSrc;
@@ -2430,6 +2476,9 @@ function normalizeUser(user) {
     payRateType: normalizePayRateType(user.payRateType, "hourly"),
     hourlyRate: normalizeMoneyField(user.hourlyRate),
     dailyRate: normalizeMoneyField(user.dailyRate),
+    bankName: String(user.bankName || "").trim(),
+    bankRoutingNumber: String(user.bankRoutingNumber || "").trim(),
+    bankAccountNumber: String(user.bankAccountNumber || "").trim(),
     operationalRole: accessProfile,
     accessProfile,
     createdAt: user.createdAt || new Date().toISOString(),
@@ -6360,7 +6409,7 @@ function can(action, stageKey = "") {
   const accessProfile = userAccessProfile(currentUser);
   const systemRole = userSystemRole(currentUser);
   if (["accessAdmin", "managePayroll", "approvePayroll", "approveExpenses"].includes(action)) {
-    return ["developer", "owner", "admin", "supervisor"].includes(systemRole);
+    return ["developer", "owner", "admin"].includes(systemRole);
   }
   if (action === "deletePayroll") return ["developer", "owner", "admin"].includes(systemRole);
   if (isDeveloper()) return true;
@@ -6459,7 +6508,7 @@ function rolePermissionsSummary(accessProfile) {
     return "Developer role: full control of operations, payroll, receipts, approvals, and developer tools.";
   }
   if (systemRole === "owner") {
-    return "Owner role: full business control of payroll, reimbursements, approvals, reports, and user administration.";
+    return "Director role: full business control of payroll, reimbursements, approvals, reports, and user administration.";
   }
   if (systemRole === "admin") {
     return "Admin role: manages employees, approvals, payroll, expenses, and operational records.";
@@ -6645,8 +6694,11 @@ function renderAuth() {
     editProfileBtn?.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
     userBadge.textContent = `${currentUser.name} (${systemRoleLabel(userSystemRole(currentUser))} / ${roleLabel(userAccessProfile(currentUser))})`;
-    currentView = viewFromHash();
+    currentView = pendingPostLoginLanding ? "workday" : viewFromHash();
     render();
+    if (pendingPostLoginLanding && window.location.hash !== "#workday") {
+      window.history.replaceState(null, "", "#workday");
+    }
     if (pendingTimeClockFocus && canUseTimeClock()) {
       window.setTimeout(() => {
         const active = activeTimeEntryForUser(currentUser?.id || "");
@@ -6655,6 +6707,7 @@ function renderAuth() {
       }, 80);
     }
     pendingTimeClockFocus = false;
+    pendingPostLoginLanding = false;
     void maybeAutoDispatchCoiReminder();
     return;
   }
@@ -6662,6 +6715,7 @@ function renderAuth() {
   stopAutoPullLoop();
   stopAutoTimeClock({ clearStatus: true });
   pendingTimeClockFocus = false;
+  pendingPostLoginLanding = false;
   appMain.classList.add("hidden");
   authView.classList.remove("hidden");
   userBadge.classList.add("hidden");
@@ -6682,7 +6736,7 @@ function setFormEnabled(form, enabled) {
 function viewFromHash() {
   const raw = window.location.hash.replace(/^#/, "").trim();
   if (!raw) return "home";
-  const allowed = new Set(["home", "sync", "users", "admin", "clients", "projects", "manufacture", "userEdit", "ocrImporter"]);
+  const allowed = new Set(["home", "workday", "sync", "users", "admin", "clients", "projects", "manufacture", "userEdit", "ocrImporter"]);
   return allowed.has(raw) ? raw : "home";
 }
 
@@ -6699,8 +6753,9 @@ function canOpenManufactureWorkspace() {
 function canOpenView(view) {
   if (!currentUser) return false;
   if (view === "home") return true;
+  if (view === "workday") return canUseTimeClock();
   if (view === "sync") return can("sync");
-  if (view === "users") return can("manageUsers");
+  if (view === "users") return true;
   if (view === "admin") return can("accessAdmin");
   if (view === "userEdit") return true;
   if (view === "clients") return can("manageCatalog");
@@ -6890,6 +6945,7 @@ function applyViewMode() {
   renderProjectSectorPanel();
 
   const groups = {
+    workday: [workdayPanel],
     home: [homePanel],
     sync: [syncPanel],
     users: [usersPanel],
@@ -6911,6 +6967,7 @@ function applyViewMode() {
   };
 
   const allPanels = [
+    workdayPanel,
     homePanel,
     syncPanel,
     usersPanel,
@@ -7137,6 +7194,12 @@ function handleQuickNavAction(action) {
     return;
   }
 
+  if (action === "workday") {
+    setUsersViewFilter("all");
+    setView(canOpenView("workday") ? "workday" : "home");
+    return;
+  }
+
   if (action === "sync") {
     setUsersViewFilter("all");
     setView(can("sync") ? "sync" : "home");
@@ -7157,8 +7220,8 @@ function handleQuickNavAction(action) {
 
   if (action === "users") {
     setUsersViewFilter("all");
-    setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    setUsersSubView(can("manageUsers") ? "directory" : "self");
+    setView("users");
     return;
   }
 
@@ -10130,9 +10193,9 @@ function isPendingUserAssignment(user) {
 }
 
 function setUsersSubView(view = "directory") {
-  const normalized = view === "registration" ? "registration" : "directory";
+  const normalized = view === "registration" ? "registration" : view === "self" ? "self" : "directory";
   usersSubView = normalized;
-  usersDirectoryView?.classList.toggle("hidden", normalized !== "directory");
+  usersDirectoryView?.classList.toggle("hidden", normalized === "registration");
   usersRegistrationView?.classList.toggle("hidden", normalized !== "registration");
   usersRegistrationTabBtn?.classList.toggle("active", normalized === "registration");
   usersDirectoryTabBtn?.classList.toggle("active", normalized === "directory");
@@ -10534,6 +10597,7 @@ function startAutoTimeClock() {
       timeout: 20000,
     }
   );
+  pushAppAudit("Automatic geofence tracking started", "navigation", "workday");
   setTimeClockStatus("Automatic geofence tracking started.");
   renderTimeClockPanel();
 }
@@ -10546,6 +10610,7 @@ function stopAutoTimeClock({ clearStatus = false } = {}) {
   timeClockAutoPreferredProjectId = "";
   timeClockLastHandledAt = 0;
   timeClockProcessing = false;
+  pushAppAudit("Automatic geofence tracking stopped", "navigation", "workday");
   if (clearStatus) setTimeClockStatus("");
   else setTimeClockStatus("Automatic geofence tracking stopped.");
 }
@@ -10661,9 +10726,98 @@ function renderTimeClockPanel() {
   }
 }
 
+function nearestProjectWithGeofenceDistance(geoPoint, preferredProjectId = "") {
+  const pool = preferredProjectId ? projects.filter((project) => project.id === preferredProjectId) : workforceProjectOptions();
+  let best = null;
+  pool.forEach((project) => {
+    const geofence = projectGeofence(project);
+    if (!geofence) return;
+    const distance = geoDistanceMeters(geoPoint, geofence);
+    if (!best || distance < best.distance) best = { project, geofence, distance };
+  });
+  return best;
+}
+
+async function refreshWorkdayGeoStatus() {
+  if (!workdayGeoStatus || !currentUser || currentView !== "workday" || !canUseTimeClock()) return;
+  const selectedSiteType = normalizeWorkSiteType(timeClockSiteTypeSelect?.value || "project");
+  if (!isProjectWorkSiteType(selectedSiteType)) {
+    workdayGeoStatus.textContent = `Manual attendance is selected for ${workforceSiteLabel(selectedSiteType)}. Location range is only required for project job sites.`;
+    return;
+  }
+
+  workdayGeoStatus.textContent = "Checking your current position...";
+  const snapshot = timeClockAutoWatchId !== null && timeClockLastGeoPoint ? timeClockLastGeoPoint : await getCurrentGeoSnapshot({ timeout: 9000 });
+  if (!snapshot) {
+    workdayGeoStatus.textContent =
+      "Location is not available yet. Allow GPS access to compare your distance with project geofences or use manual office/warehouse/homeworking attendance.";
+    return;
+  }
+
+  timeClockLastGeoPoint = snapshot;
+  const preferredProjectId = String(timeClockProjectSelect?.value || "").trim();
+  const selectedProject = projectById(preferredProjectId);
+  const selectedGeofence = projectGeofence(selectedProject);
+  if (selectedProject && selectedGeofence) {
+    const distance = geoDistanceMeters(snapshot, selectedGeofence);
+    if (distance <= selectedGeofence.checkInRadius) {
+      workdayGeoStatus.textContent = `You are inside ${selectedProject.name} check-in radius (${Math.round(distance)}m). Manual check-in is ready.`;
+      return;
+    }
+    workdayGeoStatus.textContent = `You are ${Math.round(distance)}m away from ${selectedProject.name}. Start auto check-in to wait for the project geofence.`;
+    return;
+  }
+
+  const nearest = nearestProjectWithGeofenceDistance(snapshot);
+  if (!nearest) {
+    workdayGeoStatus.textContent = "No projects with geofence settings are available yet. Set a project radius before using automatic check-in.";
+    return;
+  }
+
+  if (nearest.distance <= nearest.geofence.checkInRadius) {
+    workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name} (${Math.round(nearest.distance)}m). You are already inside the check-in range.`;
+    return;
+  }
+
+  workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name} (${Math.round(nearest.distance)}m away). Use Start auto check-in while traveling to the site.`;
+}
+
+function renderWorkdayPanel() {
+  if (!workdayPanel) return;
+  const allowed = canUseTimeClock();
+  workdayPanel.classList.toggle("hidden", !allowed);
+  if (!allowed) return;
+  if (currentView === "workday") {
+    void refreshWorkdayGeoStatus();
+  }
+}
+
+function renderSectionShortcutPanel() {
+  if (!sectionShortcutPanel || !sectionShortcutList) return;
+  const manageUsers = can("manageUsers");
+  const items = ensureArray(SECTION_SHORTCUTS[currentView]).filter((item) => {
+    if (item.requiresManager && !manageUsers) return false;
+    if (item.requiresSelfService && manageUsers) return false;
+    return Boolean(document.getElementById(item.id));
+  });
+
+  sectionShortcutPanel.classList.toggle("hidden-view", !items.length);
+  if (!items.length) {
+    sectionShortcutList.innerHTML = "";
+    return;
+  }
+
+  sectionShortcutList.innerHTML = items
+    .map(
+      (item) =>
+        `<button class="secondary section-shortcut-btn" type="button" data-section-shortcut="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`
+    )
+    .join("");
+}
+
 function renderWorkforceAdminPanel() {
   if (!workforceAdminPanel) return;
-  const allowed = can("manageUsers");
+  const allowed = can("accessAdmin");
   workforceAdminPanel.classList.toggle("hidden", !allowed);
   if (!allowed) return;
 
@@ -11090,6 +11244,10 @@ function populateAdminUserSelect(select, currentValue = "") {
 function setAdminEmployeeFormEnabled(enabled) {
   if (!adminEmployeeForm) return;
   adminEmployeeForm.querySelectorAll("input, select, button").forEach((field) => {
+    if (field === adminEmployeeSelect) {
+      field.disabled = false;
+      return;
+    }
     if (field === adminEmployeeCancelBtn) {
       field.disabled = !enabled;
       return;
@@ -11122,7 +11280,7 @@ function resetAdminEmployeeForm() {
   adminSelectedEmployeeId = "";
   adminEmployeeForm.reset();
   adminEmployeeForm.userId.value = "";
-  adminEmployeeForm.employeeName.value = "";
+  if (adminEmployeeSelect) adminEmployeeSelect.value = "";
   adminEmployeeForm.companyName.value = "";
   adminEmployeeForm.jobTitle.value = "";
   adminEmployeeForm.systemRole.value = "employee";
@@ -11130,7 +11288,10 @@ function resetAdminEmployeeForm() {
   adminEmployeeForm.payRateType.value = "hourly";
   adminEmployeeForm.hourlyRate.value = "";
   adminEmployeeForm.dailyRate.value = "";
-  if (adminEmployeeEditorStatus) adminEmployeeEditorStatus.textContent = "Select an employee to edit role and payment settings.";
+  adminEmployeeForm.bankName.value = "";
+  adminEmployeeForm.bankRoutingNumber.value = "";
+  adminEmployeeForm.bankAccountNumber.value = "";
+  if (adminEmployeeEditorStatus) adminEmployeeEditorStatus.textContent = "Select an employee to edit role, rates, and payment details.";
   setAdminEmployeeFormEnabled(false);
   syncAdminEmployeeRolePermissions();
 }
@@ -11139,7 +11300,7 @@ function populateAdminEmployeeForm(user) {
   if (!adminEmployeeForm || !user) return;
   adminSelectedEmployeeId = user.id;
   adminEmployeeForm.userId.value = user.id;
-  adminEmployeeForm.employeeName.value = user.name || user.username || "";
+  if (adminEmployeeSelect) adminEmployeeSelect.value = user.id;
   adminEmployeeForm.companyName.value = user.companyName || "";
   adminEmployeeForm.jobTitle.value = user.jobTitle || "";
   adminEmployeeForm.systemRole.value = userSystemRole(user);
@@ -11147,10 +11308,13 @@ function populateAdminEmployeeForm(user) {
   adminEmployeeForm.payRateType.value = normalizePayRateType(user.payRateType, "hourly");
   adminEmployeeForm.hourlyRate.value = user.hourlyRate ? String(roundCurrency(user.hourlyRate)) : "";
   adminEmployeeForm.dailyRate.value = user.dailyRate ? String(roundCurrency(user.dailyRate)) : "";
+  adminEmployeeForm.bankName.value = user.bankName || "";
+  adminEmployeeForm.bankRoutingNumber.value = user.bankRoutingNumber || "";
+  adminEmployeeForm.bankAccountNumber.value = user.bankAccountNumber || "";
   if (adminEmployeeEditorStatus) {
     adminEmployeeEditorStatus.textContent = `Editing ${user.name || user.username} | ${systemRoleLabel(userSystemRole(user))} | ${roleLabel(
       userAccessProfile(user)
-    )}`;
+    )} | ${payRateTypeLabel(user.payRateType)} | ${user.bankName || "No bank details yet"}`;
   }
   setAdminEmployeeFormEnabled(true);
   syncAdminEmployeeRolePermissions();
@@ -11192,14 +11356,6 @@ function populateReceiptForm(receipt) {
   if (receiptFormDeleteBtn) receiptFormDeleteBtn.disabled = false;
 }
 
-function adminAuditEntries() {
-  const scopes = new Set(["users", "workforce", "receipts", "payments", "admin"]);
-  return ensureArray(appAuditLog)
-    .filter((entry) => scopes.has(String(entry.scope || "").trim()) || /\b(Receipts|Payments|Workforce|Admin)\b/.test(String(entry.message || "")))
-    .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
-    .slice(0, 120);
-}
-
 function renderAdminPanel() {
   if (!adminPanel) return;
   const allowed = can("accessAdmin");
@@ -11227,6 +11383,7 @@ function renderAdminPanel() {
     allowBlankLabel: "All projects",
     currentValue: adminProjectFilter,
   });
+  populateAdminUserSelect(adminEmployeeSelect, adminSelectedEmployeeId);
   populateAdminUserSelect(receiptUserSelect, receiptUserSelect?.value || receiptForm?.userId?.value || "");
   populateProjectSelect(receiptProjectSelect, {
     allowBlankLabel: "No project linked",
@@ -11274,17 +11431,20 @@ function renderAdminPanel() {
           snapshot.rateType === "daily"
             ? `${payRateTypeLabel(snapshot.rateType)} • ${formatCurrency(snapshot.dailyRate)}`
             : `${payRateTypeLabel(snapshot.rateType)} • ${formatCurrency(snapshot.hourlyRate)}`;
+        const bankLabel = user.bankName
+          ? `${user.bankName} • ${maskedBankAccountNumber(user.bankAccountNumber)}`
+          : "No bank details";
         const workStatus = snapshot.active
           ? `${timeEntryAssignmentLabel(snapshot.active)} • ${elapsedFrom(snapshot.active.checkInAt)}`
           : "Off shift";
-        return `<tr>
+        return `<tr data-admin-employee-row="${escapeHtml(user.id)}">
           <td>${escapeHtml(user.name || user.username || "-")}</td>
           <td>${escapeHtml(user.companyName || "-")}</td>
           <td>${escapeHtml(user.jobTitle || "-")}</td>
           <td>${escapeHtml(systemRoleLabel(userSystemRole(user)))}</td>
           <td>${escapeHtml(roleLabel(userAccessProfile(user)))}</td>
           <td>${escapeHtml(workStatus)}</td>
-          <td>${escapeHtml(rateLabel)}</td>
+          <td>${escapeHtml(`${rateLabel} | ${bankLabel}`)}</td>
           <td>${snapshot.workedDays}</td>
           <td>${escapeHtml(formatMinutesAsHours(snapshot.workedMinutes))}</td>
           <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
@@ -11299,12 +11459,21 @@ function renderAdminPanel() {
     adminEmployeesTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Job Title</th><th>System Role</th><th>Operational Access</th><th>Current status</th><th>Pay setup</th><th>Days</th><th>Hours</th><th>Total payment</th><th>Actions</th></tr></thead><tbody>${
       rows || '<tr><td colspan="11">No employees matched the current filters.</td></tr>'
     }</tbody></table>`;
+    adminEmployeesTable.querySelectorAll("[data-admin-employee-row]").forEach((row) => {
+      row.addEventListener("click", () => {
+        const target = users.find((user) => user.id === row.dataset.adminEmployeeRow);
+        if (target) populateAdminEmployeeForm(target);
+      });
+    });
   }
 
   if (adminPaymentsTable) {
     const rows = payrollRows
       .map((snapshot) => {
         const canReview = can("approvePayroll") && (snapshot.workedMinutes > 0 || snapshot.expensesTotal > 0);
+        const paymentProfile = snapshot.user.bankName
+          ? `${snapshot.user.bankName} • ${maskedBankAccountNumber(snapshot.user.bankAccountNumber)}`
+          : "No bank details";
         return `<tr>
           <td>${escapeHtml(snapshot.user.name || snapshot.user.username || "-")}</td>
           <td>${escapeHtml(systemRoleLabel(userSystemRole(snapshot.user)))}</td>
@@ -11315,6 +11484,7 @@ function renderAdminPanel() {
           <td>${escapeHtml(formatCurrency(snapshot.toll))}</td>
           <td>${escapeHtml(formatCurrency(snapshot.extras))}</td>
           <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
+          <td>${escapeHtml(paymentProfile)}</td>
           <td>${escapeHtml(snapshot.needsReview ? "Pending review" : approvalStatusLabel(snapshot.paymentStatus))}</td>
           <td>
             <div class="actions-inline">
@@ -11325,8 +11495,8 @@ function renderAdminPanel() {
         </tr>`;
       })
       .join("");
-    adminPaymentsTable.innerHTML = `<table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Status</th><th>Actions</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="11">No payroll rows matched the current filters.</td></tr>'
+    adminPaymentsTable.innerHTML = `<table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Payment profile</th><th>Status</th><th>Actions</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="12">No payroll rows matched the current filters.</td></tr>'
     }</tbody></table>`;
   }
 
@@ -11380,22 +11550,6 @@ function renderAdminPanel() {
     }</tbody></table>`;
   }
 
-  if (adminAuditTable) {
-    const rows = adminAuditEntries()
-      .map(
-        (entry) => `<tr>
-          <td>${escapeHtml(fmtDate(entry.at))}</td>
-          <td>${escapeHtml(entry.byName || "-")}</td>
-          <td>${escapeHtml(entry.scope || "-")}</td>
-          <td>${escapeHtml(entry.message || "-")}</td>
-        </tr>`
-      )
-      .join("");
-    adminAuditTable.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>User</th><th>Scope</th><th>Action</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="4">No audit entries available for the current admin scope.</td></tr>'
-    }</tbody></table>`;
-  }
-
   const selectedUser = adminSelectedEmployeeId ? users.find((user) => user.id === adminSelectedEmployeeId) || null : null;
   if (selectedUser) populateAdminEmployeeForm(selectedUser);
   else resetAdminEmployeeForm();
@@ -11403,6 +11557,8 @@ function renderAdminPanel() {
   const selectedReceipt = adminEditingReceiptId ? receipts.find((receipt) => receipt.id === adminEditingReceiptId) || null : null;
   if (selectedReceipt) populateReceiptForm(selectedReceipt);
   else resetReceiptForm();
+
+  renderWorkforceAdminPanel();
 }
 
 async function saveAdminEmployeeSettings() {
@@ -11411,6 +11567,13 @@ async function saveAdminEmployeeSettings() {
   if (!targetUser || !canAccessEmployeeRecord(targetUser)) return false;
 
   const canEditRoles = can("manageUsers");
+  const payRateType = normalizePayRateType(adminEmployeeForm.payRateType.value || targetUser.payRateType, "hourly");
+  const hourlyRate = normalizeMoneyField(adminEmployeeForm.hourlyRate.value || 0);
+  const dailyRate = normalizeMoneyField(adminEmployeeForm.dailyRate.value || 0);
+  const bankName = String(adminEmployeeForm.bankName.value || "").trim();
+  const bankRoutingNumber = String(adminEmployeeForm.bankRoutingNumber.value || "").trim();
+  const bankAccountNumber = String(adminEmployeeForm.bankAccountNumber.value || "").trim();
+
   const selectedSystemRole = canEditRoles
     ? normalizeSystemRole(adminEmployeeForm.systemRole.value || userSystemRole(targetUser), userSystemRole(targetUser))
     : userSystemRole(targetUser);
@@ -11420,7 +11583,15 @@ async function saveAdminEmployeeSettings() {
     return false;
   }
   if (!(isDeveloper() || isOwner()) && selectedSystemRole === "owner") {
-    alert("Only developer or owner can assign the owner role.");
+    alert("Only developer or director can assign the director role.");
+    return false;
+  }
+  if (payRateType === "hourly" && hourlyRate <= 0) {
+    alert("Enter a valid hourly rate before saving this employee.");
+    return false;
+  }
+  if (payRateType === "daily" && dailyRate <= 0) {
+    alert("Enter a valid daily rate before saving this employee.");
     return false;
   }
 
@@ -11428,9 +11599,12 @@ async function saveAdminEmployeeSettings() {
     ...targetUser,
     systemRole: selectedSystemRole,
     accessProfile: selectedAccessProfile,
-    payRateType: normalizePayRateType(adminEmployeeForm.payRateType.value || targetUser.payRateType, "hourly"),
-    hourlyRate: normalizeMoneyField(adminEmployeeForm.hourlyRate.value || 0),
-    dailyRate: normalizeMoneyField(adminEmployeeForm.dailyRate.value || 0),
+    payRateType,
+    hourlyRate,
+    dailyRate,
+    bankName,
+    bankRoutingNumber,
+    bankAccountNumber,
     updatedAt: new Date().toISOString(),
   });
 
@@ -11440,6 +11614,9 @@ async function saveAdminEmployeeSettings() {
     { key: "payRateType", label: "Pay Method", map: (value) => payRateTypeLabel(value) },
     { key: "hourlyRate", label: "Hourly Rate", map: (value) => formatCurrency(value || 0) },
     { key: "dailyRate", label: "Daily Rate", map: (value) => formatCurrency(value || 0) },
+    { key: "bankName", label: "Bank Name" },
+    { key: "bankRoutingNumber", label: "Routing / Host Number" },
+    { key: "bankAccountNumber", label: "Bank Account", map: (value) => maskedBankAccountNumber(value) },
   ]);
 
   await put(USER_STORE, savedUser);
@@ -11655,8 +11832,11 @@ function generateAdminWeeklyReport() {
   const subcontractorRows = adminSubcontractorPresenceRows(range);
 
   const payrollTableRows = payrollRows
-    .map(
-      (snapshot) => `<tr>
+    .map((snapshot) => {
+      const paymentProfile = snapshot.user.bankName
+        ? `${snapshot.user.bankName} • ${maskedBankAccountNumber(snapshot.user.bankAccountNumber)}`
+        : "No bank details";
+      return `<tr>
         <td>${escapeHtml(snapshot.user.name || snapshot.user.username || "-")}</td>
         <td>${escapeHtml(systemRoleLabel(userSystemRole(snapshot.user)))}</td>
         <td>${snapshot.workedDays}</td>
@@ -11666,9 +11846,10 @@ function generateAdminWeeklyReport() {
         <td>${escapeHtml(formatCurrency(snapshot.toll))}</td>
         <td>${escapeHtml(formatCurrency(snapshot.extras))}</td>
         <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
+        <td>${escapeHtml(paymentProfile)}</td>
         <td>${escapeHtml(snapshot.needsReview ? "Pending review" : approvalStatusLabel(snapshot.paymentStatus))}</td>
-      </tr>`
-    )
+      </tr>`;
+    })
     .join("");
 
   const receiptTableRows = receiptRows
@@ -11713,8 +11894,8 @@ function generateAdminWeeklyReport() {
 
       <h3>Weekly payment control</h3>
       <table>
-        <thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Status</th></tr></thead>
-        <tbody>${payrollTableRows || '<tr><td colspan="10">No payroll rows matched the current filters.</td></tr>'}</tbody>
+        <thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Payment profile</th><th>Status</th></tr></thead>
+        <tbody>${payrollTableRows || '<tr><td colspan="11">No payroll rows matched the current filters.</td></tr>'}</tbody>
       </table>
 
       <h3>Receipts and extra expenses</h3>
@@ -11739,17 +11920,43 @@ function generateAdminWeeklyReport() {
   setTimeout(() => win.print(), 300);
 }
 
+function renderUsersSelfService() {
+  if (!usersPanel || !currentUser) return;
+  usersPanel.classList.remove("hidden");
+  usersPanel.classList.add("self-service-mode");
+  usersPanel.classList.remove("management-mode");
+  setUsersSubView("self");
+  usersSelfQuickAccessCard?.classList.remove("hidden");
+  if (usersSelfOpenWorkdayBtn) usersSelfOpenWorkdayBtn.disabled = !canUseTimeClock(currentUser);
+  renderUserIdCard(currentUser);
+  if (usersSelfWorkdaySummary) {
+    const active = activeTimeEntryForUser(currentUser.id);
+    usersSelfWorkdaySummary.textContent = !canUseTimeClock(currentUser)
+      ? "This profile does not use the workday time clock."
+      : active
+      ? `You are currently working at ${timeEntryAssignmentLabel(active)} and have been checked in for ${elapsedFrom(active.checkInAt)}.`
+      : "Open the workday page to check in manually or start automatic project geofence check-in.";
+  }
+}
+
 function renderUsers() {
-  if (!can("manageUsers")) {
-    setUsersSubView("directory");
-    setUserAdminFormOpen(false);
+  if (!usersPanel || !currentUser) return;
+  if (!canOpenView("users")) {
     usersPanel.classList.add("hidden");
-    workforceAdminPanel?.classList.add("hidden");
     return;
   }
 
+  if (!can("manageUsers")) {
+    setUserAdminFormOpen(false);
+    renderUsersSelfService();
+    return;
+  }
+
+  usersPanel.classList.remove("self-service-mode");
+  usersPanel.classList.add("management-mode");
+  usersSelfQuickAccessCard?.classList.add("hidden");
   usersPanel.classList.remove("hidden");
-  setUsersSubView(usersSubView);
+  setUsersSubView(usersSubView === "self" ? "directory" : usersSubView);
 
   const visibleUsers = users.filter((user) => {
     if (!canAccessEmployeeRecord(user)) return false;
@@ -11861,7 +12068,6 @@ function renderUsers() {
     if (!userAdminFormOpen) renderUserIdCard(null);
   }
   syncSelectedUserRow();
-  renderWorkforceAdminPanel();
 }
 
 function populateUserEditForm(user) {
@@ -12000,6 +12206,7 @@ function renderHomePanel() {
   if (!homePanel) return;
   const isCatalogAdmin = can("manageCatalog");
   const canManageUsers = can("manageUsers");
+  const canAnyUsers = Boolean(currentUser);
   const canProjects = canOpenView("projects");
   const canManufacture = canOpenView("manufacture");
   const canReports = can("report");
@@ -12017,10 +12224,14 @@ function renderHomePanel() {
     });
   };
 
-  toggleNavGroup("users", canManageUsers);
+  toggleNavGroup("users", canAnyUsers);
+  document.querySelectorAll('.nav-group-users[data-nav-group="users"]').forEach((el) => {
+    el.classList.toggle("single-link", !canManageUsers);
+  });
+  toggleNav("workday", canUseTimeClock());
   toggleNav("developer", isDev);
   toggleNav("admin", can("accessAdmin"));
-  toggleNav("users", canManageUsers);
+  toggleNav("users", canAnyUsers);
   toggleNav("usersRegistration", canManageUsers);
   toggleNav("usersPeople", canManageUsers);
   toggleNav("subcontractors", canManageUsers);
@@ -12109,8 +12320,6 @@ function renderDeveloperAuditPanel() {
     return;
   }
 
-  const backupStatus = localBackupStatusLabel();
-
   const categoryLabel = (category) => {
     if (category === "navigation") return "Navigation";
     if (category === "data-change") return "Data Change";
@@ -12160,26 +12369,8 @@ function renderDeveloperAuditPanel() {
 
   developerAuditPanel.classList.remove("hidden");
   developerAuditPanel.innerHTML = `
-    <h3>Audit Log (Developer)</h3>
+    <h3 id="developerAuditLogSection">Audit Log (Developer)</h3>
     <p class="hint">Tracks exact field changes and navigation history by user.</p>
-    <div class="developer-tools">
-      <button class="secondary developer-tool-btn" type="button" data-developer-backup-download>
-        <span class="developer-tool-code">BK</span>
-        <span class="developer-tool-text">
-          <strong>Local Full Backup</strong>
-          <small>Download complete JSON copy to this device</small>
-        </span>
-      </button>
-      <label class="file-label secondary developer-tool-btn">
-        <span class="developer-tool-code">RS</span>
-        <span class="developer-tool-text">
-          <strong>Restore Backup File</strong>
-          <small>Select a JSON backup from your computer</small>
-        </span>
-        <input data-developer-backup-import type="file" accept="application/json" />
-      </label>
-    </div>
-    <p class="hint developer-backup-status" data-developer-backup-status>${escapeHtml(backupStatus)}</p>
     <div class="table-wrap">
       <table class="data-table">
         <thead>
@@ -12195,7 +12386,7 @@ function renderDeveloperAuditPanel() {
         <tbody>${rows || '<tr><td colspan="6">No audited changes found.</td></tr>'}</tbody>
       </table>
     </div>
-    <details class="trash-recovery-box">
+    <details id="developerDeletedRecoverySection" class="trash-recovery-box" open>
       <summary><strong>Deleted Records Recovery (${RESTORE_WINDOW_LABEL})</strong></summary>
       <p class="hint">Hidden recycle area for deletes. Restore window is ${RESTORE_WINDOW_LABEL}.</p>
       <div class="row">
@@ -12228,21 +12419,6 @@ function renderDeveloperAuditPanel() {
       if (!confirmed) return;
       await restoreTrashRecord(target.id);
     });
-  });
-
-  const backupDownloadBtn = developerAuditPanel.querySelector("[data-developer-backup-download]");
-  backupDownloadBtn?.addEventListener("click", () => {
-    triggerLocalBackupDownload("developer-tools");
-    renderDeveloperAuditPanel();
-  });
-
-  const backupImportInput = developerAuditPanel.querySelector("[data-developer-backup-import]");
-  backupImportInput?.addEventListener("change", async () => {
-    const file = backupImportInput.files?.[0];
-    if (!file) return;
-    await importBackupFile(file);
-    backupImportInput.value = "";
-    renderDeveloperAuditPanel();
   });
 
   developerAuditPanel.querySelectorAll("[data-trash-delete]").forEach((button) => {
@@ -12412,6 +12588,7 @@ function renderAccessControl() {
 function render() {
   if (!currentUser) return;
   renderHomePanel();
+  renderWorkdayPanel();
   renderRoleStrip();
   renderMasterData();
   renderContainers();
@@ -12426,6 +12603,7 @@ function render() {
   renderAccessControl();
   renderUnits();
   applyViewMode();
+  renderSectionShortcutPanel();
   applyLanguageToUi();
 }
 
@@ -13146,6 +13324,19 @@ backToLoginBtn?.addEventListener("click", () => {
   loginForm?.querySelector('input[name="username"]')?.focus();
 });
 
+workdayContinueBtn?.addEventListener("click", () => {
+  setView("home");
+});
+
+usersSelfOpenWorkdayBtn?.addEventListener("click", () => {
+  setView("workday");
+});
+
+usersSelfEditBtn?.addEventListener("click", () => {
+  if (!currentUser) return;
+  openUserEdit(currentUser.id, "users");
+});
+
 signupEmploymentTypeSelect?.addEventListener("change", () => {
   toggleSubcontractorExtras("signup", signupEmploymentTypeSelect.value);
 });
@@ -13179,7 +13370,7 @@ userEditPhotoInput?.addEventListener("change", () => {
 
 function refreshUserIdCardFromAdminForm() {
   const selected = adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null;
-  renderUserIdCard(selected);
+  renderUserIdCard(selected, { useFormValues: true });
 }
 
 userForm?.addEventListener("input", () => {
@@ -13341,9 +13532,10 @@ loginForm.addEventListener("submit", async (event) => {
   hasAutoDispatchedCoiReminder = false;
   setSession(user.id);
   pushAppAudit("Session login", "session", "auth");
-  window.history.replaceState(null, "", "#home");
+  window.history.replaceState(null, "", "#workday");
   loginForm.reset();
   pendingTimeClockFocus = true;
+  pendingPostLoginLanding = true;
   await pullCloud({ silent: true, force: true });
   renderAuth();
 });
@@ -13364,11 +13556,13 @@ timeClockSiteTypeSelect?.addEventListener("change", () => {
     stopAutoTimeClock();
   }
   renderTimeClockPanel();
+  void refreshWorkdayGeoStatus();
 });
 
 timeClockProjectSelect?.addEventListener("change", () => {
   if (timeClockAutoWatchId !== null) timeClockAutoPreferredProjectId = timeClockProjectSelect.value || "";
   renderTimeClockPanel();
+  void refreshWorkdayGeoStatus();
 });
 
 timeClockCheckInBtn?.addEventListener("click", async () => {
@@ -13483,6 +13677,12 @@ adminOpenUserRegistrationBtn?.addEventListener("click", () => {
   setView("users");
 });
 
+adminEmployeeSelect?.addEventListener("change", () => {
+  const target = users.find((user) => user.id === (adminEmployeeSelect.value || ""));
+  if (target) populateAdminEmployeeForm(target);
+  else resetAdminEmployeeForm();
+});
+
 adminEmployeeForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   await saveAdminEmployeeSettings();
@@ -13592,7 +13792,7 @@ userForm.addEventListener("submit", async (event) => {
     return;
   }
   if (!(isDeveloper() || isOwner()) && selectedSystemRole === "owner") {
-    alert("Only developer or owner can assign the owner role.");
+    alert("Only developer or director can assign the director role.");
     return;
   }
   if (!isDeveloper() && selectedAccessProfile === "developer") {
@@ -15382,6 +15582,16 @@ document.addEventListener(
 );
 
 appMain?.addEventListener("click", (event) => {
+  const helpTipBtn = event.target.closest(".help-tip");
+  document.querySelectorAll(".help-tip.is-open").forEach((button) => {
+    if (button !== helpTipBtn) button.classList.remove("is-open");
+  });
+  if (helpTipBtn) {
+    event.preventDefault();
+    helpTipBtn.classList.toggle("is-open");
+    return;
+  }
+
   const sendCoiBtn = event.target.closest("[data-send-coi-reminder]");
   if (sendCoiBtn) {
     event.preventDefault();
@@ -15406,10 +15616,36 @@ appMain?.addEventListener("click", (event) => {
     return;
   }
 
+  const sectionShortcutTrigger = event.target.closest("[data-section-shortcut]");
+  if (sectionShortcutTrigger) {
+    event.preventDefault();
+    const targetId = sectionShortcutTrigger.dataset.sectionShortcut || "";
+    if (targetId === "usersRegistrationView") {
+      setUsersSubView("registration");
+      render();
+    } else if (targetId === "usersDirectoryView") {
+      setUsersSubView(can("manageUsers") ? "directory" : "self");
+      render();
+    }
+    const targetSection = document.getElementById(targetId);
+    targetSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
   const trigger = event.target.closest("[data-nav-view]");
   if (!trigger) return;
   event.preventDefault();
   handleQuickNavAction(trigger.dataset.navView || "home");
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".help-tip")) return;
+  document.querySelectorAll(".help-tip.is-open").forEach((button) => button.classList.remove("is-open"));
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  document.querySelectorAll(".help-tip.is-open").forEach((button) => button.classList.remove("is-open"));
 });
 
 adminPanel?.addEventListener("click", (event) => {

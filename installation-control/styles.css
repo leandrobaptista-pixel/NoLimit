@@ -121,7 +121,7 @@ main {
 }
 
 #appMain {
-  grid-template-columns: 215px minmax(0, 1fr);
+  grid-template-columns: 215px minmax(0, 1fr) 240px;
   align-items: start;
 }
 
@@ -131,6 +131,14 @@ main {
 
 #quickNavPanel {
   grid-column: 1;
+  grid-row: 1 / span 24;
+  position: sticky;
+  top: 0.8rem;
+  align-self: start;
+}
+
+#sectionShortcutPanel {
+  grid-column: 3;
   grid-row: 1 / span 24;
   position: sticky;
   top: 0.8rem;
@@ -223,6 +231,30 @@ main {
   background:
     radial-gradient(circle at top right, rgba(154, 63, 36, 0.08), transparent 34%),
     linear-gradient(180deg, rgba(255, 253, 249, 0.96), rgba(248, 244, 237, 0.96));
+}
+
+.workday-panel-head {
+  margin-top: 0;
+  align-items: flex-start;
+}
+
+.workday-panel-head > * {
+  flex: 1 1 250px;
+}
+
+.workday-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.62rem;
+}
+
+.plain-list {
+  margin: 0.18rem 0 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.28rem;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
 }
 
 .time-clock-entry-head {
@@ -496,6 +528,53 @@ select[disabled] {
   font-size: 0.75rem;
 }
 
+.help-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: 1.15rem;
+  padding: 0;
+  margin-left: 0.18rem;
+  border-radius: 999px;
+  border: 1px solid #c7b39f;
+  background: #fffaf4;
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.help-tip::after {
+  content: attr(data-help-tip);
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.42rem);
+  width: min(220px, 42vw);
+  padding: 0.42rem 0.52rem;
+  border-radius: 10px;
+  background: rgba(23, 32, 38, 0.96);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  box-shadow: 0 10px 24px rgba(23, 32, 38, 0.24);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 10;
+}
+
+.help-tip:is(:hover, :focus-visible, .is-open)::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .file-label {
   display: inline-flex;
   align-items: center;
@@ -619,6 +698,10 @@ form.row > :is(button, .file-label) {
 
 .nav-group .nav-btn {
   width: 100%;
+}
+
+.nav-group.single-link .nav-submenu {
+  display: none !important;
 }
 
 .nav-submenu {
@@ -1403,10 +1486,11 @@ table.data-table {
 table.data-table th,
 table.data-table td {
   border: 1px solid #ddd4c6;
-  padding: 0.4rem 0.45rem;
+  padding: 0.34rem 0.42rem;
   text-align: left;
   font-size: 0.82rem;
   vertical-align: top;
+  line-height: 1.3;
 }
 
 table.data-table th {
@@ -1488,6 +1572,40 @@ table.data-table th {
   grid-template-columns: 250px minmax(0, 1fr);
   gap: 1.32rem;
   align-items: start;
+}
+
+#usersPanel.self-service-mode > .users-subviews,
+#usersPanel.self-service-mode > h2,
+#usersPanel.self-service-mode > #userAdminTarget {
+  display: none;
+}
+
+#usersPanel.self-service-mode .users-left-column {
+  display: none;
+}
+
+#usersPanel.self-service-mode .users-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#usersPanel.self-service-mode .users-right-column {
+  width: min(100%, 520px);
+  justify-self: center;
+}
+
+#usersPanel.self-service-mode .user-id-card {
+  justify-self: stretch;
+  width: 100%;
+}
+
+.users-self-quick-card {
+  display: grid;
+  gap: 0.5rem;
+  background: linear-gradient(180deg, #fffdf8, #f5f9f5);
+}
+
+.users-self-actions {
+  margin-top: 0;
 }
 
 .users-left-column,
@@ -1684,7 +1802,6 @@ table.data-table th {
 .admin-directory-card .table-wrap,
 .admin-receipt-form + .table-wrap,
 #adminPaymentsTable,
-#adminAuditTable,
 #adminSubcontractorTable {
   max-height: 420px;
 }
@@ -1706,6 +1823,14 @@ table.data-table th {
 .admin-editor-card input[readonly] {
   background: #f6f4ef;
   color: var(--ink-soft);
+}
+
+#adminEmployeesTable tr[data-admin-employee-row] {
+  cursor: pointer;
+}
+
+#adminEmployeesTable tr[data-admin-employee-row]:hover td {
+  background: #f5faf7;
 }
 
 #userAdminPhotoPreview.avatar-lg {
@@ -1822,6 +1947,37 @@ table.data-table th {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 0.45rem;
+}
+
+.section-shortcut-panel {
+  display: grid;
+  gap: 0.58rem;
+}
+
+.section-shortcut-head {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.section-shortcut-list {
+  display: grid;
+  gap: 0.36rem;
+  max-height: 68vh;
+  overflow: auto;
+}
+
+.section-shortcut-btn {
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+}
+
+.table-wrap :is(button, .file-label),
+table.data-table :is(button, .file-label) {
+  min-height: 28px;
+  padding: 0.18rem 0.42rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .developer-tool-btn {
@@ -2416,10 +2572,15 @@ table.data-table th {
     grid-column: 1;
   }
 
-  #quickNavPanel {
+  #quickNavPanel,
+  #sectionShortcutPanel {
     grid-column: 1;
     grid-row: auto;
     position: static;
+  }
+
+  #sectionShortcutPanel {
+    order: 99;
   }
 
   #quickNavPanel.quick-nav .row {
@@ -2462,6 +2623,13 @@ table.data-table th {
 
   .time-clock-entry-head {
     flex-direction: column;
+  }
+
+  .workday-status-grid,
+  .admin-primary-grid,
+  .admin-secondary-grid,
+  .admin-tertiary-grid {
+    grid-template-columns: 1fr;
   }
 
   .header-actions {

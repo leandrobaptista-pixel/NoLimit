@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260324-loginfix1" />
+    <link rel="stylesheet" href="styles.css?v=20260324-badgework1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -787,6 +787,17 @@
               </div>
               <div class="user-id-card-foot">
                 <span id="userIdCardRole" class="user-id-card-role">Job Title</span>
+                <div class="user-id-card-work-grid">
+                  <span id="userIdCardCheckState" class="user-id-card-check-pill">Check-out</span>
+                  <div class="user-id-card-workline">
+                    <span class="user-id-card-worklabel">Time status</span>
+                    <strong id="userIdCardActiveTime" class="user-id-card-workvalue">Not active</strong>
+                  </div>
+                  <div class="user-id-card-workline">
+                    <span class="user-id-card-worklabel">Project / location</span>
+                    <strong id="userIdCardAssignment" class="user-id-card-workvalue">No active project</strong>
+                  </div>
+                </div>
                 <small id="userIdCardWorkStatus" class="user-id-card-status">Off shift</small>
               </div>
             </article>
@@ -1741,6 +1752,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260324-loginfix1" defer></script>
+    <script src="app.js?v=20260324-badgework1" defer></script>
   </body>
 </html>

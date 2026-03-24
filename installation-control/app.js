@@ -1466,6 +1466,9 @@ const userIdCardPhoto = document.getElementById("userIdCardPhoto");
 const userIdCardFirstName = document.getElementById("userIdCardFirstName");
 const userIdCardLastName = document.getElementById("userIdCardLastName");
 const userIdCardRole = document.getElementById("userIdCardRole");
+const userIdCardCheckState = document.getElementById("userIdCardCheckState");
+const userIdCardActiveTime = document.getElementById("userIdCardActiveTime");
+const userIdCardAssignment = document.getElementById("userIdCardAssignment");
 const userIdCardWorkStatus = document.getElementById("userIdCardWorkStatus");
 const userWorkforceCard = document.getElementById("userWorkforceCard");
 const userWorkforceSummary = document.getElementById("userWorkforceSummary");
@@ -2388,14 +2391,37 @@ function renderUserIdCard(user = null, { useFormValues = false } = {}) {
   const gender = normalizeGender(useFormValues ? userForm?.gender?.value || user?.gender || "unspecified" : user?.gender || "unspecified");
   const photoSrc = (useFormValues ? formPhotoPreviewSrc() : "") || userAvatarSrc(user) || defaultAvatarForGender(gender) || "avatar-neutral.svg";
   const active = user?.id ? activeTimeEntryForUser(user.id) : null;
+  const latestEntry = user?.id ? latestTimeEntryForUser(user.id) : null;
+  const referenceEntry = active || latestEntry;
+  const referenceAssignment = referenceEntry ? timeEntryAssignmentLabel(referenceEntry) : "No active project";
+  const referenceDuration = active
+    ? elapsedFrom(active.checkInAt)
+    : latestEntry
+    ? `Last shift ${formatMinutesCompact(timeEntryDurationMinutes(latestEntry))}`
+    : "Not active";
 
   userIdCardPhoto.src = photoSrc;
   userIdCardFirstName.textContent = first || "First Name";
   userIdCardLastName.textContent = last || "Last Name";
   userIdCardRole.textContent = jobTitle || "Job Title";
+  if (userIdCardCheckState) {
+    userIdCardCheckState.textContent = active ? "Check-in" : "Check-out";
+    userIdCardCheckState.classList.toggle("is-active", Boolean(active));
+    userIdCardCheckState.classList.toggle("is-off", !active);
+  }
+  if (userIdCardActiveTime) userIdCardActiveTime.textContent = referenceDuration;
+  if (userIdCardAssignment) {
+    userIdCardAssignment.textContent = active
+      ? referenceAssignment
+      : latestEntry
+      ? `Last: ${referenceAssignment}`
+      : "No active project";
+  }
   if (userIdCardWorkStatus) {
     userIdCardWorkStatus.textContent = active
-      ? `Working at ${timeEntryAssignmentLabel(active)} • ${elapsedFrom(active.checkInAt)}`
+      ? `Checked in at ${fmtDate(active.checkInAt)}`
+      : latestEntry
+      ? `Last check-out ${fmtDate(latestEntry.checkOutAt || latestEntry.checkInAt)}`
       : "Off shift";
   }
   renderUserWorkforceCard(user);
@@ -10326,6 +10352,23 @@ function activeTimeEntries() {
 function activeTimeEntryForUser(userId = currentUser?.id || "") {
   if (!userId) return null;
   return activeTimeEntries().find((entry) => entry.userId === userId) || null;
+}
+
+function latestTimeEntryForUser(userId = currentUser?.id || "") {
+  if (!userId) return null;
+  const entries = timeEntries
+    .filter((entry) => entry.userId === userId)
+    .slice()
+    .sort((a, b) => new Date(timeEntryEndIso(b) || b.checkInAt || 0).getTime() - new Date(timeEntryEndIso(a) || a.checkInAt || 0).getTime());
+  return entries[0] || null;
+}
+
+function timeEntryDurationMinutes(entry) {
+  if (!entry?.checkInAt) return 0;
+  const startMs = new Date(entry.checkInAt).getTime();
+  const endMs = new Date(timeEntryEndIso(entry)).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.round((endMs - startMs) / 60000);
 }
 
 function workforceProjectOptions() {

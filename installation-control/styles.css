@@ -116,6 +116,34 @@ main,
   align-content: start;
 }
 
+body.auth-mode #authView {
+  position: relative;
+  z-index: 25;
+  isolation: isolate;
+}
+
+body.auth-mode #appMain,
+body.auth-mode .stats {
+  pointer-events: none !important;
+}
+
+body.auth-mode .app-header {
+  position: relative;
+  z-index: 2;
+}
+
+body.auth-mode #authView .panel,
+body.auth-mode #authView form,
+body.auth-mode #authView label,
+body.auth-mode #authView input,
+body.auth-mode #authView textarea,
+body.auth-mode #authView select,
+body.auth-mode #authView button {
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
+}
+
 main {
   padding-bottom: 8.2rem;
 }
@@ -453,6 +481,12 @@ select {
   min-height: 34px;
   background: #fff;
   color: var(--ink);
+}
+
+body.auth-mode #authView input,
+body.auth-mode #authView textarea,
+body.auth-mode #authView select {
+  touch-action: manipulation;
 }
 
 input:focus,

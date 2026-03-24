@@ -7,9 +7,9 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260324-admincontrols1" />
+    <link rel="stylesheet" href="styles.css?v=20260324-loginfix1" />
   </head>
-  <body>
+  <body class="auth-mode">
     <header class="app-header">
       <div>
         <p class="eyebrow">Field Delivery & Installation</p>
@@ -52,9 +52,9 @@
 
       <article id="loginPanel" class="panel auth-panel">
         <h2>Sign in</h2>
-        <form id="loginForm" class="grid-form compact">
-          <label>Username<input required name="username" /></label>
-          <label>Password<input required type="password" name="password" /></label>
+        <form id="loginForm" class="grid-form compact" autocomplete="on">
+          <label>Username<input id="loginUsername" required name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" /></label>
+          <label>Password<input id="loginPassword" required type="password" name="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" /></label>
           <div class="form-actions-inline full">
             <button class="primary" type="submit">Sign in</button>
           </div>
@@ -1741,6 +1741,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260324-admincontrols1" defer></script>
+    <script src="app.js?v=20260324-loginfix1" defer></script>
   </body>
 </html>

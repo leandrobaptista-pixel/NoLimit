@@ -1207,6 +1207,8 @@ const signupPanel = document.getElementById("signupPanel");
 const setupForm = document.getElementById("setupForm");
 const loginForm = document.getElementById("loginForm");
 const signupForm = document.getElementById("signupForm");
+const loginUsernameInput = document.getElementById("loginUsername");
+const loginPasswordInput = document.getElementById("loginPassword");
 const signupGenderSelect = document.getElementById("signupGender");
 const openSignupBtn = document.getElementById("openSignupBtn");
 const backToLoginBtn = document.getElementById("backToLoginBtn");
@@ -2009,6 +2011,7 @@ function openDB() {
 }
 
 function showBootError(message) {
+  document.body.classList.add("auth-mode");
   authView.classList.remove("hidden");
   appMain.classList.add("hidden");
   userBadge.classList.add("hidden");
@@ -2020,6 +2023,19 @@ function showBootError(message) {
   bootErrorPanel.classList.remove("hidden");
   bootErrorMessage.textContent = message;
   applyLanguageToUi();
+}
+
+function unlockAuthForm(form) {
+  if (!form) return;
+  form.querySelectorAll("input, select, textarea, button").forEach((field) => {
+    field.disabled = false;
+    if ("readOnly" in field) field.readOnly = false;
+  });
+}
+
+function focusAuthPrimaryField() {
+  const target = signupPanel && !signupPanel.classList.contains("hidden") ? signupForm?.querySelector('input[name="firstName"]') : loginUsernameInput;
+  window.setTimeout(() => target?.focus(), 90);
 }
 
 function tx(storeName, mode = "readonly") {
@@ -6683,10 +6699,13 @@ function showSignupMode(show) {
   if (!loginPanel || !signupPanel) return;
   loginPanel.classList.toggle("hidden", show);
   signupPanel.classList.toggle("hidden", !show);
+  unlockAuthForm(show ? signupForm : loginForm);
+  focusAuthPrimaryField();
 }
 
 function renderAuth() {
   if (currentUser) {
+    document.body.classList.remove("auth-mode");
     startAutoPullLoop();
     authView.classList.add("hidden");
     appMain.classList.remove("hidden");
@@ -6716,6 +6735,7 @@ function renderAuth() {
   stopAutoTimeClock({ clearStatus: true });
   pendingTimeClockFocus = false;
   pendingPostLoginLanding = false;
+  document.body.classList.add("auth-mode");
   appMain.classList.add("hidden");
   authView.classList.remove("hidden");
   userBadge.classList.add("hidden");
@@ -6723,7 +6743,10 @@ function renderAuth() {
   logoutBtn.classList.add("hidden");
   setupPanel?.classList.add("hidden");
   showSignupMode(false);
+  unlockAuthForm(loginForm);
+  unlockAuthForm(signupForm);
   applyLanguageToUi();
+  focusAuthPrimaryField();
 }
 
 function setFormEnabled(form, enabled) {
@@ -15724,6 +15747,15 @@ window.addEventListener("hashchange", () => {
   const target = viewFromHash();
   if (target === currentView) return;
   setView(target, { updateHash: false });
+});
+
+window.addEventListener("pageshow", () => {
+  if (currentUser) return;
+  document.body.classList.add("auth-mode");
+  unlockAuthForm(loginForm);
+  unlockAuthForm(signupForm);
+  if (loginPasswordInput) loginPasswordInput.disabled = false;
+  focusAuthPrimaryField();
 });
 
 async function registerServiceWorker() {

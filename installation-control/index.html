@@ -1293,13 +1293,13 @@
       </section>
 
       <section id="unitsToolbarPanel" class="panel toolbar">
-        <h2>Controle operacional</h2>
+        <h2>Operational Control</h2>
         <div class="row">
           <input id="searchInput" placeholder="Search by client, project, unit, type, model..." />
           <select id="filterSelect">
-            <option value="all">Todas</option>
-            <option value="pending">Pendentes</option>
-            <option value="qualityIssues">Com problema de qualidade</option>
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="qualityIssues">With quality issue</option>
             <option value="blockedInstall">Installation blocked</option>
           </select>
           <select id="projectReportSelect"></select>
@@ -1351,11 +1351,11 @@
           <label>Issue type
             <select id="qrFlowIssueTypeSelect" disabled>
               <option value="">Select issue type</option>
-              <option value="nao-chegou">Not received</option>
-              <option value="quebrado">Damaged</option>
-              <option value="faltando-pecas">Missing parts</option>
-              <option value="medida-diferente">Wrong size</option>
-              <option value="cor-errada">Wrong color</option>
+              <option value="not-received">Not received</option>
+              <option value="damaged">Damaged</option>
+              <option value="missing-parts">Missing parts</option>
+              <option value="wrong-size">Wrong size</option>
+              <option value="wrong-color">Wrong color</option>
             </select>
           </label>
           <label>Unit (optional)
@@ -1393,14 +1393,14 @@
         <p class="hint container-alert"></p>
 
         <div class="checklist-block" data-sectors="fabrica">
-          <h4>Manifesto de materiais do fabricante</h4>
+          <h4>Manufacturer material manifest</h4>
           <p class="hint manifest-inline-hint">Edit any field directly in the table below. Quantity changes will sync the linked QR pieces.</p>
           <form class="manifest-form row">
             <select class="mf-material"></select>
-            <input class="mf-code" placeholder="Cod. item" />
+            <input class="mf-code" placeholder="Item code" />
             <input class="mf-desc" placeholder="Description" />
             <input class="mf-category" list="containerCategoryList" placeholder="Category" />
-            <input class="mf-qty" type="number" min="1" placeholder="Qtd" />
+            <input class="mf-qty" type="number" min="1" placeholder="Qty" />
             <input class="mf-unit" placeholder="Unit (pcs/box)" />
             <select class="mf-accessibility">
               <option value="normal">Normal</option>
@@ -1433,32 +1433,32 @@
         </div>
 
         <div class="checklist-block" data-sectors="warehouse">
-          <h4>Controle warehouse: envio ou retencao por destino</h4>
+          <h4>Warehouse control: dispatch or hold by destination</h4>
           <form class="release-form row">
             <select class="rf-unit"></select>
             <select class="rf-action">
-              <option value="release">Enviar ao destino</option>
-              <option value="hold">Reter no warehouse</option>
+              <option value="release">Send to destination</option>
+              <option value="hold">Hold in warehouse</option>
             </select>
-            <input class="rf-destination" placeholder="Destino (job site/unidade)" />
+            <input class="rf-destination" placeholder="Destination (job site/unit)" />
             <input class="rf-k" type="number" min="0" placeholder="Kitchens" />
             <input class="rf-v" type="number" min="0" placeholder="Vanities" />
             <input class="rf-m" type="number" min="0" placeholder="Med Cabinets" />
             <input class="rf-c" type="number" min="0" placeholder="Countertops" />
-            <input class="rf-note" placeholder="Nota" />
-            <button class="secondary" type="submit">Registrar movimento</button>
+            <input class="rf-note" placeholder="Note" />
+            <button class="secondary" type="submit">Register movement</button>
           </form>
           <div class="table-wrap release-table"></div>
         </div>
 
         <div class="checklist-block" data-sectors="warehouse">
-          <h4>QR Dispatch por item</h4>
+          <h4>Item-level QR dispatch</h4>
           <form class="qr-dispatch-form row">
             <select class="qd-unit"></select>
-            <input class="qd-kitchen" placeholder="Kitchen Type (opcional)" />
-            <input class="qd-scan" placeholder="Escaneie/cole o QR do item" />
+            <input class="qd-kitchen" placeholder="Kitchen type (optional)" />
+            <input class="qd-scan" placeholder="Scan or paste the item QR" />
             <button class="secondary qd-scan-btn" type="button">Scan QR</button>
-            <button class="secondary" type="submit">Direcionar item</button>
+            <button class="secondary" type="submit">Route item</button>
           </form>
           <div class="table-wrap qr-track-table"></div>
         </div>
@@ -1494,65 +1494,65 @@
               <option value="rejected">Rejected</option>
             </select>
           </label>
-          <label>Status da instalacao
+          <label>Installation status
             <select class="install-status">
               <option value="not-started">Not started</option>
-              <option value="in-progress">Em andamento</option>
+              <option value="in-progress">In progress</option>
               <option value="completed">Completed</option>
-              <option value="blocked">Bloqueada</option>
+              <option value="blocked">Blocked</option>
             </select>
           </label>
         </div>
 
-        <label class="delivery-notes-wrap" data-sectors="distribuicao,instalacao,punchlist">Notes de qualidade/instalacao
+        <label class="delivery-notes-wrap" data-sectors="distribuicao,instalacao,punchlist">Quality/installation notes
           <textarea class="delivery-notes" rows="2" placeholder="Inspection, notes, and pending items"></textarea>
         </label>
 
         <div class="field-row issues-row" data-sectors="punchlist,instalacao">
-          <label class="full">Material faltante / defeituoso / ajuste
-            <textarea class="issues-text" rows="2" placeholder="Ex: 2 portas faltantes; ajuste no shopdrawing do modulo ilha; parede fora de prumo"></textarea>
+          <label class="full">Missing / damaged / adjustment material
+            <textarea class="issues-text" rows="2" placeholder="Example: 2 missing doors; island module shopdrawing adjustment; wall out of plumb"></textarea>
           </label>
         </div>
 
         <div class="checklist-block" data-sectors="warehouse,delivery">
-          <h4>Warehouse dispatch (tarefas + assinatura)</h4>
+          <h4>Warehouse dispatch (tasks + signature)</h4>
           <form class="dispatch-form row">
-            <input class="df-item" placeholder="Item do delivery" />
-            <input class="df-qty" type="number" min="1" placeholder="Qtd" />
+            <input class="df-item" placeholder="Delivery item" />
+            <input class="df-qty" type="number" min="1" placeholder="Qty" />
             <button class="secondary" type="submit">Add task</button>
-            <button class="secondary sign-dispatch-btn" type="button">Assinar envio (warehouse)</button>
+            <button class="secondary sign-dispatch-btn" type="button">Sign dispatch (warehouse)</button>
           </form>
           <div class="table-wrap dispatch-table"></div>
         </div>
 
         <div class="checklist-block" data-sectors="delivery,punchlist">
-          <h4>Recebimento no site job (separado do delivery)</h4>
+          <h4>Job site receipt (separate from delivery)</h4>
           <form class="site-receive-form row">
-            <input class="sr-qr" placeholder="QR code do item" />
+            <input class="sr-qr" placeholder="Item QR code" />
             <input class="sr-item" placeholder="Received item" />
-            <input class="sr-qty" type="number" min="1" placeholder="Qtd" />
+            <input class="sr-qty" type="number" min="1" placeholder="Qty" />
             <select class="sr-issue">
               <option value="ok">OK</option>
-              <option value="nao-chegou">Not received</option>
-              <option value="quebrado">Quebrado</option>
-              <option value="faltando-pecas">Faltando pecas</option>
-              <option value="medida-diferente">Medida diferente</option>
-              <option value="cor-errada">Cor errada</option>
+              <option value="not-received">Not received</option>
+              <option value="damaged">Damaged</option>
+              <option value="missing-parts">Missing parts</option>
+              <option value="wrong-size">Wrong size</option>
+              <option value="wrong-color">Wrong color</option>
             </select>
-            <input class="sr-note" placeholder="Detalhe do problema" />
+            <input class="sr-note" placeholder="Issue detail" />
             <button class="secondary sr-scan-btn" type="button">Scan QR</button>
-            <button class="secondary" type="submit">Lancar recebimento</button>
+            <button class="secondary" type="submit">Log receipt</button>
           </form>
           <div class="table-wrap site-receive-table"></div>
         </div>
 
         <div class="checklist-block" data-sectors="punchlist,delivery,warehouse">
-          <h4>Checklist detalhado de saida/recebimento</h4>
+          <h4>Detailed outbound/receiving checklist</h4>
           <form class="check-item-form row">
-            <input class="ci-code" placeholder="Cod." />
+            <input class="ci-code" placeholder="Code" />
             <input class="ci-desc" placeholder="Material / item description" />
-            <input class="ci-exp" type="number" min="1" placeholder="Qtd. esperada" />
-            <input class="ci-got" type="number" min="0" placeholder="Qtd. conferida" />
+            <input class="ci-exp" type="number" min="1" placeholder="Expected qty" />
+            <input class="ci-got" type="number" min="0" placeholder="Checked qty" />
             <select class="ci-status">
               <option value="ok">OK</option>
               <option value="missing">Missing</option>
@@ -1598,6 +1598,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260323-admin1" defer></script>
+    <script src="app.js?v=20260323-admin2" defer></script>
   </body>
 </html>

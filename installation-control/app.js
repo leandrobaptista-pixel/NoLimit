@@ -1874,7 +1874,7 @@ async function dispatchCoiReminder(userId, { automatic = false } = {}) {
 
   const daysLeft = daysUntil(targetUser.contractorCoiExpiry);
   if (daysLeft === null || daysLeft > COI_REMINDER_DAYS) {
-    if (!automatic) alert("COI ainda nao esta na janela de aviso (30 dias).");
+    if (!automatic) alert("COI is not yet within the reminder window (30 days).");
     return false;
   }
 
@@ -5251,11 +5251,22 @@ function workflowStatusLabel(status) {
 function issueTypeLabel(issueType) {
   const raw = String(issueType || "").trim().toLowerCase();
   if (!raw) return "";
-  if (raw === "nao-chegou") return "Not received";
-  if (raw === "faltando-pecas") return "Missing parts";
-  if (raw === "quebrado") return "Damaged";
-  if (raw === "medida-diferente") return "Wrong size";
-  if (raw === "cor-errada") return "Wrong color";
+  if (raw === "nao-chegou" || raw === "not-received") return "Not received";
+  if (raw === "faltando-pecas" || raw === "missing-parts") return "Missing parts";
+  if (raw === "quebrado" || raw === "damaged") return "Damaged";
+  if (raw === "medida-diferente" || raw === "wrong-size") return "Wrong size";
+  if (raw === "cor-errada" || raw === "wrong-color") return "Wrong color";
+  return raw;
+}
+
+function normalizeIssueTypeValue(issueType) {
+  const raw = String(issueType || "").trim().toLowerCase();
+  if (!raw || raw === "ok") return "ok";
+  if (raw === "nao-chegou" || raw === "not-received") return "not-received";
+  if (raw === "faltando-pecas" || raw === "missing-parts") return "missing-parts";
+  if (raw === "quebrado" || raw === "damaged") return "damaged";
+  if (raw === "medida-diferente" || raw === "wrong-size") return "wrong-size";
+  if (raw === "cor-errada" || raw === "wrong-color") return "wrong-color";
   return raw;
 }
 
@@ -5453,7 +5464,9 @@ function appendQrFlowEvent(container, qrItem, { stage, status, issueType = "", n
     qrItem.issueNote = normalizedNote;
   }
 
-  const actionText = `${workflowStageLabel(normalizedStage)}: ${normalizedStatus}${normalizedIssueType ? ` (${normalizedIssueType})` : ""}`;
+  const actionText = `${workflowStageLabel(normalizedStage)}: ${normalizedStatus}${
+    normalizedIssueType ? ` (${issueTypeLabel(normalizedIssueType) || normalizedIssueType})` : ""
+  }`;
   const detailText = `${qrItem.qrCode}${targetUnit ? ` -> ${targetUnit.unitCode}` : ""}${normalizedNote ? ` | ${normalizedNote}` : ""}`;
   pushContainerAudit(container, `${actionText} | ${detailText}`);
 }
@@ -7336,11 +7349,11 @@ function renderStats() {
   }).length;
 
   const cards = [
-    ["Total unidades", total],
-    ["Pendentes", pending],
-    ["Instalacao concluida", completed],
-    ["Instalacao bloqueada", blocked],
-    ["Qualidade rejeitada", qualityIssues],
+    ["Total units", total],
+    ["Pending", pending],
+    ["Installation completed", completed],
+    ["Installation blocked", blocked],
+    ["Quality rejected", qualityIssues],
     ["Containers", containers.length],
     ["Chegam em 7 dias", arriving7],
     ["Containers atrasados", delayed],
@@ -8364,7 +8377,7 @@ function renderMaterialsTable() {
       const material = materials.find((entry) => entry.id === id);
       if (!material) return;
 
-      const sku = prompt("SKU/Codigo:", material.sku)?.trim();
+      const sku = prompt("SKU/Code:", material.sku)?.trim();
       if (!sku) return;
       const description = prompt("Description:", material.description)?.trim();
       if (!description) return;
@@ -8372,7 +8385,7 @@ function renderMaterialsTable() {
         prompt("Category (examples: kitchen, vanity, tile, curtain, wood-floor, extra-material):", material.category)?.trim() ||
         "other";
       const unit = prompt("Unit:", material.unit || "pcs")?.trim() || "pcs";
-      const kitchenType = prompt("Tipo de cozinha:", material.kitchenType || "")?.trim() || "";
+      const kitchenType = prompt("Kitchen type:", material.kitchenType || "")?.trim() || "";
 
       const updatedMaterial = normalizeMaterial({
         ...material,
@@ -8998,7 +9011,7 @@ function renderContainers() {
       const vendorProductCode = manifestVendorCodeInput?.value?.trim() || "";
 
       if (!description || qty <= 0) {
-        alert(t("Descricao e quantidade sao obrigatorias."));
+        alert("Description and quantity are required.");
         return;
       }
 
@@ -9112,7 +9125,7 @@ function renderContainers() {
 
       const totalMoved = kitchens + vanities + medCabinets + countertops;
       if (totalMoved <= 0) {
-        alert(t("Informe ao menos uma quantidade para registrar movimento."));
+        alert("Enter at least one quantity to register movement.");
         return;
       }
 
@@ -9632,15 +9645,7 @@ function renderUnits() {
       btn.type = "button";
       btn.className = `stage-btn ${stageValue.done ? "done" : ""}`;
       btn.disabled = !can("toggleStage", stage.key);
-      btn.innerHTML = `<strong>${stageLabel(stage.key)}</strong><span>${
-        stageValue.done
-          ? currentLang === "en"
-            ? `Checked: ${fmtDate(stageValue.at)}`
-            : currentLang === "es"
-            ? `Bajado: ${fmtDate(stageValue.at)}`
-            : `Baixado: ${fmtDate(stageValue.at)}`
-          : t("Pendente")
-      }</span>`;
+      btn.innerHTML = `<strong>${stageLabel(stage.key)}</strong><span>${stageValue.done ? `Checked: ${fmtDate(stageValue.at)}` : "Pending"}</span>`;
       btn.addEventListener("click", () => {
         if (!can("toggleStage", stage.key)) return;
         const latest = unit.stages[stage.key];
@@ -9648,7 +9653,7 @@ function renderUnits() {
           done: !latest.done,
           at: !latest.done ? new Date().toISOString() : null,
         };
-        saveUnitWithAudit(unit, `Etapa ${stageLabel(stage.key)} ${unit.stages[stage.key].done ? "concluida" : "reaberta"}`);
+        saveUnitWithAudit(unit, `Stage ${stageLabel(stage.key)} ${unit.stages[stage.key].done ? "completed" : "reopened"}`);
       });
       stageGrid.appendChild(btn);
     }
@@ -9711,7 +9716,7 @@ function renderUnits() {
     if (!canDispatch) dispatchForm.querySelectorAll("input,select,button").forEach((el) => (el.disabled = true));
     renderDispatchTable(dispatchTable, unit, canDispatch);
     signDispatchBtn.disabled = !canDispatch;
-    signDispatchBtn.textContent = unit.dispatchSignature ? "Reassinar envio (warehouse)" : "Assinar envio (warehouse)";
+    signDispatchBtn.textContent = unit.dispatchSignature ? "Re-sign dispatch (warehouse)" : "Sign dispatch (warehouse)";
 
     dispatchForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -9805,7 +9810,7 @@ function renderUnits() {
       const qrCode = siteForm.querySelector(".sr-qr").value.trim();
       const item = siteForm.querySelector(".sr-item").value.trim();
       const qty = toNumber(siteForm.querySelector(".sr-qty").value);
-      const issue = siteForm.querySelector(".sr-issue").value;
+      const issue = normalizeIssueTypeValue(siteForm.querySelector(".sr-issue").value);
       const note = siteForm.querySelector(".sr-note").value.trim();
 
       if (qrCode) {
@@ -9861,13 +9866,17 @@ function renderUnits() {
         unit.updatedAt = now;
 
         if (issue !== "ok") {
-          const issueLine = `${effectiveItem} (${effectiveQty}) -> ${issue}${note ? ` | ${note}` : ""}`;
+          const issueLine = `${effectiveItem} (${effectiveQty}) -> ${issueTypeLabel(issue) || issue}${note ? ` | ${note}` : ""}`;
           unit.issuesText = unit.issuesText ? `${unit.issuesText}\n${issueLine}` : issueLine;
           pushQrIssueQueue(qrContainer, qrItem, unit, issue, note, { source: "site-receive", at: now });
         }
 
         siteForm.reset();
-        await saveUnitAndContainer(unit, qrContainer, `Site job receipt by QR: ${effectiveItem} (${effectiveQty}) - ${issue}`);
+        await saveUnitAndContainer(
+          unit,
+          qrContainer,
+          `Site job receipt by QR: ${effectiveItem} (${effectiveQty}) - ${issueTypeLabel(issue) || issue}`
+        );
         return;
       }
 
@@ -9886,10 +9895,10 @@ function renderUnits() {
       });
       siteForm.reset();
       if (issue !== "ok") {
-        const issueLine = `${item} (${qty}) -> ${issue}${note ? ` | ${note}` : ""}`;
+        const issueLine = `${item} (${qty}) -> ${issueTypeLabel(issue) || issue}${note ? ` | ${note}` : ""}`;
         unit.issuesText = unit.issuesText ? `${unit.issuesText}\n${issueLine}` : issueLine;
       }
-      await saveUnitWithAudit(unit, `Site job receipt: ${item} (${qty}) - ${issue}`);
+      await saveUnitWithAudit(unit, `Site job receipt: ${item} (${qty}) - ${issueTypeLabel(issue) || issue}`);
     });
 
     if (canSiteReceive) {
@@ -9904,7 +9913,12 @@ function renderUnits() {
           const item = prompt("Received item:", row.item)?.trim();
           if (!item) return;
           const qty = toNumber(prompt("Quantity:", String(row.qty)) || row.qty);
-          const issue = prompt("Issue (ok, nao-chegou, quebrado, faltando-pecas, medida-diferente, cor-errada):", row.issue || "ok")?.trim() || row.issue;
+          const issueInput =
+            prompt(
+              "Issue (ok, not-received, damaged, missing-parts, wrong-size, wrong-color):",
+              normalizeIssueTypeValue(row.issue || "ok")
+            )?.trim() || row.issue;
+          const issue = normalizeIssueTypeValue(issueInput);
           const note = prompt("Detail:", row.note || "")?.trim() || "";
           if (
             previousItem === item &&
@@ -9921,9 +9935,9 @@ function renderUnits() {
           row.updatedAt = new Date().toISOString();
           saveUnitWithAudit(
             unit,
-            `Site receipt edited: item "${auditValue(previousItem)}" -> "${auditValue(item)}"; qty ${previousQty} -> ${qty}; issue ${previousIssue} -> ${issue}; note "${auditValue(
-              previousNote
-            )}" -> "${auditValue(note)}"`
+            `Site receipt edited: item "${auditValue(previousItem)}" -> "${auditValue(item)}"; qty ${previousQty} -> ${qty}; issue ${
+              issueTypeLabel(previousIssue) || previousIssue
+            } -> ${issueTypeLabel(issue) || issue}; note "${auditValue(previousNote)}" -> "${auditValue(note)}"`
           );
         });
       });
@@ -10003,10 +10017,10 @@ function renderUnits() {
 
     bindChecklistEvents(node, unit);
 
-    node.querySelector(".scope-line").textContent = unit.scopeWork ? `Scope: ${unit.scopeWork}` : "Scope: nao informado";
+    node.querySelector(".scope-line").textContent = unit.scopeWork ? `Scope: ${unit.scopeWork}` : "Scope: not informed";
     node.querySelector(".shop-line").textContent = unit.shopdrawingRef
       ? `Shopdrawing: ${unit.shopdrawingRef}`
-      : "Shopdrawing: nao informado";
+      : "Shopdrawing: not informed";
 
     const photoInput = node.querySelector(".photo-input");
     const photoLabel = node.querySelector(".photo-label");
@@ -12855,7 +12869,7 @@ function generateUnitReport(unitId) {
 
   const stagesTable = STAGES.map((stage) => {
     const entry = unit.stages[stage.key] || { done: false, at: null };
-    return `<tr><td>${escapeHtml(stageLabel(stage.key))}</td><td>${entry.done ? t("Concluida") : t("Pendente")}</td><td>${escapeHtml(
+    return `<tr><td>${escapeHtml(stageLabel(stage.key))}</td><td>${entry.done ? "Completed" : "Pending"}</td><td>${escapeHtml(
       fmtDate(entry.at)
     )}</td></tr>`;
   }).join("");

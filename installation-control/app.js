@@ -1,5 +1,5 @@
 const DB_NAME = "cabinets-control-db";
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 const UNIT_STORE = "units";
 const PHOTO_STORE = "photos";
 const USER_STORE = "users";
@@ -12,6 +12,8 @@ const CONTAINER_STORE = "containers";
 const MATERIAL_STORE = "materials";
 const DELIVERY_SKU_STORE = "deliverySkuItems";
 const TIME_ENTRY_STORE = "timeEntries";
+const RECEIPT_STORE = "receipts";
+const PAYMENT_STORE = "weeklyPayments";
 const TRASH_STORE = "deletedRecords";
 const SESSION_KEY = "cc-session-user-id";
 const APP_AUDIT_KEY = "cc-app-audit-log";
@@ -30,9 +32,9 @@ const STAGES = [
   { key: "warehouse", label: "Warehouse" },
   { key: "transportation", label: "Transportation" },
   { key: "siteDelivery", label: "Site Job" },
-  { key: "distribution", label: "Distribuicao" },
-  { key: "quality", label: "Qualidade" },
-  { key: "installation", label: "Instalacao" },
+  { key: "distribution", label: "Distribution" },
+  { key: "quality", label: "Quality" },
+  { key: "installation", label: "Installation" },
 ];
 
 const ROLE_LABEL = {
@@ -48,11 +50,57 @@ const ROLE_LABEL = {
   visitor: "Visitor",
 };
 
+const SYSTEM_ROLE_LABEL = {
+  owner: "Owner",
+  admin: "Admin",
+  supervisor: "Supervisor",
+  developer: "Developer",
+  employee: "Employee",
+};
+
+const SYSTEM_ROLE_OPTIONS = [
+  { value: "owner", label: "Owner" },
+  { value: "admin", label: "Admin" },
+  { value: "supervisor", label: "Supervisor" },
+  { value: "developer", label: "Developer" },
+  { value: "employee", label: "Employee" },
+];
+
+const OPERATIONAL_ACCESS_OPTIONS = [
+  { value: "warehouse", label: "Warehouse" },
+  { value: "transport", label: "Transport" },
+  { value: "distribution", label: "Distribution" },
+  { value: "foreman", label: "Foreman" },
+  { value: "project-manager", label: "Project Manager" },
+  { value: "qa", label: "QA" },
+  { value: "installer", label: "Installer" },
+  { value: "visitor", label: "Visitor" },
+  { value: "admin", label: "Admin" },
+  { value: "developer", label: "Developer" },
+];
+
+const PAY_RATE_TYPE_OPTIONS = [
+  { value: "hourly", label: "Hourly rate" },
+  { value: "daily", label: "Daily rate" },
+];
+
+const RECEIPT_CATEGORY_OPTIONS = [
+  { value: "reimbursement", label: "Reimbursement" },
+  { value: "toll", label: "Toll" },
+  { value: "extra", label: "Extra expense" },
+];
+
+const APPROVAL_STATUS_OPTIONS = [
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+];
+
 const CONTACT_ROLE_LABEL = {
   subcontractor: "Sub Contractor",
   foreman: "Foreman",
   "project-manager": "Project Manager",
-  client: "Cliente",
+  client: "Client",
   other: "Other",
 };
 
@@ -798,7 +846,74 @@ function roleLabel(role) {
 }
 
 function userAccessProfile(user) {
-  return String(user?.accessProfile || user?.role || "visitor").trim() || "visitor";
+  return String(user?.operationalRole || user?.accessProfile || user?.role || "visitor").trim() || "visitor";
+}
+
+function deriveSystemRoleFromAccessProfile(accessProfile) {
+  if (accessProfile === "developer") return "developer";
+  if (accessProfile === "admin") return "admin";
+  if (accessProfile === "project-manager" || accessProfile === "foreman") return "supervisor";
+  return "employee";
+}
+
+function normalizeSystemRole(value, fallback = "employee") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (SYSTEM_ROLE_OPTIONS.some((option) => option.value === raw)) return raw;
+  return fallback;
+}
+
+function userSystemRole(user) {
+  const fallback = deriveSystemRoleFromAccessProfile(userAccessProfile(user));
+  return normalizeSystemRole(user?.systemRole, fallback);
+}
+
+function systemRoleLabel(role) {
+  return SYSTEM_ROLE_LABEL[normalizeSystemRole(role)] || "Employee";
+}
+
+function normalizePayRateType(value, fallback = "hourly") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (PAY_RATE_TYPE_OPTIONS.some((option) => option.value === raw)) return raw;
+  return fallback;
+}
+
+function payRateTypeLabel(value) {
+  return PAY_RATE_TYPE_OPTIONS.find((option) => option.value === normalizePayRateType(value))?.label || "Hourly rate";
+}
+
+function normalizeApprovalStatus(value, fallback = "pending") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (APPROVAL_STATUS_OPTIONS.some((option) => option.value === raw)) return raw;
+  return fallback;
+}
+
+function approvalStatusLabel(value) {
+  return APPROVAL_STATUS_OPTIONS.find((option) => option.value === normalizeApprovalStatus(value))?.label || "Pending";
+}
+
+function normalizeReceiptCategory(value, fallback = "reimbursement") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (RECEIPT_CATEGORY_OPTIONS.some((option) => option.value === raw)) return raw;
+  return fallback;
+}
+
+function receiptCategoryLabel(value) {
+  return RECEIPT_CATEGORY_OPTIONS.find((option) => option.value === normalizeReceiptCategory(value))?.label || "Reimbursement";
+}
+
+function roundCurrency(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount * 100) / 100;
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(roundCurrency(value));
 }
 
 function contactRoleLabel(role) {
@@ -958,6 +1073,8 @@ let containers = [];
 let materials = [];
 let deliverySkuItems = [];
 let timeEntries = [];
+let receipts = [];
+let weeklyPayments = [];
 let trashRecords = [];
 let deliveryImportDraft = null;
 let ocrImportDraft = null;
@@ -972,16 +1089,38 @@ let autoPullBlockedUntil = 0;
 let clientsNavHoverTimer = null;
 const AUTO_PULL_INTERVAL_MS = 30 * 1000;
 const AUTO_PULL_SUBMIT_GRACE_MS = 12 * 1000;
-const AUTO_PULL_KINDS = ["unit", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "timeEntry", "trash"];
+const AUTO_PULL_KINDS = [
+  "unit",
+  "user",
+  "client",
+  "project",
+  "contact",
+  "contract",
+  "container",
+  "material",
+  "deliverySku",
+  "timeEntry",
+  "receipt",
+  "payment",
+  "trash",
+];
 let currentView = "home";
 let editingUserId = "";
 let userEditReturnView = "home";
 let adminEditingUserId = "";
+let adminSelectedEmployeeId = "";
+let adminEditingReceiptId = "";
 let userAdminFormOpen = false;
 let usersSubView = "directory";
 let lastQrLookupCode = "";
 let currentProjectSector = "fabrica";
 let usersViewFilter = "all";
+let adminWeekAnchor = weekStartIso(new Date());
+let adminSearchTerm = "";
+let adminRoleFilter = "all";
+let adminProjectFilter = "";
+let adminApprovalFilter = "all";
+let adminSortKey = "employee";
 let hasAutoDispatchedCoiReminder = false;
 let selectedClientId = "";
 let selectedProjectId = "";
@@ -1238,6 +1377,35 @@ const workforceActiveTable = document.getElementById("workforceActiveTable");
 const workforceWeeklyTable = document.getElementById("workforceWeeklyTable");
 const workforceSubcontractorTable = document.getElementById("workforceSubcontractorTable");
 const workforceWeeklyReportBtn = document.getElementById("workforceWeeklyReportBtn");
+const adminPanel = document.getElementById("adminPanel");
+const adminFiltersForm = document.getElementById("adminFiltersForm");
+const adminWeekInput = document.getElementById("adminWeekInput");
+const adminSearchInput = document.getElementById("adminSearchInput");
+const adminRoleFilterSelect = document.getElementById("adminRoleFilterSelect");
+const adminProjectFilterSelect = document.getElementById("adminProjectFilterSelect");
+const adminApprovalFilterSelect = document.getElementById("adminApprovalFilterSelect");
+const adminSortSelect = document.getElementById("adminSortSelect");
+const adminSummaryCards = document.getElementById("adminSummaryCards");
+const adminEmployeesTable = document.getElementById("adminEmployeesTable");
+const adminEmployeeForm = document.getElementById("adminEmployeeForm");
+const adminEmployeeEditorStatus = document.getElementById("adminEmployeeEditorStatus");
+const adminEmployeeCancelBtn = document.getElementById("adminEmployeeCancelBtn");
+const adminOpenUserRegistrationBtn = document.getElementById("adminOpenUserRegistrationBtn");
+const adminPaymentsTable = document.getElementById("adminPaymentsTable");
+const adminWeeklyReportBtn = document.getElementById("adminWeeklyReportBtn");
+const receiptForm = document.getElementById("receiptForm");
+const receiptUserSelect = document.getElementById("receiptUserSelect");
+const receiptProjectSelect = document.getElementById("receiptProjectSelect");
+const receiptApprovalStatusSelect = document.getElementById("receiptApprovalStatusSelect");
+const receiptAttachmentInput = document.getElementById("receiptAttachmentInput");
+const receiptFileStatus = document.getElementById("receiptFileStatus");
+const openReceiptFileBtn = document.getElementById("openReceiptFileBtn");
+const receiptFormNewBtn = document.getElementById("receiptFormNewBtn");
+const receiptFormDeleteBtn = document.getElementById("receiptFormDeleteBtn");
+const receiptFormCancelBtn = document.getElementById("receiptFormCancelBtn");
+const adminReceiptsTable = document.getElementById("adminReceiptsTable");
+const adminSubcontractorTable = document.getElementById("adminSubcontractorTable");
+const adminAuditTable = document.getElementById("adminAuditTable");
 const userForm = document.getElementById("userForm");
 const userFormPanel = document.getElementById("userFormPanel");
 const usersNameRail = document.getElementById("usersNameRail");
@@ -1485,6 +1653,13 @@ function normalizePositiveIntegerField(value) {
   const num = Number(raw);
   if (!Number.isFinite(num) || num <= 0) return "";
   return String(Math.round(num));
+}
+
+function normalizeMoneyField(value) {
+  const raw = String(value ?? "").trim().replace(/[^0-9.-]/g, "");
+  if (!raw) return 0;
+  const num = Number(raw);
+  return Number.isFinite(num) ? roundCurrency(Math.max(0, num)) : 0;
 }
 
 function normalizeWorkSiteType(value, fallback = "project") {
@@ -1774,6 +1949,8 @@ function openDB() {
         dbRef.createObjectStore(DELIVERY_SKU_STORE, { keyPath: "id" });
       }
       if (!dbRef.objectStoreNames.contains(TIME_ENTRY_STORE)) dbRef.createObjectStore(TIME_ENTRY_STORE, { keyPath: "id" });
+      if (!dbRef.objectStoreNames.contains(RECEIPT_STORE)) dbRef.createObjectStore(RECEIPT_STORE, { keyPath: "id" });
+      if (!dbRef.objectStoreNames.contains(PAYMENT_STORE)) dbRef.createObjectStore(PAYMENT_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(TRASH_STORE)) dbRef.createObjectStore(TRASH_STORE, { keyPath: "id" });
     };
 
@@ -1874,6 +2051,8 @@ function normalizeRecordForStore(storeName, payload) {
   if (storeName === CONTAINER_STORE) return normalizeContainer(payload);
   if (storeName === MATERIAL_STORE) return normalizeMaterial(payload);
   if (storeName === DELIVERY_SKU_STORE) return normalizeDeliverySkuItem(payload);
+  if (storeName === RECEIPT_STORE) return normalizeReceipt(payload);
+  if (storeName === PAYMENT_STORE) return normalizeWeeklyPayment(payload);
   if (storeName === TRASH_STORE) return normalizeTrashRecord(payload);
   return payload;
 }
@@ -2209,6 +2388,7 @@ function normalizeUser(user) {
   const lastName = user.lastName || "";
   const composedName = `${firstName} ${lastName}`.trim();
   const accessProfile = userAccessProfile(user);
+  const systemRole = userSystemRole(user);
   const normalizedCoiFile =
     user.contractorCoiFile && typeof user.contractorCoiFile === "object"
       ? {
@@ -2243,6 +2423,11 @@ function normalizeUser(user) {
     username: (user.username || "").toLowerCase(),
     passwordHash: user.passwordHash || "",
     legacyPassword: user.legacyPassword || user.password || "",
+    systemRole,
+    payRateType: normalizePayRateType(user.payRateType, "hourly"),
+    hourlyRate: normalizeMoneyField(user.hourlyRate),
+    dailyRate: normalizeMoneyField(user.dailyRate),
+    operationalRole: accessProfile,
     accessProfile,
     createdAt: user.createdAt || new Date().toISOString(),
     updatedAt: user.updatedAt || user.createdAt || new Date().toISOString(),
@@ -2293,6 +2478,74 @@ function normalizeTimeEntry(entry) {
     checkOutLocation: normalizeGeoSnapshot(entry.checkOutLocation),
     createdAt: entry.createdAt || entry.checkInAt || new Date().toISOString(),
     updatedAt: entry.updatedAt || entry.checkOutAt || entry.checkInAt || entry.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeAttachment(file) {
+  if (!file || typeof file !== "object") return null;
+  const dataUrl = String(file.dataUrl || "").trim();
+  if (!dataUrl) return null;
+  return {
+    name: String(file.name || "attachment").trim() || "attachment",
+    type: String(file.type || "").trim(),
+    dataUrl,
+    uploadedAt: String(file.uploadedAt || "").trim() || new Date().toISOString(),
+  };
+}
+
+function normalizeReceipt(receipt) {
+  const attachment = normalizeAttachment(receipt.attachment);
+  return {
+    id: receipt.id || uid(),
+    userId: String(receipt.userId || "").trim(),
+    userName: String(receipt.userName || "").trim(),
+    systemRole: normalizeSystemRole(receipt.systemRole, "employee"),
+    companyName: String(receipt.companyName || "").trim(),
+    employmentType: String(receipt.employmentType || "").trim(),
+    jobTitle: String(receipt.jobTitle || "").trim(),
+    clientId: String(receipt.clientId || "").trim(),
+    clientName: String(receipt.clientName || "").trim(),
+    projectId: String(receipt.projectId || "").trim(),
+    projectName: String(receipt.projectName || "").trim(),
+    category: normalizeReceiptCategory(receipt.category, "reimbursement"),
+    amount: normalizeMoneyField(receipt.amount),
+    description: String(receipt.description || "").trim(),
+    expenseDate: normalizeDateField(receipt.expenseDate) || isoDateFromValue(receipt.createdAt || new Date()),
+    approvalStatus: normalizeApprovalStatus(receipt.approvalStatus, "pending"),
+    attachment,
+    auditLog: ensureArray(receipt.auditLog),
+    createdByUserId: String(receipt.createdByUserId || "").trim(),
+    createdByName: String(receipt.createdByName || "").trim(),
+    approvedByUserId: String(receipt.approvedByUserId || "").trim(),
+    approvedByName: String(receipt.approvedByName || "").trim(),
+    approvedAt: String(receipt.approvedAt || "").trim(),
+    rejectedByUserId: String(receipt.rejectedByUserId || "").trim(),
+    rejectedByName: String(receipt.rejectedByName || "").trim(),
+    rejectedAt: String(receipt.rejectedAt || "").trim(),
+    createdAt: String(receipt.createdAt || "").trim() || new Date().toISOString(),
+    updatedAt: String(receipt.updatedAt || "").trim() || receipt.createdAt || new Date().toISOString(),
+  };
+}
+
+function normalizeWeeklyPayment(record) {
+  const weekStart = weekStartIso(record.weekStart || new Date());
+  return {
+    id: record.id || `${record.userId || "user"}::${weekStart}`,
+    userId: String(record.userId || "").trim(),
+    weekStart,
+    status: normalizeApprovalStatus(record.status, "pending"),
+    manualAdjustment: roundCurrency(record.manualAdjustment),
+    notes: String(record.notes || "").trim(),
+    snapshot: record.snapshot && typeof record.snapshot === "object" ? deepClone(record.snapshot) : null,
+    auditLog: ensureArray(record.auditLog),
+    approvedByUserId: String(record.approvedByUserId || "").trim(),
+    approvedByName: String(record.approvedByName || "").trim(),
+    approvedAt: String(record.approvedAt || "").trim(),
+    rejectedByUserId: String(record.rejectedByUserId || "").trim(),
+    rejectedByName: String(record.rejectedByName || "").trim(),
+    rejectedAt: String(record.rejectedAt || "").trim(),
+    createdAt: String(record.createdAt || "").trim() || new Date().toISOString(),
+    updatedAt: String(record.updatedAt || "").trim() || record.createdAt || new Date().toISOString(),
   };
 }
 
@@ -2520,6 +2773,8 @@ async function loadAll() {
     materialRows,
     deliverySkuRows,
     timeEntryRows,
+    receiptRows,
+    paymentRows,
     trashRows,
   ] =
     await Promise.all([
@@ -2535,6 +2790,8 @@ async function loadAll() {
       getAll(MATERIAL_STORE),
       getAll(DELIVERY_SKU_STORE),
       getAll(TIME_ENTRY_STORE),
+      getAll(RECEIPT_STORE),
+      getAll(PAYMENT_STORE),
       getAll(TRASH_STORE),
     ]);
 
@@ -2560,6 +2817,12 @@ async function loadAll() {
   timeEntries = timeEntryRows
     .map(normalizeTimeEntry)
     .sort((a, b) => new Date(b.updatedAt || b.checkInAt || 0).getTime() - new Date(a.updatedAt || a.checkInAt || 0).getTime());
+  receipts = receiptRows
+    .map(normalizeReceipt)
+    .sort((a, b) => new Date(b.expenseDate || b.updatedAt || 0).getTime() - new Date(a.expenseDate || a.updatedAt || 0).getTime());
+  weeklyPayments = paymentRows
+    .map(normalizeWeeklyPayment)
+    .sort((a, b) => new Date(b.weekStart || 0).getTime() - new Date(a.weekStart || 0).getTime() || a.userId.localeCompare(b.userId));
   const normalizedTrash = trashRows.map(normalizeTrashRecord);
   const expiredTrashIds = normalizedTrash.filter((row) => isTrashRecordExpired(row)).map((row) => row.id);
   trashRecords = normalizedTrash
@@ -2691,6 +2954,8 @@ function trashStoreLabel(storeName) {
   if (storeName === CONTAINER_STORE) return "Containers";
   if (storeName === MATERIAL_STORE) return "Materials";
   if (storeName === DELIVERY_SKU_STORE) return "Delivery Inventory";
+  if (storeName === RECEIPT_STORE) return "Receipts";
+  if (storeName === PAYMENT_STORE) return "Weekly Payments";
   return storeName || "Record";
 }
 
@@ -5994,16 +6259,25 @@ function qrIssueRoutesToFactory(issueType) {
   return ["nao-chegou", "faltando-pecas", "not-received", "missing-parts"].includes(normalized);
 }
 
-function isAdmin() {
-  return userAccessProfile(currentUser) === "admin";
+function isOwner(user = currentUser) {
+  return userSystemRole(user) === "owner";
+}
+
+function isAdmin(user = currentUser) {
+  const role = userSystemRole(user);
+  return role === "admin" || role === "owner";
+}
+
+function isSupervisor(user = currentUser) {
+  return userSystemRole(user) === "supervisor";
 }
 
 function isProjectManager() {
   return userAccessProfile(currentUser) === "project-manager";
 }
 
-function isDeveloper() {
-  return userAccessProfile(currentUser) === "developer";
+function isDeveloper(user = currentUser) {
+  return userSystemRole(user) === "developer";
 }
 
 function normalizeCompanyName(value) {
@@ -6013,7 +6287,7 @@ function normalizeCompanyName(value) {
 }
 
 function isTagAdminUser(user = currentUser) {
-  if (!user || userAccessProfile(user) !== "admin") return false;
+  if (!user || !isAdmin(user)) return false;
   const employmentType = String(user.employmentType || "").toLowerCase();
   const company = normalizeCompanyName(user.companyName);
   const isTagCompany = company.includes("tag");
@@ -6022,15 +6296,17 @@ function isTagAdminUser(user = currentUser) {
 }
 
 function canViewAllEmployees() {
-  if (isDeveloper()) return true;
+  if (isDeveloper() || isOwner()) return true;
   return isTagAdminUser(currentUser);
 }
 
 function canAccessEmployeeRecord(targetUser) {
   if (!currentUser || !targetUser) return false;
   if (isDeveloper()) return true;
-  if (userAccessProfile(targetUser) === "developer" || isPrimaryDeveloperUser(targetUser)) return false;
-  if (!isAdmin()) return targetUser.id === currentUser.id;
+  if (userSystemRole(targetUser) === "developer" || userAccessProfile(targetUser) === "developer" || isPrimaryDeveloperUser(targetUser)) {
+    return false;
+  }
+  if (!isAdmin() && !isSupervisor()) return targetUser.id === currentUser.id;
   if (isTagAdminUser(currentUser)) return true;
 
   const myCompany = normalizeCompanyName(currentUser.companyName);
@@ -6041,6 +6317,11 @@ function canAccessEmployeeRecord(targetUser) {
 function can(action, stageKey = "") {
   if (!currentUser) return false;
   const accessProfile = userAccessProfile(currentUser);
+  const systemRole = userSystemRole(currentUser);
+  if (["accessAdmin", "managePayroll", "approvePayroll", "approveExpenses"].includes(action)) {
+    return ["developer", "owner", "admin", "supervisor"].includes(systemRole);
+  }
+  if (action === "deletePayroll") return ["developer", "owner", "admin"].includes(systemRole);
   if (isDeveloper()) return true;
   if (isProjectManager()) {
     if (action === "sync") return false;
@@ -6088,6 +6369,10 @@ function can(action, stageKey = "") {
       "checklist",
     ].includes(action);
   }
+  if (isSupervisor()) {
+    if (action === "sync") return false;
+    if (action === "report") return true;
+  }
   if (accessProfile === "visitor") return action === "report";
 
   if (action === "manageUsers") return false;
@@ -6128,6 +6413,19 @@ function can(action, stageKey = "") {
 }
 
 function rolePermissionsSummary(accessProfile) {
+  const systemRole = userSystemRole(currentUser);
+  if (systemRole === "developer") {
+    return "Developer role: full control of operations, payroll, receipts, approvals, and developer tools.";
+  }
+  if (systemRole === "owner") {
+    return "Owner role: full business control of payroll, reimbursements, approvals, reports, and user administration.";
+  }
+  if (systemRole === "admin") {
+    return "Admin role: manages employees, approvals, payroll, expenses, and operational records.";
+  }
+  if (systemRole === "supervisor") {
+    return "Supervisor role: monitors workforce, submits and approves weekly payments and expenses, and tracks field progress.";
+  }
   if (accessProfile === "developer") return "Developer access: full control, including system structure and settings.";
   if (accessProfile === "admin") return "Admin access: can modify all project phases and quality control approvals/rejections.";
   if (accessProfile === "project-manager") return "Project Manager access: can modify all project phases and quality control approvals/rejections.";
@@ -6137,7 +6435,7 @@ function rolePermissionsSummary(accessProfile) {
   if (accessProfile === "foreman") return "Foreman access: distribution/installation updates and execution supervision.";
   if (accessProfile === "qa") return "QA access: read/track quality records. Final QC decisions are by Admin or Project Manager.";
   if (accessProfile === "installer") return "Installer access: installation execution updates.";
-  if (accessProfile === "visitor") return "Visitor access: read-only and reports. Access profiles are assigned by Admin/Developer.";
+  if (accessProfile === "visitor") return "Employee role: self-service time clock and read-only access until operational access is assigned.";
   return "";
 }
 
@@ -6147,9 +6445,9 @@ function stageDoneCount(unit) {
 
 function statusBadge(type) {
   if (type === "ok") return "OK";
-  if (type === "missing") return "Faltante";
-  if (type === "damaged") return "Defeito";
-  if (type === "adjustment") return "Ajuste";
+  if (type === "missing") return "Missing";
+  if (type === "damaged") return "Damaged";
+  if (type === "adjustment") return "Adjustment";
   return "-";
 }
 
@@ -6305,7 +6603,7 @@ function renderAuth() {
     userBadge.classList.remove("hidden");
     editProfileBtn?.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
-    userBadge.textContent = `${currentUser.name} (${roleLabel(userAccessProfile(currentUser))})`;
+    userBadge.textContent = `${currentUser.name} (${systemRoleLabel(userSystemRole(currentUser))} / ${roleLabel(userAccessProfile(currentUser))})`;
     currentView = viewFromHash();
     render();
     void maybeAutoDispatchCoiReminder();
@@ -6334,7 +6632,7 @@ function setFormEnabled(form, enabled) {
 function viewFromHash() {
   const raw = window.location.hash.replace(/^#/, "").trim();
   if (!raw) return "home";
-  const allowed = new Set(["home", "sync", "users", "clients", "projects", "manufacture", "userEdit", "ocrImporter"]);
+  const allowed = new Set(["home", "sync", "users", "admin", "clients", "projects", "manufacture", "userEdit", "ocrImporter"]);
   return allowed.has(raw) ? raw : "home";
 }
 
@@ -6353,6 +6651,7 @@ function canOpenView(view) {
   if (view === "home") return true;
   if (view === "sync") return can("sync");
   if (view === "users") return can("manageUsers");
+  if (view === "admin") return can("accessAdmin");
   if (view === "userEdit") return true;
   if (view === "clients") return can("manageCatalog");
   if (view === "projects") return true;
@@ -6544,6 +6843,7 @@ function applyViewMode() {
     home: [homePanel],
     sync: [syncPanel],
     users: [usersPanel],
+    admin: [adminPanel],
     userEdit: [userEditPanel],
     clients: [masterDataPanel],
     manufacture: [containerPanel],
@@ -6564,6 +6864,7 @@ function applyViewMode() {
     homePanel,
     syncPanel,
     usersPanel,
+    adminPanel,
     userEditPanel,
     ocrImporterPanel,
     masterDataPanel,
@@ -6795,6 +7096,12 @@ function handleQuickNavAction(action) {
   if (action === "developer") {
     setUsersViewFilter("all");
     setView(isDeveloper() ? "sync" : "home");
+    return;
+  }
+
+  if (action === "admin") {
+    setUsersViewFilter("all");
+    setView(canOpenView("admin") ? "admin" : "home");
     return;
   }
 
@@ -9791,6 +10098,7 @@ function resetAdminUserForm() {
   if (!userForm) return;
   adminEditingUserId = "";
   userForm.reset();
+  if (userForm.systemRole) userForm.systemRole.value = "employee";
   userForm.accessProfile.value = "visitor";
   userForm.employmentType.value = "tag";
   if (userAdminGenderSelect) userAdminGenderSelect.value = "unspecified";
@@ -9831,6 +10139,7 @@ function populateAdminUserForm(user) {
   userForm.email.value = user.email || "";
   userForm.username.value = user.username || "";
   userForm.password.value = "";
+  if (userForm.systemRole) userForm.systemRole.value = userSystemRole(user);
   userForm.accessProfile.value = userAccessProfile(user);
   if (userAdminGenderSelect) userAdminGenderSelect.value = normalizeGender(user.gender);
   const photoInput = userForm.querySelector('input[name="photo"]');
@@ -9868,7 +10177,9 @@ function selectAdminUser(userId) {
 }
 
 function canUseTimeClock(user = currentUser) {
-  return Boolean(user && userAccessProfile(user) !== "visitor");
+  if (!user) return false;
+  if (String(user.employmentType || "").toLowerCase() === "supplier") return false;
+  return ["developer", "owner", "admin", "supervisor", "employee"].includes(userSystemRole(user));
 }
 
 function activeTimeEntries() {
@@ -10454,6 +10765,907 @@ function generateWorkforceWeeklyReport() {
   setTimeout(() => win.print(), 300);
 }
 
+function weeklyPaymentRecordId(userId, weekStart) {
+  return `${String(userId || "user").trim()}::${weekStartIso(weekStart || new Date())}`;
+}
+
+function adminWeekRange() {
+  return weekRangeFromAnchor(adminWeekAnchor || new Date());
+}
+
+function expenseDateTimestamp(expenseDate) {
+  const iso = normalizeDateField(expenseDate);
+  if (!iso) return 0;
+  return new Date(`${iso}T12:00:00`).getTime();
+}
+
+function receiptWithinRange(receipt, range) {
+  const ts = expenseDateTimestamp(receipt?.expenseDate);
+  return ts >= range.startMs && ts < range.endMs;
+}
+
+function receiptAttachmentLabel(receipt) {
+  return receipt?.attachment?.name || "No attachment";
+}
+
+function recordAuditTrail(log, message) {
+  return pushAudit(ensureArray(log), message);
+}
+
+function adminVisibleUsers() {
+  return users.filter((user) => {
+    if (!canAccessEmployeeRecord(user)) return false;
+    return String(user.employmentType || "").toLowerCase() !== "supplier";
+  });
+}
+
+function adminPaymentRecordForUser(userId, weekStart) {
+  return weeklyPayments.find((entry) => entry.userId === userId && entry.weekStart === weekStart) || null;
+}
+
+function adminSnapshotNeedsReview(paymentRecord, snapshot) {
+  if (!paymentRecord?.snapshot) return false;
+  const trackedKeys = ["workedMinutes", "workedDays", "basePay", "reimbursements", "toll", "extras", "totalPayment"];
+  return trackedKeys.some((key) => roundCurrency(paymentRecord.snapshot[key]) !== roundCurrency(snapshot[key]));
+}
+
+function buildAdminEmployeeSnapshot(user, range = adminWeekRange()) {
+  const relevantEntries = timeEntries.filter((entry) => entry.userId === user.id && timeEntryMinutesWithinRange(entry, range.startMs, range.endMs) > 0);
+  const relevantReceipts = receipts.filter((receipt) => receipt.userId === user.id && receiptWithinRange(receipt, range));
+  const assignments = new Set();
+  const projectIds = new Set();
+  const daySet = new Set();
+  let workedMinutes = 0;
+
+  relevantEntries.forEach((entry) => {
+    workedMinutes += timeEntryMinutesWithinRange(entry, range.startMs, range.endMs);
+    timeEntryDayKeysWithinRange(entry, range.startMs, range.endMs).forEach((day) => daySet.add(day));
+    const assignment = timeEntryAssignmentLabel(entry);
+    if (assignment) assignments.add(assignment);
+    if (entry.projectId) projectIds.add(entry.projectId);
+  });
+
+  relevantReceipts.forEach((receipt) => {
+    if (receipt.projectId) projectIds.add(receipt.projectId);
+    if (receipt.projectName) assignments.add(receipt.projectName);
+  });
+
+  const approvedReceipts = relevantReceipts.filter((receipt) => receipt.approvalStatus === "approved");
+  const reimbursements = approvedReceipts
+    .filter((receipt) => receipt.category === "reimbursement")
+    .reduce((sum, receipt) => sum + receipt.amount, 0);
+  const toll = approvedReceipts.filter((receipt) => receipt.category === "toll").reduce((sum, receipt) => sum + receipt.amount, 0);
+  const extras = approvedReceipts.filter((receipt) => receipt.category === "extra").reduce((sum, receipt) => sum + receipt.amount, 0);
+  const pendingExpenses = relevantReceipts.filter((receipt) => receipt.approvalStatus === "pending").length;
+  const rateType = normalizePayRateType(user.payRateType, "hourly");
+  const hourlyRate = normalizeMoneyField(user.hourlyRate);
+  const dailyRate = normalizeMoneyField(user.dailyRate);
+  const workedDays = daySet.size;
+  const basePay =
+    rateType === "daily" ? roundCurrency(workedDays * dailyRate) : roundCurrency((workedMinutes / 60) * hourlyRate);
+  const paymentRecord = adminPaymentRecordForUser(user.id, range.startIso);
+  const manualAdjustment = roundCurrency(paymentRecord?.manualAdjustment || 0);
+  const totalPayment = roundCurrency(basePay + reimbursements + toll + extras + manualAdjustment);
+  const snapshot = {
+    userId: user.id,
+    userName: user.name || user.username || "User",
+    weekStart: range.startIso,
+    workedMinutes,
+    workedDays,
+    basePay,
+    reimbursements: roundCurrency(reimbursements),
+    toll: roundCurrency(toll),
+    extras: roundCurrency(extras),
+    manualAdjustment,
+    totalPayment,
+  };
+  const needsReview = adminSnapshotNeedsReview(paymentRecord, snapshot);
+  const paymentStatus = needsReview ? "pending" : normalizeApprovalStatus(paymentRecord?.status, "pending");
+  const active = activeTimeEntryForUser(user.id);
+  const searchBlob = [
+    user.name,
+    user.username,
+    user.companyName,
+    user.jobTitle,
+    systemRoleLabel(userSystemRole(user)),
+    roleLabel(userAccessProfile(user)),
+    [...assignments].join(" "),
+    user.employmentType,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return {
+    user,
+    active,
+    assignments: [...assignments],
+    projectIds: [...projectIds],
+    workedMinutes,
+    workedDays,
+    basePay,
+    reimbursements: roundCurrency(reimbursements),
+    toll: roundCurrency(toll),
+    extras: roundCurrency(extras),
+    expensesTotal: roundCurrency(reimbursements + toll + extras),
+    manualAdjustment,
+    totalPayment,
+    pendingExpenses,
+    paymentRecord,
+    paymentStatus,
+    needsReview,
+    rateType,
+    hourlyRate,
+    dailyRate,
+    receipts: relevantReceipts,
+    snapshot,
+    searchBlob,
+  };
+}
+
+function adminSnapshotMatchesFilters(snapshot) {
+  if (!snapshot) return false;
+  if (adminRoleFilter !== "all" && userSystemRole(snapshot.user) !== adminRoleFilter) return false;
+  if (adminProjectFilter && !snapshot.projectIds.includes(adminProjectFilter)) return false;
+  if (adminApprovalFilter !== "all") {
+    const hasReceiptStatus = snapshot.receipts.some((receipt) => receipt.approvalStatus === adminApprovalFilter);
+    const hasPayrollActivity = snapshot.workedMinutes > 0 || snapshot.expensesTotal > 0;
+    if ((!hasPayrollActivity || snapshot.paymentStatus !== adminApprovalFilter) && !hasReceiptStatus) return false;
+  }
+  if (adminSearchTerm) {
+    const query = adminSearchTerm.trim().toLowerCase();
+    if (query && !snapshot.searchBlob.includes(query)) return false;
+  }
+  return true;
+}
+
+function sortAdminSnapshots(snapshots) {
+  const rows = snapshots.slice();
+  rows.sort((a, b) => {
+    const nameA = String(a.user.name || a.user.username || "");
+    const nameB = String(b.user.name || b.user.username || "");
+    if (adminSortKey === "hours") return b.workedMinutes - a.workedMinutes || nameA.localeCompare(nameB);
+    if (adminSortKey === "payment") return b.totalPayment - a.totalPayment || nameA.localeCompare(nameB);
+    if (adminSortKey === "role") {
+      return systemRoleLabel(userSystemRole(a.user)).localeCompare(systemRoleLabel(userSystemRole(b.user))) || nameA.localeCompare(nameB);
+    }
+    return nameA.localeCompare(nameB);
+  });
+  return rows;
+}
+
+function adminFilteredEmployeeSnapshots() {
+  return sortAdminSnapshots(adminVisibleUsers().map((user) => buildAdminEmployeeSnapshot(user, adminWeekRange())).filter(adminSnapshotMatchesFilters));
+}
+
+function adminFilteredReceipts(range = adminWeekRange()) {
+  const query = adminSearchTerm.trim().toLowerCase();
+  return receipts
+    .filter((receipt) => receiptWithinRange(receipt, range))
+    .filter((receipt) => {
+      const user = users.find((entry) => entry.id === receipt.userId);
+      if (user && !canAccessEmployeeRecord(user)) return false;
+      if (adminRoleFilter !== "all" && user && userSystemRole(user) !== adminRoleFilter) return false;
+      if (adminProjectFilter && receipt.projectId !== adminProjectFilter) return false;
+      if (adminApprovalFilter !== "all" && receipt.approvalStatus !== adminApprovalFilter) return false;
+      if (!query) return true;
+      const haystack = [
+        receipt.userName,
+        receipt.companyName,
+        receipt.projectName,
+        receipt.description,
+        receiptCategoryLabel(receipt.category),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    })
+    .sort((a, b) => new Date(b.expenseDate || b.updatedAt || 0).getTime() - new Date(a.expenseDate || a.updatedAt || 0).getTime());
+}
+
+function adminSubcontractorPresenceRows(range = adminWeekRange()) {
+  const query = adminSearchTerm.trim().toLowerCase();
+  const map = new Map();
+  timeEntries.forEach((entry) => {
+    if (entry.employmentType !== "subcontractor") return;
+    const targetUser = users.find((user) => user.id === entry.userId);
+    if (targetUser && !canAccessEmployeeRecord(targetUser)) return;
+    if (adminRoleFilter !== "all" && targetUser && userSystemRole(targetUser) !== adminRoleFilter) return;
+    if (adminProjectFilter && entry.projectId !== adminProjectFilter) return;
+    const minutes = timeEntryMinutesWithinRange(entry, range.startMs, range.endMs);
+    if (!minutes) return;
+    const searchBlob = [entry.userName, entry.companyName, entry.projectName, entry.jobTitle, ensureArray(entry.workAreas).join(" ")]
+      .join(" ")
+      .toLowerCase();
+    if (query && !searchBlob.includes(query)) return;
+    const key = `${entry.projectId || entry.workSiteType || "manual"}::${entry.userId}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        projectName: timeEntryAssignmentLabel(entry),
+        companyName: entry.companyName || "-",
+        userName: entry.userName || "-",
+        jobTitle: entry.jobTitle || "-",
+        workAreas: ensureArray(entry.workAreas),
+        minutes: 0,
+        days: new Set(),
+        lastOut: "",
+      });
+    }
+    const bucket = map.get(key);
+    bucket.minutes += minutes;
+    timeEntryDayKeysWithinRange(entry, range.startMs, range.endMs).forEach((day) => bucket.days.add(day));
+    if (entry.checkOutAt && (!bucket.lastOut || new Date(entry.checkOutAt) > new Date(bucket.lastOut))) bucket.lastOut = entry.checkOutAt;
+  });
+  return [...map.values()].sort(
+    (a, b) => a.projectName.localeCompare(b.projectName) || a.companyName.localeCompare(b.companyName) || a.userName.localeCompare(b.userName)
+  );
+}
+
+function populateAdminUserSelect(select, currentValue = "") {
+  if (!select) return;
+  const options = ['<option value="">Select an employee</option>'];
+  adminVisibleUsers()
+    .sort((a, b) => String(a.name || a.username || "").localeCompare(String(b.name || b.username || "")))
+    .forEach((user) => {
+      options.push(`<option value="${escapeHtml(user.id)}">${escapeHtml(`${user.name || user.username} - ${user.companyName || "No company"}`)}</option>`);
+    });
+  select.innerHTML = options.join("");
+  if (currentValue && Array.from(select.options).some((option) => option.value === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+function setAdminEmployeeFormEnabled(enabled) {
+  if (!adminEmployeeForm) return;
+  adminEmployeeForm.querySelectorAll("input, select, button").forEach((field) => {
+    if (field === adminEmployeeCancelBtn) {
+      field.disabled = !enabled;
+      return;
+    }
+    field.disabled = !enabled;
+  });
+}
+
+function syncAdminEmployeeRolePermissions() {
+  if (!adminEmployeeForm) return;
+  const canEditRoles = can("manageUsers");
+  const systemRoleSelect = adminEmployeeForm.querySelector('select[name="systemRole"]');
+  const accessProfileSelect = adminEmployeeForm.querySelector('select[name="accessProfile"]');
+  if (systemRoleSelect) {
+    systemRoleSelect.disabled = adminSelectedEmployeeId ? !canEditRoles : true;
+    const developerOption = systemRoleSelect.querySelector('option[value="developer"]');
+    if (developerOption) developerOption.hidden = !isDeveloper();
+    const ownerOption = systemRoleSelect.querySelector('option[value="owner"]');
+    if (ownerOption) ownerOption.hidden = !(isDeveloper() || isOwner());
+  }
+  if (accessProfileSelect) {
+    accessProfileSelect.disabled = adminSelectedEmployeeId ? !canEditRoles : true;
+    const developerOption = accessProfileSelect.querySelector('option[value="developer"]');
+    if (developerOption) developerOption.hidden = !isDeveloper();
+  }
+}
+
+function resetAdminEmployeeForm() {
+  if (!adminEmployeeForm) return;
+  adminSelectedEmployeeId = "";
+  adminEmployeeForm.reset();
+  adminEmployeeForm.userId.value = "";
+  adminEmployeeForm.employeeName.value = "";
+  adminEmployeeForm.companyName.value = "";
+  adminEmployeeForm.jobTitle.value = "";
+  adminEmployeeForm.systemRole.value = "employee";
+  adminEmployeeForm.accessProfile.value = "visitor";
+  adminEmployeeForm.payRateType.value = "hourly";
+  adminEmployeeForm.hourlyRate.value = "";
+  adminEmployeeForm.dailyRate.value = "";
+  if (adminEmployeeEditorStatus) adminEmployeeEditorStatus.textContent = "Select an employee to edit role and payment settings.";
+  setAdminEmployeeFormEnabled(false);
+  syncAdminEmployeeRolePermissions();
+}
+
+function populateAdminEmployeeForm(user) {
+  if (!adminEmployeeForm || !user) return;
+  adminSelectedEmployeeId = user.id;
+  adminEmployeeForm.userId.value = user.id;
+  adminEmployeeForm.employeeName.value = user.name || user.username || "";
+  adminEmployeeForm.companyName.value = user.companyName || "";
+  adminEmployeeForm.jobTitle.value = user.jobTitle || "";
+  adminEmployeeForm.systemRole.value = userSystemRole(user);
+  adminEmployeeForm.accessProfile.value = userAccessProfile(user);
+  adminEmployeeForm.payRateType.value = normalizePayRateType(user.payRateType, "hourly");
+  adminEmployeeForm.hourlyRate.value = user.hourlyRate ? String(roundCurrency(user.hourlyRate)) : "";
+  adminEmployeeForm.dailyRate.value = user.dailyRate ? String(roundCurrency(user.dailyRate)) : "";
+  if (adminEmployeeEditorStatus) {
+    adminEmployeeEditorStatus.textContent = `Editing ${user.name || user.username} | ${systemRoleLabel(userSystemRole(user))} | ${roleLabel(
+      userAccessProfile(user)
+    )}`;
+  }
+  setAdminEmployeeFormEnabled(true);
+  syncAdminEmployeeRolePermissions();
+}
+
+function resetReceiptForm() {
+  if (!receiptForm) return;
+  adminEditingReceiptId = "";
+  receiptForm.reset();
+  if (receiptForm.receiptId) receiptForm.receiptId.value = "";
+  if (receiptApprovalStatusSelect) receiptApprovalStatusSelect.value = "pending";
+  if (receiptFileStatus) receiptFileStatus.textContent = "No receipt attached.";
+  if (openReceiptFileBtn) openReceiptFileBtn.classList.add("hidden");
+  if (receiptFormDeleteBtn) receiptFormDeleteBtn.disabled = true;
+  populateAdminUserSelect(receiptUserSelect, "");
+  populateProjectSelect(receiptProjectSelect, {
+    allowBlankLabel: "No project linked",
+    currentValue: "",
+  });
+  if (receiptForm.expenseDate) receiptForm.expenseDate.value = isoDateFromValue(new Date());
+}
+
+function populateReceiptForm(receipt) {
+  if (!receiptForm || !receipt) return;
+  adminEditingReceiptId = receipt.id;
+  if (receiptForm.receiptId) receiptForm.receiptId.value = receipt.id;
+  populateAdminUserSelect(receiptUserSelect, receipt.userId);
+  receiptForm.category.value = normalizeReceiptCategory(receipt.category, "reimbursement");
+  populateProjectSelect(receiptProjectSelect, {
+    allowBlankLabel: "No project linked",
+    currentValue: receipt.projectId || "",
+  });
+  receiptForm.expenseDate.value = normalizeDateField(receipt.expenseDate);
+  receiptForm.amount.value = String(roundCurrency(receipt.amount || 0));
+  receiptForm.description.value = receipt.description || "";
+  if (receiptApprovalStatusSelect) receiptApprovalStatusSelect.value = normalizeApprovalStatus(receipt.approvalStatus, "pending");
+  if (receiptFileStatus) receiptFileStatus.textContent = receipt.attachment?.name ? `Current attachment: ${receipt.attachment.name}` : "No receipt attached.";
+  if (openReceiptFileBtn) openReceiptFileBtn.classList.toggle("hidden", !receipt.attachment?.dataUrl);
+  if (receiptFormDeleteBtn) receiptFormDeleteBtn.disabled = false;
+}
+
+function adminAuditEntries() {
+  const scopes = new Set(["users", "workforce", "receipts", "payments", "admin"]);
+  return ensureArray(appAuditLog)
+    .filter((entry) => scopes.has(String(entry.scope || "").trim()) || /\b(Receipts|Payments|Workforce|Admin)\b/.test(String(entry.message || "")))
+    .sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime())
+    .slice(0, 120);
+}
+
+function renderAdminPanel() {
+  if (!adminPanel) return;
+  const allowed = can("accessAdmin");
+  adminPanel.classList.toggle("hidden", !allowed);
+  if (!allowed) return;
+
+  const range = adminWeekRange();
+  const snapshots = adminFilteredEmployeeSnapshots();
+  const payrollRows = snapshots.filter((snapshot) => snapshot.user.employmentType !== "subcontractor");
+  const receiptRows = adminFilteredReceipts(range);
+  const subcontractorRows = adminSubcontractorPresenceRows(range);
+  const activeNow = snapshots.filter((snapshot) => snapshot.active).length;
+  const totalWorkedMinutes = payrollRows.reduce((sum, snapshot) => sum + snapshot.workedMinutes, 0);
+  const totalBasePay = payrollRows.reduce((sum, snapshot) => sum + snapshot.basePay, 0);
+  const totalExpenses = payrollRows.reduce((sum, snapshot) => sum + snapshot.expensesTotal, 0);
+  const totalPayment = payrollRows.reduce((sum, snapshot) => sum + snapshot.totalPayment, 0);
+  const pendingApprovals = payrollRows.filter((snapshot) => snapshot.paymentStatus === "pending").length + receiptRows.filter((receipt) => receipt.approvalStatus === "pending").length;
+
+  if (adminWeekInput && adminWeekInput.value !== range.startIso) adminWeekInput.value = range.startIso;
+  if (adminSearchInput && adminSearchInput.value !== adminSearchTerm) adminSearchInput.value = adminSearchTerm;
+  if (adminRoleFilterSelect) adminRoleFilterSelect.value = adminRoleFilter;
+  if (adminApprovalFilterSelect) adminApprovalFilterSelect.value = adminApprovalFilter;
+  if (adminSortSelect) adminSortSelect.value = adminSortKey;
+  populateProjectSelect(adminProjectFilterSelect, {
+    allowBlankLabel: "All projects",
+    currentValue: adminProjectFilter,
+  });
+  populateAdminUserSelect(receiptUserSelect, receiptUserSelect?.value || receiptForm?.userId?.value || "");
+  populateProjectSelect(receiptProjectSelect, {
+    allowBlankLabel: "No project linked",
+    currentValue: receiptProjectSelect?.value || "",
+  });
+
+  if (adminSummaryCards) {
+    adminSummaryCards.innerHTML = `
+      <article class="workforce-summary-card">
+        <span>People active now</span>
+        <strong>${activeNow}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Worked hours this week</span>
+        <strong>${formatMinutesAsHours(totalWorkedMinutes)}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Base pay</span>
+        <strong>${formatCurrency(totalBasePay)}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Approved expenses</span>
+        <strong>${formatCurrency(totalExpenses)}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Total weekly payment</span>
+        <strong>${formatCurrency(totalPayment)}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>Pending approvals</span>
+        <strong>${pendingApprovals}</strong>
+      </article>
+    `;
+  }
+
+  if (adminOpenUserRegistrationBtn) adminOpenUserRegistrationBtn.disabled = !can("manageUsers");
+  if (receiptFormNewBtn) receiptFormNewBtn.disabled = !can("managePayroll");
+  if (adminWeeklyReportBtn) adminWeeklyReportBtn.disabled = !payrollRows.length && !receiptRows.length && !subcontractorRows.length;
+
+  if (adminEmployeesTable) {
+    const rows = snapshots
+      .map((snapshot) => {
+        const user = snapshot.user;
+        const rateLabel =
+          snapshot.rateType === "daily"
+            ? `${payRateTypeLabel(snapshot.rateType)} • ${formatCurrency(snapshot.dailyRate)}`
+            : `${payRateTypeLabel(snapshot.rateType)} • ${formatCurrency(snapshot.hourlyRate)}`;
+        const workStatus = snapshot.active
+          ? `${timeEntryAssignmentLabel(snapshot.active)} • ${elapsedFrom(snapshot.active.checkInAt)}`
+          : "Off shift";
+        return `<tr>
+          <td>${escapeHtml(user.name || user.username || "-")}</td>
+          <td>${escapeHtml(user.companyName || "-")}</td>
+          <td>${escapeHtml(user.jobTitle || "-")}</td>
+          <td>${escapeHtml(systemRoleLabel(userSystemRole(user)))}</td>
+          <td>${escapeHtml(roleLabel(userAccessProfile(user)))}</td>
+          <td>${escapeHtml(workStatus)}</td>
+          <td>${escapeHtml(rateLabel)}</td>
+          <td>${snapshot.workedDays}</td>
+          <td>${escapeHtml(formatMinutesAsHours(snapshot.workedMinutes))}</td>
+          <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
+          <td>
+            <div class="actions-inline">
+              <button class="secondary xs-btn" type="button" data-admin-edit-employee="${escapeHtml(user.id)}">Edit</button>
+            </div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+    adminEmployeesTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Job Title</th><th>System Role</th><th>Operational Access</th><th>Current status</th><th>Pay setup</th><th>Days</th><th>Hours</th><th>Total payment</th><th>Actions</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="11">No employees matched the current filters.</td></tr>'
+    }</tbody></table>`;
+  }
+
+  if (adminPaymentsTable) {
+    const rows = payrollRows
+      .map((snapshot) => {
+        const canReview = can("approvePayroll") && (snapshot.workedMinutes > 0 || snapshot.expensesTotal > 0);
+        return `<tr>
+          <td>${escapeHtml(snapshot.user.name || snapshot.user.username || "-")}</td>
+          <td>${escapeHtml(systemRoleLabel(userSystemRole(snapshot.user)))}</td>
+          <td>${snapshot.workedDays}</td>
+          <td>${escapeHtml(formatMinutesAsHours(snapshot.workedMinutes))}</td>
+          <td>${escapeHtml(formatCurrency(snapshot.basePay))}</td>
+          <td>${escapeHtml(formatCurrency(snapshot.reimbursements))}</td>
+          <td>${escapeHtml(formatCurrency(snapshot.toll))}</td>
+          <td>${escapeHtml(formatCurrency(snapshot.extras))}</td>
+          <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
+          <td>${escapeHtml(snapshot.needsReview ? "Pending review" : approvalStatusLabel(snapshot.paymentStatus))}</td>
+          <td>
+            <div class="actions-inline">
+              <button class="secondary xs-btn" type="button" data-payment-approve="${escapeHtml(snapshot.user.id)}" ${canReview ? "" : "disabled"}>Approve</button>
+              <button class="danger xs-btn" type="button" data-payment-reject="${escapeHtml(snapshot.user.id)}" ${canReview ? "" : "disabled"}>Reject</button>
+            </div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+    adminPaymentsTable.innerHTML = `<table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Status</th><th>Actions</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="11">No payroll rows matched the current filters.</td></tr>'
+    }</tbody></table>`;
+  }
+
+  if (adminReceiptsTable) {
+    const rows = receiptRows
+      .map(
+        (receipt) => `<tr>
+          <td>${escapeHtml(fmtDateOnly(receipt.expenseDate))}</td>
+          <td>${escapeHtml(receipt.userName || "-")}</td>
+          <td>${escapeHtml(receiptCategoryLabel(receipt.category))}</td>
+          <td>${escapeHtml(receipt.projectName || "No project linked")}</td>
+          <td>${escapeHtml(formatCurrency(receipt.amount))}</td>
+          <td>${escapeHtml(approvalStatusLabel(receipt.approvalStatus))}</td>
+          <td>${escapeHtml(receipt.description || "-")}</td>
+          <td>${escapeHtml(receiptAttachmentLabel(receipt))}</td>
+          <td>
+            <div class="actions-inline">
+              <button class="secondary xs-btn" type="button" data-receipt-edit="${escapeHtml(receipt.id)}">Edit</button>
+              <button class="secondary xs-btn" type="button" data-receipt-open="${escapeHtml(receipt.id)}" ${
+                receipt.attachment?.dataUrl ? "" : "disabled"
+              }>Open</button>
+              <button class="secondary xs-btn" type="button" data-receipt-approve="${escapeHtml(receipt.id)}" ${can("approveExpenses") ? "" : "disabled"}>Approve</button>
+              <button class="danger xs-btn" type="button" data-receipt-reject="${escapeHtml(receipt.id)}" ${can("approveExpenses") ? "" : "disabled"}>Reject</button>
+            </div>
+          </td>
+        </tr>`
+      )
+      .join("");
+    adminReceiptsTable.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>Employee</th><th>Category</th><th>Project</th><th>Amount</th><th>Status</th><th>Description</th><th>Attachment</th><th>Actions</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="9">No receipts matched the current filters.</td></tr>'
+    }</tbody></table>`;
+  }
+
+  if (adminSubcontractorTable) {
+    const rows = subcontractorRows
+      .map(
+        (entry) => `<tr>
+          <td>${escapeHtml(entry.projectName)}</td>
+          <td>${escapeHtml(entry.companyName)}</td>
+          <td>${escapeHtml(entry.userName)}</td>
+          <td>${escapeHtml(entry.jobTitle)}</td>
+          <td>${escapeHtml(entry.workAreas.join(", ") || "-")}</td>
+          <td>${entry.days.size}</td>
+          <td>${escapeHtml(formatMinutesAsHours(entry.minutes))}</td>
+          <td>${escapeHtml(fmtDate(entry.lastOut))}</td>
+        </tr>`
+      )
+      .join("");
+    adminSubcontractorTable.innerHTML = `<table class="data-table"><thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th><th>Last checkout</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="8">No Sub Contractor entries matched the current filters.</td></tr>'
+    }</tbody></table>`;
+  }
+
+  if (adminAuditTable) {
+    const rows = adminAuditEntries()
+      .map(
+        (entry) => `<tr>
+          <td>${escapeHtml(fmtDate(entry.at))}</td>
+          <td>${escapeHtml(entry.byName || "-")}</td>
+          <td>${escapeHtml(entry.scope || "-")}</td>
+          <td>${escapeHtml(entry.message || "-")}</td>
+        </tr>`
+      )
+      .join("");
+    adminAuditTable.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>User</th><th>Scope</th><th>Action</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="4">No audit entries available for the current admin scope.</td></tr>'
+    }</tbody></table>`;
+  }
+
+  const selectedUser = adminSelectedEmployeeId ? users.find((user) => user.id === adminSelectedEmployeeId) || null : null;
+  if (selectedUser) populateAdminEmployeeForm(selectedUser);
+  else resetAdminEmployeeForm();
+
+  const selectedReceipt = adminEditingReceiptId ? receipts.find((receipt) => receipt.id === adminEditingReceiptId) || null : null;
+  if (selectedReceipt) populateReceiptForm(selectedReceipt);
+  else resetReceiptForm();
+}
+
+async function saveAdminEmployeeSettings() {
+  if (!adminEmployeeForm || !adminSelectedEmployeeId || !can("accessAdmin")) return false;
+  const targetUser = users.find((user) => user.id === adminSelectedEmployeeId);
+  if (!targetUser || !canAccessEmployeeRecord(targetUser)) return false;
+
+  const canEditRoles = can("manageUsers");
+  const selectedSystemRole = canEditRoles
+    ? normalizeSystemRole(adminEmployeeForm.systemRole.value || userSystemRole(targetUser), userSystemRole(targetUser))
+    : userSystemRole(targetUser);
+  const selectedAccessProfile = canEditRoles ? String(adminEmployeeForm.accessProfile.value || userAccessProfile(targetUser)).trim() : userAccessProfile(targetUser);
+  if (!isDeveloper() && selectedSystemRole === "developer") {
+    alert("Only developer can assign the developer role.");
+    return false;
+  }
+  if (!(isDeveloper() || isOwner()) && selectedSystemRole === "owner") {
+    alert("Only developer or owner can assign the owner role.");
+    return false;
+  }
+
+  const savedUser = normalizeUser({
+    ...targetUser,
+    systemRole: selectedSystemRole,
+    accessProfile: selectedAccessProfile,
+    payRateType: normalizePayRateType(adminEmployeeForm.payRateType.value || targetUser.payRateType, "hourly"),
+    hourlyRate: normalizeMoneyField(adminEmployeeForm.hourlyRate.value || 0),
+    dailyRate: normalizeMoneyField(adminEmployeeForm.dailyRate.value || 0),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const changes = collectAuditChanges(targetUser, savedUser, [
+    { key: "systemRole", label: "System Role", map: (value) => systemRoleLabel(value) },
+    { key: "accessProfile", label: "Operational Access", map: (value) => roleLabel(value) },
+    { key: "payRateType", label: "Pay Method", map: (value) => payRateTypeLabel(value) },
+    { key: "hourlyRate", label: "Hourly Rate", map: (value) => formatCurrency(value || 0) },
+    { key: "dailyRate", label: "Daily Rate", map: (value) => formatCurrency(value || 0) },
+  ]);
+
+  await put(USER_STORE, savedUser);
+  pushEntityAudit(
+    "Users",
+    "updated",
+    `${savedUser.name || savedUser.username} payroll/RBAC settings${changes.length ? ` | ${changes.join("; ")}` : ""}`,
+    "users"
+  );
+  await loadAll();
+  if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
+  adminSelectedEmployeeId = savedUser.id;
+  render();
+  queueAutoSync();
+  return true;
+}
+
+async function saveReceiptFormRecord() {
+  if (!receiptForm || !can("managePayroll")) return false;
+  const data = new FormData(receiptForm);
+  const targetUser = users.find((user) => user.id === String(data.get("userId") || ""));
+  if (!targetUser) {
+    alert("Select a valid employee before saving the receipt.");
+    return false;
+  }
+  if (!canAccessEmployeeRecord(targetUser)) {
+    alert("You can only manage receipts for allowed employee records.");
+    return false;
+  }
+  const amount = normalizeMoneyField(data.get("amount"));
+  if (amount <= 0) {
+    alert("Enter a valid amount before saving the receipt.");
+    return false;
+  }
+  const expenseDate = normalizeDateField(data.get("expenseDate")) || isoDateFromValue(new Date());
+  const description = String(data.get("description") || "").trim();
+
+  const existing = adminEditingReceiptId ? receipts.find((receipt) => receipt.id === adminEditingReceiptId) || null : null;
+  const attachmentFile = receiptAttachmentInput?.files?.[0] || null;
+  let attachment = existing?.attachment || null;
+  if (attachmentFile) {
+    const type = String(attachmentFile.type || "").toLowerCase();
+    if (type && !type.startsWith("image/") && type !== "application/pdf") {
+      alert("Receipt attachment must be an image or PDF file.");
+      return false;
+    }
+    attachment = normalizeAttachment({
+      name: attachmentFile.name || "receipt",
+      type: attachmentFile.type || "",
+      dataUrl: await fileToDataUrl(attachmentFile),
+      uploadedAt: new Date().toISOString(),
+    });
+  }
+
+  const project = projectById(String(data.get("projectId") || "").trim());
+  const client = project ? clientById(project.clientId) : null;
+  const now = new Date().toISOString();
+  const savedReceipt = normalizeReceipt({
+    ...(existing || {}),
+    id: existing?.id || uid(),
+    userId: targetUser.id,
+    userName: targetUser.name || targetUser.username || "User",
+    systemRole: userSystemRole(targetUser),
+    companyName: targetUser.companyName || "",
+    employmentType: targetUser.employmentType || "",
+    jobTitle: targetUser.jobTitle || "",
+    clientId: client?.id || "",
+    clientName: client?.name || "",
+    projectId: project?.id || "",
+    projectName: project?.name || "",
+    category: normalizeReceiptCategory(data.get("category")?.toString() || "reimbursement", "reimbursement"),
+    amount,
+    description,
+    expenseDate,
+    approvalStatus: existing ? "pending" : "pending",
+    attachment,
+    auditLog: recordAuditTrail(
+      existing?.auditLog,
+      existing
+        ? `Receipt updated by ${currentUser?.name || "System"}`
+        : `Receipt created by ${currentUser?.name || "System"}`
+    ),
+    createdByUserId: existing?.createdByUserId || currentUser?.id || "",
+    createdByName: existing?.createdByName || currentUser?.name || "System",
+    approvedByUserId: "",
+    approvedByName: "",
+    approvedAt: "",
+    rejectedByUserId: "",
+    rejectedByName: "",
+    rejectedAt: "",
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  });
+
+  await put(RECEIPT_STORE, savedReceipt);
+  pushEntityAudit(
+    "Receipts",
+    existing ? "updated" : "created",
+    `${savedReceipt.userName} | ${receiptCategoryLabel(savedReceipt.category)} | ${formatCurrency(savedReceipt.amount)} | ${savedReceipt.projectName || "No project linked"}`,
+    "receipts"
+  );
+  await loadAll();
+  adminEditingReceiptId = savedReceipt.id;
+  render();
+  queueAutoSync();
+  return true;
+}
+
+async function updateReceiptApprovalStatus(receiptId, nextStatus) {
+  if (!can("approveExpenses")) return false;
+  const target = receipts.find((receipt) => receipt.id === receiptId);
+  if (!target) return false;
+  const linkedUser = users.find((user) => user.id === target.userId);
+  if (linkedUser && !canAccessEmployeeRecord(linkedUser)) return false;
+  const status = normalizeApprovalStatus(nextStatus, "pending");
+  const now = new Date().toISOString();
+  const updated = normalizeReceipt({
+    ...target,
+    approvalStatus: status,
+    approvedByUserId: status === "approved" ? currentUser?.id || "" : "",
+    approvedByName: status === "approved" ? currentUser?.name || "System" : "",
+    approvedAt: status === "approved" ? now : "",
+    rejectedByUserId: status === "rejected" ? currentUser?.id || "" : "",
+    rejectedByName: status === "rejected" ? currentUser?.name || "System" : "",
+    rejectedAt: status === "rejected" ? now : "",
+    auditLog: recordAuditTrail(target.auditLog, `Receipt ${status} by ${currentUser?.name || "System"}`),
+    updatedAt: now,
+  });
+  await put(RECEIPT_STORE, updated);
+  pushEntityAudit(
+    "Receipts",
+    status,
+    `${updated.userName} | ${receiptCategoryLabel(updated.category)} | ${formatCurrency(updated.amount)} | ${updated.projectName || "No project linked"}`,
+    "receipts"
+  );
+  await loadAll();
+  adminEditingReceiptId = updated.id;
+  render();
+  queueAutoSync();
+  return true;
+}
+
+async function deleteReceiptRecord() {
+  if (!receiptFormDeleteBtn || !adminEditingReceiptId || !can("managePayroll")) return false;
+  const target = receipts.find((receipt) => receipt.id === adminEditingReceiptId);
+  if (!target) return false;
+  const linkedUser = users.find((user) => user.id === target.userId);
+  if (linkedUser && !canAccessEmployeeRecord(linkedUser)) return false;
+  const confirmed = confirmDeleteAction(`receipt "${target.userName} / ${receiptCategoryLabel(target.category)} / ${formatCurrency(target.amount)}"`);
+  if (!confirmed) return false;
+  pushEntityAudit(
+    "Receipts",
+    "deleted",
+    `${target.userName} | ${receiptCategoryLabel(target.category)} | ${formatCurrency(target.amount)}`,
+    "receipts"
+  );
+  await trashDeleteRecord(RECEIPT_STORE, target, {
+    label: `Receipt: ${target.userName} ${formatCurrency(target.amount)}`,
+    scope: "receipts",
+  });
+  await loadAll();
+  adminEditingReceiptId = "";
+  render();
+  queueAutoSync();
+  return true;
+}
+
+async function updateWeeklyPaymentStatus(userId, nextStatus) {
+  if (!can("approvePayroll")) return false;
+  const range = adminWeekRange();
+  const targetUser = users.find((user) => user.id === userId);
+  if (!targetUser || !canAccessEmployeeRecord(targetUser)) return false;
+  const snapshot = buildAdminEmployeeSnapshot(targetUser, range).snapshot;
+  const existing = adminPaymentRecordForUser(userId, range.startIso);
+  const status = normalizeApprovalStatus(nextStatus, "pending");
+  const now = new Date().toISOString();
+  const saved = normalizeWeeklyPayment({
+    ...(existing || {}),
+    id: existing?.id || weeklyPaymentRecordId(userId, range.startIso),
+    userId,
+    weekStart: range.startIso,
+    status,
+    manualAdjustment: existing?.manualAdjustment || 0,
+    notes: existing?.notes || "",
+    snapshot,
+    auditLog: recordAuditTrail(existing?.auditLog, `Weekly payment ${status} by ${currentUser?.name || "System"}`),
+    approvedByUserId: status === "approved" ? currentUser?.id || "" : "",
+    approvedByName: status === "approved" ? currentUser?.name || "System" : "",
+    approvedAt: status === "approved" ? now : "",
+    rejectedByUserId: status === "rejected" ? currentUser?.id || "" : "",
+    rejectedByName: status === "rejected" ? currentUser?.name || "System" : "",
+    rejectedAt: status === "rejected" ? now : "",
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  });
+  await put(PAYMENT_STORE, saved);
+  pushEntityAudit(
+    "Payments",
+    status,
+    `${snapshot.userName} | week ${range.startIso} | ${formatCurrency(snapshot.totalPayment)}`,
+    "payments"
+  );
+  await loadAll();
+  render();
+  queueAutoSync();
+  return true;
+}
+
+function generateAdminWeeklyReport() {
+  const range = adminWeekRange();
+  const payrollRows = adminFilteredEmployeeSnapshots().filter((snapshot) => snapshot.user.employmentType !== "subcontractor");
+  const receiptRows = adminFilteredReceipts(range);
+  const subcontractorRows = adminSubcontractorPresenceRows(range);
+
+  const payrollTableRows = payrollRows
+    .map(
+      (snapshot) => `<tr>
+        <td>${escapeHtml(snapshot.user.name || snapshot.user.username || "-")}</td>
+        <td>${escapeHtml(systemRoleLabel(userSystemRole(snapshot.user)))}</td>
+        <td>${snapshot.workedDays}</td>
+        <td>${escapeHtml(formatMinutesAsHours(snapshot.workedMinutes))}</td>
+        <td>${escapeHtml(formatCurrency(snapshot.basePay))}</td>
+        <td>${escapeHtml(formatCurrency(snapshot.reimbursements))}</td>
+        <td>${escapeHtml(formatCurrency(snapshot.toll))}</td>
+        <td>${escapeHtml(formatCurrency(snapshot.extras))}</td>
+        <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
+        <td>${escapeHtml(snapshot.needsReview ? "Pending review" : approvalStatusLabel(snapshot.paymentStatus))}</td>
+      </tr>`
+    )
+    .join("");
+
+  const receiptTableRows = receiptRows
+    .map(
+      (receipt) => `<tr>
+        <td>${escapeHtml(fmtDateOnly(receipt.expenseDate))}</td>
+        <td>${escapeHtml(receipt.userName || "-")}</td>
+        <td>${escapeHtml(receiptCategoryLabel(receipt.category))}</td>
+        <td>${escapeHtml(receipt.projectName || "No project linked")}</td>
+        <td>${escapeHtml(formatCurrency(receipt.amount))}</td>
+        <td>${escapeHtml(approvalStatusLabel(receipt.approvalStatus))}</td>
+        <td>${escapeHtml(receipt.description || "-")}</td>
+      </tr>`
+    )
+    .join("");
+
+  const subcontractorTableRows = subcontractorRows
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(entry.projectName)}</td>
+        <td>${escapeHtml(entry.companyName)}</td>
+        <td>${escapeHtml(entry.userName)}</td>
+        <td>${escapeHtml(entry.jobTitle)}</td>
+        <td>${entry.days.size}</td>
+        <td>${escapeHtml(formatMinutesAsHours(entry.minutes))}</td>
+      </tr>`
+    )
+    .join("");
+
+  const html = reportShell(
+    `Admin weekly report ${range.startIso}`,
+    `
+      <h1>Admin weekly payroll and expense report</h1>
+      <div class="meta">
+        <p><strong>Week starting:</strong> ${escapeHtml(fmtDateOnly(range.startIso))}</p>
+        <p><strong>Search filter:</strong> ${escapeHtml(adminSearchTerm || "None")}</p>
+        <p><strong>Role filter:</strong> ${escapeHtml(adminRoleFilter === "all" ? "All roles" : systemRoleLabel(adminRoleFilter))}</p>
+        <p><strong>Project filter:</strong> ${escapeHtml(adminProjectFilter ? projectById(adminProjectFilter)?.name || "-" : "All projects")}</p>
+        <p><strong>Status filter:</strong> ${escapeHtml(adminApprovalFilter === "all" ? "All statuses" : approvalStatusLabel(adminApprovalFilter))}</p>
+        <p><strong>Generated at:</strong> ${escapeHtml(fmtDate(new Date().toISOString()))}</p>
+      </div>
+
+      <h3>Weekly payment control</h3>
+      <table>
+        <thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Status</th></tr></thead>
+        <tbody>${payrollTableRows || '<tr><td colspan="10">No payroll rows matched the current filters.</td></tr>'}</tbody>
+      </table>
+
+      <h3>Receipts and extra expenses</h3>
+      <table>
+        <thead><tr><th>Date</th><th>Employee</th><th>Category</th><th>Project</th><th>Amount</th><th>Status</th><th>Description</th></tr></thead>
+        <tbody>${receiptTableRows || '<tr><td colspan="7">No receipts matched the current filters.</td></tr>'}</tbody>
+      </table>
+
+      <h3>Sub Contractor presence</h3>
+      <table>
+        <thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Days</th><th>Tracked hours</th></tr></thead>
+        <tbody>${subcontractorTableRows || '<tr><td colspan="6">No Sub Contractor entries matched the current filters.</td></tr>'}</tbody>
+      </table>
+    `
+  );
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => win.print(), 300);
+}
+
 function renderUsers() {
   if (!can("manageUsers")) {
     setUsersSubView("directory");
@@ -10474,6 +11686,15 @@ function renderUsers() {
   });
 
   const userAccessProfileSelect = userForm?.querySelector('select[name="accessProfile"]');
+  const userSystemRoleSelect = userForm?.querySelector('select[name="systemRole"]');
+  if (userSystemRoleSelect) {
+    const developerOption = userSystemRoleSelect.querySelector('option[value="developer"]');
+    if (developerOption) developerOption.hidden = !isDeveloper();
+    const ownerOption = userSystemRoleSelect.querySelector('option[value="owner"]');
+    if (ownerOption) ownerOption.hidden = !(isDeveloper() || isOwner());
+    if (!isDeveloper() && userSystemRoleSelect.value === "developer") userSystemRoleSelect.value = "employee";
+    if (!(isDeveloper() || isOwner()) && userSystemRoleSelect.value === "owner") userSystemRoleSelect.value = "admin";
+  }
   if (userAccessProfileSelect) {
     const developerOption = userAccessProfileSelect.querySelector('option[value="developer"]');
     if (developerOption) developerOption.hidden = !isDeveloper();
@@ -10490,11 +11711,12 @@ function renderUsers() {
     const nameRows = visibleUsers
       .map((user) => {
         const profile = userAccessProfile(user);
+        const systemRole = userSystemRole(user);
         const pendingAssignment = isPendingUserAssignment(user);
         const active = activeTimeEntryForUser(user.id);
         const statusLabel = active
           ? `${timeEntryAssignmentLabel(active)} • ${elapsedFrom(active.checkInAt)}`
-          : `${roleLabel(profile)} • ${user.companyName || "No company"}`;
+          : `${systemRoleLabel(systemRole)} / ${roleLabel(profile)} • ${user.companyName || "No company"}`;
         return `<button class="users-name-btn${pendingAssignment ? " pending-assignment" : ""}" type="button" data-user-rail="${user.id}">
           ${escapeHtml(user.name || user.username || "-")}
           <small>${escapeHtml(statusLabel)}</small>
@@ -10514,6 +11736,7 @@ function renderUsers() {
     .map((user) => {
       const avatarSrc = userAvatarSrc(user);
       const profile = userAccessProfile(user);
+      const systemRole = userSystemRole(user);
       const pendingAssignment = isPendingUserAssignment(user);
       const active = activeTimeEntryForUser(user.id);
       const workStatus = active
@@ -10528,6 +11751,7 @@ function renderUsers() {
       <td>${escapeHtml(user.employmentType || "-")}</td>
       <td>${escapeHtml(user.email || "-")}</td>
       <td>${escapeHtml(user.username)}</td>
+      <td>${escapeHtml(systemRoleLabel(systemRole))}</td>
       <td>${
         pendingAssignment
           ? '<span class="pending-assignment-pill">Pending assignment (Visitor)</span>'
@@ -10538,8 +11762,8 @@ function renderUsers() {
     })
     .join("");
 
-  usersTable.innerHTML = `<table class="data-table"><thead><tr><th>Photo</th><th>Name</th><th>Company</th><th>Job Title</th><th>Work status</th><th>Type</th><th>Email</th><th>User</th><th>Access Profile</th><th>Updated</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="10">No visible users.</td></tr>'
+  usersTable.innerHTML = `<table class="data-table"><thead><tr><th>Photo</th><th>Name</th><th>Company</th><th>Job Title</th><th>Work status</th><th>Type</th><th>Email</th><th>User</th><th>System Role</th><th>Operational Access</th><th>Updated</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="11">No visible users.</td></tr>'
   }</tbody></table>`;
 
   usersTable.querySelectorAll("[data-user-row]").forEach((row) => {
@@ -10722,6 +11946,7 @@ function renderHomePanel() {
 
   toggleNavGroup("users", canManageUsers);
   toggleNav("developer", isDev);
+  toggleNav("admin", can("accessAdmin"));
   toggleNav("users", canManageUsers);
   toggleNav("usersRegistration", canManageUsers);
   toggleNav("usersPeople", canManageUsers);
@@ -10763,7 +11988,8 @@ function renderHomePanel() {
 
 function renderRoleStrip() {
   const accessProfile = userAccessProfile(currentUser);
-  roleLine.textContent = `User: ${currentUser.name} | Access Profile: ${roleLabel(accessProfile)}`;
+  const systemRole = userSystemRole(currentUser);
+  roleLine.textContent = `User: ${currentUser.name} | System Role: ${systemRoleLabel(systemRole)} | Operational Access: ${roleLabel(accessProfile)}`;
   permissionLine.textContent = rolePermissionsSummary(accessProfile);
 }
 
@@ -10779,12 +12005,14 @@ function backupCountsSnapshot() {
     materials: materials.length,
     delivery: deliverySkuItems.length,
     workforce: timeEntries.length,
+    receipts: receipts.length,
+    payments: weeklyPayments.length,
     trash: trashRecords.length,
   };
 }
 
 function backupCountsSummary(counts) {
-  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, workforce:${counts.workforce}, trash:${counts.trash}`;
+  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, workforce:${counts.workforce}, receipts:${counts.receipts}, payments:${counts.payments}, trash:${counts.trash}`;
 }
 
 function lastLocalBackupAt() {
@@ -11119,6 +12347,7 @@ function render() {
   renderQrLookupPanel();
   renderDeliveryInventoryPanel();
   renderOcrImporterPanel();
+  renderAdminPanel();
   renderUsers();
   renderUserEditPanel();
   renderAccessControl();
@@ -11191,7 +12420,22 @@ function syncEndpoint() {
 
 function normalizeSyncKinds(kinds) {
   if (!Array.isArray(kinds) || kinds.length === 0) return null;
-  const validKinds = new Set(["unit", "photo", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "timeEntry", "trash"]);
+  const validKinds = new Set([
+    "unit",
+    "photo",
+    "user",
+    "client",
+    "project",
+    "contact",
+    "contract",
+    "container",
+    "material",
+    "deliverySku",
+    "timeEntry",
+    "receipt",
+    "payment",
+    "trash",
+  ]);
   const normalized = kinds
     .map((kind) => String(kind || "").trim())
     .filter((kind) => validKinds.has(kind));
@@ -11240,6 +12484,8 @@ function toCloudRecords({ kinds = null } = {}) {
     ...mapRecords(materials, "material"),
     ...mapRecords(deliverySkuItems, "deliverySku"),
     ...mapRecords(timeEntries, "timeEntry"),
+    ...mapRecords(receipts, "receipt"),
+    ...mapRecords(weeklyPayments, "payment"),
     ...mapRecords(trashRecords, "trash"),
   ];
 }
@@ -11346,6 +12592,8 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
     const materialMap = new Map(materials.map((item) => [item.id, item]));
     const deliverySkuMap = new Map(deliverySkuItems.map((item) => [item.id, item]));
     const timeEntryMap = new Map(timeEntries.map((item) => [item.id, item]));
+    const receiptMap = new Map(receipts.map((item) => [item.id, item]));
+    const paymentMap = new Map(weeklyPayments.map((item) => [item.id, item]));
     const trashMap = new Map(trashRecords.map((item) => [item.id, item]));
 
     for (const row of records) {
@@ -11438,6 +12686,22 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
         const local = timeEntryMap.get(item.id);
         if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
           await put(TIME_ENTRY_STORE, normalizeTimeEntry(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "receipt") {
+        const local = receiptMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(RECEIPT_STORE, normalizeReceipt(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "payment") {
+        const local = paymentMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(PAYMENT_STORE, normalizeWeeklyPayment(item));
           hasChanges = true;
         }
       }
@@ -11926,6 +13190,7 @@ signupForm?.addEventListener("submit", async (event) => {
     photoDataUrl,
     username,
     passwordHash: await hashPassword(data.get("password")?.toString() || ""),
+    systemRole: "employee",
     accessProfile: "visitor",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -12066,9 +13331,18 @@ timeClockAutoStopBtn?.addEventListener("click", () => {
   renderTimeClockPanel();
 });
 
-if (workforceWeekInput && !workforceWeekAnchor) {
+if (!workforceWeekAnchor) {
   workforceWeekAnchor = weekStartIso(new Date());
+}
+if (workforceWeekInput && !workforceWeekInput.value) {
   workforceWeekInput.value = workforceWeekAnchor;
+}
+
+if (!adminWeekAnchor) {
+  adminWeekAnchor = weekStartIso(new Date());
+}
+if (adminWeekInput && !adminWeekInput.value) {
+  adminWeekInput.value = adminWeekAnchor;
 }
 
 workforceWeekInput?.addEventListener("change", () => {
@@ -12089,6 +13363,79 @@ workforceEmploymentFilterSelect?.addEventListener("change", () => {
 
 workforceWeeklyReportBtn?.addEventListener("click", () => {
   generateWorkforceWeeklyReport();
+});
+
+adminWeekInput?.addEventListener("change", () => {
+  adminWeekAnchor = weekStartIso(adminWeekInput.value || new Date());
+  if (adminWeekInput.value !== adminWeekAnchor) adminWeekInput.value = adminWeekAnchor;
+  renderAdminPanel();
+});
+
+adminSearchInput?.addEventListener("input", () => {
+  adminSearchTerm = String(adminSearchInput.value || "").trim();
+  renderAdminPanel();
+});
+
+adminRoleFilterSelect?.addEventListener("change", () => {
+  adminRoleFilter = adminRoleFilterSelect.value || "all";
+  renderAdminPanel();
+});
+
+adminProjectFilterSelect?.addEventListener("change", () => {
+  adminProjectFilter = adminProjectFilterSelect.value || "";
+  renderAdminPanel();
+});
+
+adminApprovalFilterSelect?.addEventListener("change", () => {
+  adminApprovalFilter = adminApprovalFilterSelect.value || "all";
+  renderAdminPanel();
+});
+
+adminSortSelect?.addEventListener("change", () => {
+  adminSortKey = adminSortSelect.value || "employee";
+  renderAdminPanel();
+});
+
+adminOpenUserRegistrationBtn?.addEventListener("click", () => {
+  if (!can("manageUsers")) return;
+  openUsersRegistrationClean();
+  setView("users");
+});
+
+adminEmployeeForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveAdminEmployeeSettings();
+});
+
+adminEmployeeCancelBtn?.addEventListener("click", () => {
+  resetAdminEmployeeForm();
+});
+
+receiptFormNewBtn?.addEventListener("click", () => {
+  resetReceiptForm();
+});
+
+receiptForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveReceiptFormRecord();
+});
+
+receiptFormDeleteBtn?.addEventListener("click", async () => {
+  await deleteReceiptRecord();
+});
+
+receiptFormCancelBtn?.addEventListener("click", () => {
+  resetReceiptForm();
+});
+
+openReceiptFileBtn?.addEventListener("click", () => {
+  const target = receipts.find((receipt) => receipt.id === adminEditingReceiptId);
+  if (!target?.attachment?.dataUrl) return;
+  window.open(target.attachment.dataUrl, "_blank", "noopener");
+});
+
+adminWeeklyReportBtn?.addEventListener("click", () => {
+  generateAdminWeeklyReport();
 });
 
 userWorkforceSiteTypeSelect?.addEventListener("change", () => {
@@ -12151,11 +13498,20 @@ userForm.addEventListener("submit", async (event) => {
   const email = data.get("email")?.toString().trim().toLowerCase() || "";
   const username = data.get("username")?.toString().trim().toLowerCase() || "";
   const plainPassword = data.get("password")?.toString() || "";
+  const selectedSystemRole = normalizeSystemRole(data.get("systemRole")?.toString() || "employee", "employee");
   const selectedAccessProfile = data.get("accessProfile")?.toString() || "visitor";
   const gender = normalizeGender(data.get("gender"));
 
   if (!firstName || !lastName || !companyName || !jobTitle || !address || !cellPhone || !email || !username) {
     alert("Fill in all required fields.");
+    return;
+  }
+  if (!isDeveloper() && selectedSystemRole === "developer") {
+    alert("Only developer can create or edit a developer role.");
+    return;
+  }
+  if (!(isDeveloper() || isOwner()) && selectedSystemRole === "owner") {
+    alert("Only developer or owner can assign the owner role.");
     return;
   }
   if (!isDeveloper() && selectedAccessProfile === "developer") {
@@ -12246,6 +13602,7 @@ userForm.addEventListener("submit", async (event) => {
     photoDataUrl,
     username,
     passwordHash,
+    systemRole: selectedSystemRole,
     accessProfile: selectedAccessProfile,
     createdAt: targetUser?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -12277,7 +13634,8 @@ userForm.addEventListener("submit", async (event) => {
       { key: "email", label: "Email" },
       { key: "gender", label: "Gender" },
       { key: "username", label: "Username" },
-      { key: "accessProfile", label: "Access Profile" },
+      { key: "systemRole", label: "System Role", map: (value) => systemRoleLabel(value) },
+      { key: "accessProfile", label: "Operational Access", map: (value) => roleLabel(value) },
     ]);
     if (plainPassword) changes.push("Password: updated");
     if (photoFile) changes.push("Photo: updated");
@@ -13660,6 +15018,8 @@ function buildFullBackupPayload() {
     materials,
     deliverySkuItems,
     timeEntries,
+    receipts,
+    weeklyPayments,
     trashRecords,
     settings: [{ id: "syncConfig", ...syncConfig }],
   };
@@ -13710,6 +15070,10 @@ async function importBackupFile(file) {
       for (const item of payload.deliverySkuItems) await put(DELIVERY_SKU_STORE, normalizeDeliverySkuItem(item));
     }
     if (Array.isArray(payload.timeEntries)) for (const item of payload.timeEntries) await put(TIME_ENTRY_STORE, normalizeTimeEntry(item));
+    if (Array.isArray(payload.receipts)) for (const item of payload.receipts) await put(RECEIPT_STORE, normalizeReceipt(item));
+    if (Array.isArray(payload.weeklyPayments)) {
+      for (const item of payload.weeklyPayments) await put(PAYMENT_STORE, normalizeWeeklyPayment(item));
+    }
     if (Array.isArray(payload.trashRecords)) for (const item of payload.trashRecords) await put(TRASH_STORE, normalizeTrashRecord(item));
     if (Array.isArray(payload.settings)) for (const setting of payload.settings) await put(SETTINGS_STORE, setting);
 
@@ -13718,7 +15082,7 @@ async function importBackupFile(file) {
     pushEntityAudit(
       "Backups",
       "imported",
-      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, workforce:${ensureArray(payload.timeEntries).length}, trash:${ensureArray(payload.trashRecords).length}`,
+      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, workforce:${ensureArray(payload.timeEntries).length}, receipts:${ensureArray(payload.receipts).length}, payments:${ensureArray(payload.weeklyPayments).length}, trash:${ensureArray(payload.trashRecords).length}`,
       "backup"
     );
     render();
@@ -13965,6 +15329,53 @@ appMain?.addEventListener("click", (event) => {
   if (!trigger) return;
   event.preventDefault();
   handleQuickNavAction(trigger.dataset.navView || "home");
+});
+
+adminPanel?.addEventListener("click", (event) => {
+  const editEmployeeBtn = event.target.closest("[data-admin-edit-employee]");
+  if (editEmployeeBtn) {
+    const target = users.find((user) => user.id === editEmployeeBtn.dataset.adminEditEmployee);
+    if (target) populateAdminEmployeeForm(target);
+    return;
+  }
+
+  const receiptEditBtn = event.target.closest("[data-receipt-edit]");
+  if (receiptEditBtn) {
+    const target = receipts.find((receipt) => receipt.id === receiptEditBtn.dataset.receiptEdit);
+    if (target) populateReceiptForm(target);
+    return;
+  }
+
+  const receiptOpenBtn = event.target.closest("[data-receipt-open]");
+  if (receiptOpenBtn) {
+    const target = receipts.find((receipt) => receipt.id === receiptOpenBtn.dataset.receiptOpen);
+    if (!target?.attachment?.dataUrl) return;
+    window.open(target.attachment.dataUrl, "_blank", "noopener");
+    return;
+  }
+
+  const receiptApproveBtn = event.target.closest("[data-receipt-approve]");
+  if (receiptApproveBtn) {
+    void updateReceiptApprovalStatus(receiptApproveBtn.dataset.receiptApprove || "", "approved");
+    return;
+  }
+
+  const receiptRejectBtn = event.target.closest("[data-receipt-reject]");
+  if (receiptRejectBtn) {
+    void updateReceiptApprovalStatus(receiptRejectBtn.dataset.receiptReject || "", "rejected");
+    return;
+  }
+
+  const paymentApproveBtn = event.target.closest("[data-payment-approve]");
+  if (paymentApproveBtn) {
+    void updateWeeklyPaymentStatus(paymentApproveBtn.dataset.paymentApprove || "", "approved");
+    return;
+  }
+
+  const paymentRejectBtn = event.target.closest("[data-payment-reject]");
+  if (paymentRejectBtn) {
+    void updateWeeklyPaymentStatus(paymentRejectBtn.dataset.paymentReject || "", "rejected");
+  }
 });
 
 clientsNavGroup?.addEventListener("mouseenter", () => {

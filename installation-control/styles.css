@@ -1617,6 +1617,74 @@ table.data-table th {
   gap: 0.55rem;
 }
 
+#adminPanel {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.admin-panel-head,
+.admin-section-head {
+  margin-top: 0;
+  align-items: center;
+}
+
+.admin-panel-head > *,
+.admin-section-head > * {
+  flex: 1 1 240px;
+}
+
+.admin-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 0.45rem;
+}
+
+.admin-primary-grid,
+.admin-secondary-grid,
+.admin-tertiary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.admin-editor-card,
+.admin-directory-card {
+  height: 100%;
+}
+
+.admin-editor-card form,
+.admin-receipt-form {
+  margin-top: 0.45rem;
+}
+
+.admin-directory-card .table-wrap,
+.admin-receipt-form + .table-wrap,
+#adminPaymentsTable,
+#adminAuditTable,
+#adminSubcontractorTable {
+  max-height: 420px;
+}
+
+.admin-filters-form {
+  margin-top: 0;
+}
+
+.admin-filters-form input,
+.admin-filters-form select,
+.admin-receipt-form input,
+.admin-receipt-form select,
+.admin-receipt-form textarea,
+.admin-editor-card input,
+.admin-editor-card select {
+  min-height: 36px;
+}
+
+.admin-editor-card input[readonly] {
+  background: #f6f4ef;
+  color: var(--ink-soft);
+}
+
 #userAdminPhotoPreview.avatar-lg {
   width: 96px;
   height: 96px;
@@ -2028,6 +2096,12 @@ table.data-table th {
   .kpi-box-wide {
     grid-column: span 1;
   }
+
+  .admin-primary-grid,
+  .admin-secondary-grid,
+  .admin-tertiary-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .progress-wrap {
@@ -2414,6 +2488,20 @@ table.data-table th {
   .users-right-column .user-workforce-card {
     width: 100%;
     justify-self: stretch;
+  }
+
+  .admin-panel-head,
+  .admin-section-head {
+    align-items: flex-start;
+  }
+
+  .admin-panel-head .secondary,
+  .admin-section-head .secondary {
+    width: 100%;
+  }
+
+  .admin-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .users-name-rail {

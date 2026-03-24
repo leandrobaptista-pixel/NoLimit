@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260323-workforce2" />
+    <link rel="stylesheet" href="styles.css?v=20260323-admin1" />
   </head>
   <body>
     <header class="app-header">
@@ -138,6 +138,7 @@
       <section id="quickNavPanel" class="panel quick-nav">
         <div class="row">
           <button class="secondary nav-btn" type="button" data-nav-action="developer"><span class="nav-icon">DV</span>Developer</button>
+          <button class="secondary nav-btn" type="button" data-nav-action="admin"><span class="nav-icon">AD</span>Admin</button>
           <div class="nav-group nav-group-users" data-nav-group="users">
             <button class="secondary nav-btn" type="button" data-nav-action="users"><span class="nav-icon">U</span>Users</button>
             <div class="nav-submenu" aria-label="Users sub menu">
@@ -569,9 +570,9 @@
           <article id="materialsSubpanel" class="subpanel">
             <h3>Material Catalog (QR)</h3>
             <form id="materialForm" class="grid-form compact">
-              <label>SKU/Codigo<input required name="sku" placeholder="Ex: KIT-KCH-001" /></label>
-              <label>Descricao<input required name="description" placeholder="Ex: Door panel 24x30" /></label>
-              <label>Categoria
+              <label>SKU/Code<input required name="sku" placeholder="Ex: KIT-KCH-001" /></label>
+              <label>Description<input required name="description" placeholder="Ex: Door panel 24x30" /></label>
+              <label>Category
                 <input name="category" list="containerCategoryList" placeholder="Ex: kitchen, tile, curtain" value="other" required />
               </label>
               <label>Unit<input required name="unit" placeholder="Ex: pcs" /></label>
@@ -608,7 +609,7 @@
           <label>Supabase Anon Key
             <input name="supabaseAnonKey" placeholder="eyJ..." />
           </label>
-          <label>Tenant/Codigo da empresa
+          <label>Tenant/Company Code
             <input name="tenant" placeholder="ex: tag-nyc" />
           </label>
           <label>
@@ -764,7 +765,16 @@
                 <label>Email<input required type="email" name="email" /></label>
                 <label>Username<input required name="username" /></label>
                 <label>Password (required for create, optional for edit)<input name="password" type="password" /></label>
-                <label>Access Profile
+                <label>System Role
+                  <select name="systemRole" required>
+                    <option value="employee">Employee</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="admin">Admin</option>
+                    <option value="owner">Owner</option>
+                    <option value="developer">Developer</option>
+                  </select>
+                </label>
+                <label>Operational Access
                   <select name="accessProfile" required>
                     <option value="warehouse">Warehouse</option>
                     <option value="transport">Transport</option>
@@ -834,6 +844,208 @@
         </article>
       </section>
 
+      <section id="adminPanel" class="panel hidden-view">
+        <div class="row admin-panel-head">
+          <div>
+            <h2>Admin Payroll & Expense Control</h2>
+            <p class="hint">
+              Weekly workforce payment control, RBAC management, receipt approvals, reimbursements, tolls, and printable reports.
+            </p>
+          </div>
+          <button id="adminWeeklyReportBtn" class="secondary" type="button">Print weekly report</button>
+        </div>
+
+        <form id="adminFiltersForm" class="grid-form compact admin-filters-form">
+          <label>Week reference
+            <input id="adminWeekInput" type="date" />
+          </label>
+          <label>Search
+            <input id="adminSearchInput" placeholder="Search employee, role, project, or company" />
+          </label>
+          <label>System Role
+            <select id="adminRoleFilterSelect">
+              <option value="all">All roles</option>
+              <option value="owner">Owner</option>
+              <option value="admin">Admin</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="developer">Developer</option>
+              <option value="employee">Employee</option>
+            </select>
+          </label>
+          <label>Project
+            <select id="adminProjectFilterSelect">
+              <option value="">All projects</option>
+            </select>
+          </label>
+          <label>Approval Status
+            <select id="adminApprovalFilterSelect">
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </label>
+          <label>Sort by
+            <select id="adminSortSelect">
+              <option value="employee">Employee name</option>
+              <option value="role">Role</option>
+              <option value="hours">Time worked</option>
+              <option value="payment">Total payment</option>
+            </select>
+          </label>
+        </form>
+
+        <div id="adminSummaryCards" class="admin-summary-grid"></div>
+
+        <div class="admin-primary-grid">
+          <article class="subpanel admin-directory-card">
+            <div class="row admin-section-head">
+              <div>
+                <h3>Complete Employee List</h3>
+                <p class="hint">Review people, role assignments, live work status, and payroll readiness.</p>
+              </div>
+              <button id="adminOpenUserRegistrationBtn" class="secondary" type="button">Add employee</button>
+            </div>
+            <div id="adminEmployeesTable" class="table-wrap"></div>
+          </article>
+
+          <article class="subpanel admin-editor-card">
+            <h3>Employee Controls</h3>
+            <p id="adminEmployeeEditorStatus" class="hint">Select an employee to edit role and payment settings.</p>
+            <form id="adminEmployeeForm" class="grid-form compact">
+              <input type="hidden" name="userId" />
+              <label>Employee
+                <input name="employeeName" readonly />
+              </label>
+              <label>Company
+                <input name="companyName" readonly />
+              </label>
+              <label>Job Title
+                <input name="jobTitle" readonly />
+              </label>
+              <label>System Role
+                <select name="systemRole" required>
+                  <option value="employee">Employee</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="admin">Admin</option>
+                  <option value="owner">Owner</option>
+                  <option value="developer">Developer</option>
+                </select>
+              </label>
+              <label>Operational Access
+                <select name="accessProfile" required>
+                  <option value="warehouse">Warehouse</option>
+                  <option value="transport">Transport</option>
+                  <option value="distribution">Distribution</option>
+                  <option value="foreman">Foreman</option>
+                  <option value="project-manager">Project Manager</option>
+                  <option value="qa">QA</option>
+                  <option value="installer">Installer</option>
+                  <option value="visitor">Visitor</option>
+                  <option value="admin">Admin</option>
+                  <option value="developer">Developer</option>
+                </select>
+              </label>
+              <label>Pay Method
+                <select name="payRateType">
+                  <option value="hourly">Hourly rate</option>
+                  <option value="daily">Daily rate</option>
+                </select>
+              </label>
+              <label>Hourly Rate
+                <input name="hourlyRate" type="number" min="0" step="0.01" placeholder="0.00" />
+              </label>
+              <label>Daily Rate
+                <input name="dailyRate" type="number" min="0" step="0.01" placeholder="0.00" />
+              </label>
+              <div class="row full">
+                <button id="adminEmployeeSaveBtn" class="primary" type="submit">Save</button>
+                <button id="adminEmployeeCancelBtn" class="secondary" type="button">Cancel</button>
+              </div>
+            </form>
+          </article>
+        </div>
+
+        <div class="admin-secondary-grid">
+          <article class="subpanel">
+            <h3>Weekly Payment Control</h3>
+            <p class="hint">Calculated hours, worked days, base pay, reimbursements, tolls, extra expenses, and approval status.</p>
+            <div id="adminPaymentsTable" class="table-wrap"></div>
+          </article>
+
+          <article class="subpanel">
+            <div class="row admin-section-head">
+              <div>
+                <h3>Receipt Upload & Expense Management</h3>
+                <p class="hint">Upload image or PDF receipts and manage reimbursement, toll, and extra expense approvals.</p>
+              </div>
+              <button id="receiptFormNewBtn" class="secondary" type="button">Add receipt</button>
+            </div>
+            <form id="receiptForm" class="grid-form compact admin-receipt-form">
+              <input type="hidden" name="receiptId" />
+              <label>Employee
+                <select id="receiptUserSelect" name="userId" required>
+                  <option value="">Select an employee</option>
+                </select>
+              </label>
+              <label>Category
+                <select name="category" required>
+                  <option value="reimbursement">Reimbursement</option>
+                  <option value="toll">Toll</option>
+                  <option value="extra">Extra expense</option>
+                </select>
+              </label>
+              <label>Related Project
+                <select id="receiptProjectSelect" name="projectId">
+                  <option value="">No project linked</option>
+                </select>
+              </label>
+              <label>Date
+                <input name="expenseDate" type="date" required />
+              </label>
+              <label>Amount
+                <input name="amount" type="number" min="0" step="0.01" placeholder="0.00" required />
+              </label>
+              <label>Approval Status
+                <select id="receiptApprovalStatusSelect" disabled>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </label>
+              <label>Attachment (image or PDF)
+                <input id="receiptAttachmentInput" name="attachment" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/*" />
+              </label>
+              <p id="receiptFileStatus" class="hint full">No receipt attached.</p>
+              <button id="openReceiptFileBtn" class="secondary xs-btn hidden" type="button">Open current attachment</button>
+              <label class="full">Description
+                <textarea name="description" rows="3" placeholder="What was paid and why it should be reimbursed"></textarea>
+              </label>
+              <div class="row full">
+                <button class="primary" type="submit">Save</button>
+                <button id="receiptFormDeleteBtn" class="danger" type="button">Delete</button>
+                <button id="receiptFormCancelBtn" class="secondary" type="button">Cancel</button>
+              </div>
+            </form>
+            <div id="adminReceiptsTable" class="table-wrap"></div>
+          </article>
+        </div>
+
+        <div class="admin-tertiary-grid">
+          <article class="subpanel">
+            <h3>Sub Contractor Presence</h3>
+            <p class="hint">Weekly list by project for Sub Contractors who worked with the company.</p>
+            <div id="adminSubcontractorTable" class="table-wrap"></div>
+          </article>
+
+          <article class="subpanel">
+            <h3>Audit Trail</h3>
+            <p class="hint">Track who created, edited, approved, rejected, or deleted payroll and expense records.</p>
+            <div id="adminAuditTable" class="table-wrap"></div>
+          </article>
+        </div>
+      </section>
+
       <section id="userEditPanel" class="panel hidden">
         <h2>Edit user profile</h2>
         <p id="userEditTarget" class="hint"></p>
@@ -901,7 +1113,7 @@
       </section>
 
       <section class="panel" id="unitEntryPanel">
-        <h2>Novo registro por unidade</h2>
+        <h2>New unit record</h2>
         <p id="warehouseProjectSummary" class="hint"></p>
         <form id="unitForm" class="grid-form">
           <label>Project
@@ -909,11 +1121,11 @@
           </label>
           <label>Client<input id="unitClientName" readonly name="clientName" /></label>
           <label>Project Name<input id="unitProjectName" readonly name="projectName" /></label>
-          <label>Job Site<input required id="unitJobSite" name="jobSite" placeholder="Address da obra" /></label>
+          <label>Job Site<input required id="unitJobSite" name="jobSite" placeholder="Job site address" /></label>
           <label>Unit<input required name="unitCode" placeholder="Ex: 1204" /></label>
           <label>Building/Tower<input name="building" placeholder="Ex: Torre B" /></label>
-          <label>Pavimento<input name="floor" placeholder="Ex: 12" /></label>
-          <label>Categoria
+          <label>Floor<input name="floor" placeholder="Ex: 12" /></label>
+          <label>Category
             <select name="category" required>
               <option value="Cabinet">Cabinet</option>
               <option value="Vanity">Vanity</option>
@@ -922,14 +1134,14 @@
             </select>
           </label>
           <label>Type of Unit<input name="unitType" placeholder="Ex: Type A" /></label>
-          <label>Modelo da cozinha<input name="kitchenModel" placeholder="Ex: K-MOD-04" /></label>
-          <label>Shopdrawing (referencia/link)
-            <input name="shopdrawingRef" placeholder="Numero, URL ou caminho" />
+          <label>Kitchen model<input name="kitchenModel" placeholder="Ex: K-MOD-04" /></label>
+          <label>Shopdrawing (reference/link)
+            <input name="shopdrawingRef" placeholder="Number, URL, or file path" />
           </label>
           <label class="full">Project Scope Work
-            <textarea name="scopeWork" rows="3" placeholder="Escopo resumido para conferencia em campo"></textarea>
+            <textarea name="scopeWork" rows="3" placeholder="Short scope summary for field verification"></textarea>
           </label>
-          <button class="primary" type="submit">Salvar unidade</button>
+          <button class="primary" type="submit">Save unit</button>
         </form>
         <p id="unitProjectHint" class="hint"></p>
       </section>
@@ -1186,7 +1398,7 @@
           <form class="manifest-form row">
             <select class="mf-material"></select>
             <input class="mf-code" placeholder="Cod. item" />
-            <input class="mf-desc" placeholder="Descricao" />
+            <input class="mf-desc" placeholder="Description" />
             <input class="mf-category" list="containerCategoryList" placeholder="Category" />
             <input class="mf-qty" type="number" min="1" placeholder="Qtd" />
             <input class="mf-unit" placeholder="Unit (pcs/box)" />
@@ -1343,9 +1555,9 @@
             <input class="ci-got" type="number" min="0" placeholder="Qtd. conferida" />
             <select class="ci-status">
               <option value="ok">OK</option>
-              <option value="missing">Faltante</option>
-              <option value="damaged">Defeito</option>
-              <option value="adjustment">Ajuste</option>
+              <option value="missing">Missing</option>
+              <option value="damaged">Damaged</option>
+              <option value="adjustment">Adjustment</option>
             </select>
             <button class="secondary add-default-items-btn" type="button">Load default material list</button>
             <button class="secondary add-item-btn" type="submit">Add item</button>
@@ -1357,7 +1569,7 @@
 
         <div class="photo-tools" data-sectors="instalacao,punchlist">
           <label class="secondary file-label photo-label">
-            Anexar fotos
+            Attach photos
             <input class="photo-input" type="file" accept="image/*" multiple capture="environment" />
           </label>
         </div>
@@ -1386,6 +1598,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260323-workforce2" defer></script>
+    <script src="app.js?v=20260323-admin1" defer></script>
   </body>
 </html>

@@ -1,2 +1,12 @@
 .DS_Store
 .wrangler/
+node_modules/
+dist/
+.env
+.env.local
+.env.*
+!**/.env.example
+media-admin/server/storage/uploads/*
+!media-admin/server/storage/uploads/.gitkeep
+media-admin/server/storage/generated/*
+!media-admin/server/storage/generated/.gitkeep

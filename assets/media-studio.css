@@ -144,6 +144,10 @@
   padding:22px;
 }
 
+.studio-access-panel{
+  background:linear-gradient(180deg, rgba(255,251,247,.98), rgba(245,235,227,.94));
+}
+
 .studio-panel-head{
   display:flex;
   align-items:flex-start;
@@ -166,6 +170,16 @@
 .studio-chip-muted{
   background:#fff;
   color:var(--muted);
+}
+
+.studio-access-copy{
+  margin:0 0 16px;
+}
+
+.studio-access-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
 }
 
 .studio-form{

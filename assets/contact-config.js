@@ -14,4 +14,8 @@ window.WEBSITE_CONTENT = {
 
 window.MEDIA_STUDIO = {
   apiBaseUrl: "",
+  productionApiBaseUrl: "",
+  localApiBaseUrl: "http://127.0.0.1:4000",
+  authStorageKey: "nolimit_gallery_control_admin_token",
+  apiUrlStorageKey: "nolimit_gallery_control_api_url",
 };

@@ -2,6 +2,13 @@ const studioYear = document.getElementById('studioYear');
 if (studioYear) studioYear.textContent = new Date().getFullYear();
 
 const studioAlert = document.getElementById('studioAlert');
+const accessForm = document.getElementById('studioAccessForm');
+const accessModeChip = document.getElementById('studioAccessModeChip');
+const accessStatus = document.getElementById('studioAccessStatus');
+const apiUrlInput = document.getElementById('studioApiUrlInput');
+const adminTokenInput = document.getElementById('studioAdminTokenInput');
+const unlockButton = document.getElementById('studioUnlockButton');
+const lockButton = document.getElementById('studioLockButton');
 const uploadForm = document.getElementById('studioUploadForm');
 const uploadButton = document.getElementById('studioUploadButton');
 const refreshButton = document.getElementById('studioRefreshButton');
@@ -33,6 +40,7 @@ const captionField = document.getElementById('studioCaption');
 
 const state = {
   apiBaseUrl: '',
+  adminToken: '',
   mode: 'idle',
   canManage: false,
   categories: [],
@@ -47,9 +55,64 @@ const state = {
   connected: false
 };
 
+function getMediaStudioConfig() {
+  return window.MEDIA_STUDIO || {};
+}
+
+function isLocalHost() {
+  return ['localhost', '127.0.0.1'].includes(window.location.hostname);
+}
+
+function normalizeApiBaseUrl(value) {
+  return String(value || '').trim().replace(/\/$/, '');
+}
+
+function getApiUrlStorageKey() {
+  return String(getMediaStudioConfig().apiUrlStorageKey || 'nolimit_gallery_control_api_url').trim();
+}
+
+function getAuthStorageKey() {
+  return String(getMediaStudioConfig().authStorageKey || 'nolimit_gallery_control_admin_token').trim();
+}
+
+function readStoredValue(key) {
+  try {
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStoredValue(key, value) {
+  try {
+    if (value) {
+      localStorage.setItem(key, value);
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
 function getApiBaseUrl() {
-  const configured = String(window.MEDIA_STUDIO?.apiBaseUrl || '').trim().replace(/\/$/, '');
-  return configured;
+  const config = getMediaStudioConfig();
+  const stored = normalizeApiBaseUrl(readStoredValue(getApiUrlStorageKey()));
+  if (stored) return stored;
+
+  const direct = normalizeApiBaseUrl(config.apiBaseUrl);
+  if (direct) return direct;
+
+  if (isLocalHost()) {
+    const local = normalizeApiBaseUrl(config.localApiBaseUrl);
+    if (local) return local;
+  }
+
+  return normalizeApiBaseUrl(config.productionApiBaseUrl);
+}
+
+function getStoredAdminToken() {
+  return String(readStoredValue(getAuthStorageKey()) || '').trim();
 }
 
 function normalizeTableList(value, fallback) {
@@ -118,7 +181,7 @@ async function fetchSupabaseRows(tableNames, queryEntries = []) {
 
       if (missingRelation) continue;
     } catch (error) {
-      console.warn(`Media Studio Supabase fetch failed for table "${table}".`, error);
+      console.warn(`Gallery Control Supabase fetch failed for table "${table}".`, error);
     }
   }
 
@@ -196,15 +259,89 @@ function buildUrl(path, params = {}) {
   return url.toString();
 }
 
-async function apiFetch(path, options = {}, params) {
-  if (!state.apiBaseUrl) {
-    throw new Error('Media Studio API is not configured yet. Set window.MEDIA_STUDIO.apiBaseUrl in assets/contact-config.js.');
+function updateAccessPanel() {
+  if (apiUrlInput) apiUrlInput.value = state.apiBaseUrl || '';
+  if (lockButton) lockButton.disabled = !state.canManage;
+
+  if (state.canManage) {
+    if (accessModeChip) accessModeChip.textContent = 'Management unlocked';
+    if (accessStatus) {
+      accessStatus.textContent =
+        'Upload, artwork generation, publish status, and social tracking are unlocked for this browser session.';
+    }
+    if (adminTokenInput) {
+      adminTokenInput.value = '';
+      adminTokenInput.placeholder = 'Token stored for this browser';
+    }
+    return;
   }
 
-  const response = await fetch(buildUrl(path, params), options);
+  if (adminTokenInput) {
+    adminTokenInput.value = '';
+    adminTokenInput.placeholder = 'Enter the media admin token';
+  }
+
+  if (state.apiBaseUrl) {
+    if (accessModeChip) accessModeChip.textContent = 'API locked';
+    if (accessStatus) {
+      accessStatus.textContent =
+        'The secure media API is configured. Enter the admin token to unlock upload and publish controls, or stay in public tracking mode.';
+    }
+  } else {
+    if (accessModeChip) accessModeChip.textContent = 'Public view';
+    if (accessStatus) {
+      accessStatus.textContent =
+        'Public tracking is live. Add the secure media API URL and your admin token to unlock upload, artwork generation, and publishing.';
+    }
+  }
+}
+
+function setApiSession({ apiBaseUrl = '', adminToken = '' } = {}) {
+  state.apiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+  state.adminToken = String(adminToken || '').trim();
+  state.mode = state.apiBaseUrl && state.adminToken ? 'api' : 'public';
+
+  writeStoredValue(getApiUrlStorageKey(), state.apiBaseUrl);
+  writeStoredValue(getAuthStorageKey(), state.adminToken);
+  setManagementAvailability(Boolean(state.apiBaseUrl && state.adminToken));
+  updateAccessPanel();
+}
+
+function clearAdminSession({ keepApiUrl = true } = {}) {
+  const apiBaseUrl = keepApiUrl ? state.apiBaseUrl : '';
+  setApiSession({ apiBaseUrl, adminToken: '' });
+}
+
+async function apiFetch(path, options = {}, params) {
+  if (!state.apiBaseUrl) {
+    throw new Error('Gallery Control API is not configured yet. Add the media API URL to unlock management.');
+  }
+
+  const headers = new Headers(options.headers || {});
+  if (state.adminToken) headers.set('Authorization', `Bearer ${state.adminToken}`);
+
+  const response = await fetch(buildUrl(path, params), {
+    ...options,
+    headers
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.message || 'Media Studio request failed.');
+    if (response.status === 401 || response.status === 403) {
+      clearAdminSession();
+      throw new Error('Admin access was rejected. Check the media API URL and token, then unlock management again.');
+    }
+    throw new Error(data.message || 'Gallery Control request failed.');
+  }
+  return data;
+}
+
+async function publicApiFetch(path, params) {
+  if (!state.apiBaseUrl) return null;
+
+  const response = await fetch(buildUrl(path, params));
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.message || 'Gallery Control public request failed.');
   }
   return data;
 }
@@ -421,6 +558,17 @@ async function loadCategories() {
     return;
   }
 
+  if (state.apiBaseUrl) {
+    try {
+      const data = await publicApiFetch('/api/public/categories');
+      state.categories = Array.isArray(data?.categories) ? data.categories : [];
+      renderCategories();
+      return;
+    } catch (error) {
+      console.warn('Gallery Control public categories fallback enabled.', error);
+    }
+  }
+
   const categoryRows = await fetchSupabaseRows(getWebsiteContentConfig()?.categoriesTables || [], [
     ['select', '*'],
     ['order', 'name.asc']
@@ -437,6 +585,23 @@ async function loadMedia() {
     if (apiBadge) apiBadge.textContent = 'API connected';
     renderTable();
     return;
+  }
+
+  if (state.apiBaseUrl) {
+    try {
+      const data = await publicApiFetch('/api/public/media', {
+        category: state.filters.category,
+        search: state.filters.search,
+        published: state.filters.published
+      });
+      state.media = Array.isArray(data?.media) ? data.media : [];
+      state.connected = true;
+      if (apiBadge) apiBadge.textContent = 'Public API connected';
+      renderTable();
+      return;
+    } catch (error) {
+      console.warn('Gallery Control public media fallback enabled.', error);
+    }
   }
 
   const galleryRows = await fetchSupabaseRows(getWebsiteContentConfig()?.galleryItemsTables || [], [
@@ -466,6 +631,8 @@ async function loadMedia() {
 async function refreshAll() {
   try {
     if (state.mode === 'api') {
+      await Promise.all([loadCategories(), loadMedia()]);
+    } else if (state.apiBaseUrl) {
       await Promise.all([loadCategories(), loadMedia()]);
     } else {
       await loadCategories();
@@ -555,6 +722,42 @@ async function handleTableAction(event) {
   }
 }
 
+async function handleAccessSubmit(event) {
+  event.preventDefault();
+
+  const apiBaseUrl = normalizeApiBaseUrl(apiUrlInput?.value || state.apiBaseUrl);
+  const adminToken = String(adminTokenInput?.value || '').trim() || state.adminToken;
+
+  if (!apiBaseUrl) {
+    setAlert('Enter the secure media API URL before unlocking management.', 'error');
+    return;
+  }
+
+  if (!adminToken) {
+    setAlert('Enter the media admin token to unlock upload and publish controls.', 'error');
+    return;
+  }
+
+  try {
+    setBusy(unlockButton, true, 'Unlocking...', 'Unlock management');
+    setApiSession({ apiBaseUrl, adminToken });
+    await refreshAll();
+    setAlert('Gallery management unlocked successfully.', 'success');
+  } catch (error) {
+    clearAdminSession();
+    await refreshAll().catch(() => {});
+    setAlert(error.message, 'error');
+  } finally {
+    setBusy(unlockButton, false, 'Unlocking...', 'Unlock management');
+  }
+}
+
+function handleLockManagement() {
+  clearAdminSession();
+  void refreshAll();
+  setAlert('Gallery management was locked for this browser. Public tracking view remains available.', 'success');
+}
+
 function bindFilters() {
   searchInput?.addEventListener('input', () => {
     state.filters.search = searchInput.value.trim();
@@ -574,22 +777,21 @@ function bindFilters() {
   refreshButton?.addEventListener('click', () => {
     void refreshAll();
   });
+
+  accessForm?.addEventListener('submit', (event) => {
+    void handleAccessSubmit(event);
+  });
+
+  lockButton?.addEventListener('click', handleLockManagement);
 }
 
 function init() {
-  state.apiBaseUrl = getApiBaseUrl();
-  state.mode = state.apiBaseUrl ? 'api' : 'public';
-  setManagementAvailability(Boolean(state.apiBaseUrl));
+  setApiSession({
+    apiBaseUrl: getApiBaseUrl(),
+    adminToken: getStoredAdminToken()
+  });
 
-  if (state.canManage) {
-    uploadForm?.addEventListener('submit', handleUpload);
-  } else {
-    setAlert(
-      'Gallery Control link is live. Public gallery and daily post tracking are available now, and secure upload actions will activate as soon as the media API is connected.',
-      'success'
-    );
-    if (apiBadge) apiBadge.textContent = 'Public view';
-  }
+  uploadForm?.addEventListener('submit', handleUpload);
 
   tableBody?.addEventListener('click', handleTableAction);
   bindFilters();

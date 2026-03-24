@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: nolimit-media-api
+    runtime: node
+    plan: starter
+    rootDir: media-admin/server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: STORAGE_DRIVER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: nolimit-media
+      - key: BRAND_PHONE
+        sync: false
+      - key: BRAND_EMAIL
+        sync: false
+      - key: BRAND_COPY
+        sync: false
+      - key: LOGO_PATH
+        value: https://nolimitcontractor.pages.dev/assets/brand.png
+      - key: ANNIVERSARY_BADGE_PATH
+        value: https://nolimitcontractor.pages.dev/assets/anniversary-18.png
+
+  - type: web
+    name: nolimit-media-admin
+    runtime: static
+    rootDir: media-admin/client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false

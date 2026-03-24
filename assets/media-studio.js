@@ -8,6 +8,7 @@ const accessStatus = document.getElementById('studioAccessStatus');
 const apiUrlInput = document.getElementById('studioApiUrlInput');
 const adminTokenInput = document.getElementById('studioAdminTokenInput');
 const unlockButton = document.getElementById('studioUnlockButton');
+const testModeButton = document.getElementById('studioTestModeButton');
 const lockButton = document.getElementById('studioLockButton');
 const uploadForm = document.getElementById('studioUploadForm');
 const uploadButton = document.getElementById('studioUploadButton');
@@ -55,6 +56,14 @@ const state = {
   connected: false
 };
 
+const DEMO_CATEGORIES = [
+  { id: 'trim', name: 'Trim', slug: 'trim' },
+  { id: 'kitchens', name: 'Kitchens', slug: 'kitchens' },
+  { id: 'decks', name: 'Decks', slug: 'decks' },
+  { id: 'stairs', name: 'Stairs', slug: 'stairs' },
+  { id: 'wainscoting', name: 'Wainscoting', slug: 'wainscoting' }
+];
+
 function getMediaStudioConfig() {
   return window.MEDIA_STUDIO || {};
 }
@@ -73,6 +82,14 @@ function getApiUrlStorageKey() {
 
 function getAuthStorageKey() {
   return String(getMediaStudioConfig().authStorageKey || 'nolimit_gallery_control_admin_token').trim();
+}
+
+function getDemoStorageKey() {
+  return 'nolimit_gallery_control_demo_media';
+}
+
+function getDemoModeStorageKey() {
+  return 'nolimit_gallery_control_demo_mode';
 }
 
 function readStoredValue(key) {
@@ -113,6 +130,10 @@ function getApiBaseUrl() {
 
 function getStoredAdminToken() {
   return String(readStoredValue(getAuthStorageKey()) || '').trim();
+}
+
+function isDemoModeStored() {
+  return readStoredValue(getDemoModeStorageKey()) === 'true';
 }
 
 function normalizeTableList(value, fallback) {
@@ -249,6 +270,178 @@ function normalizeMediaItem(row, categoriesById) {
   };
 }
 
+function getBrandContactDetails() {
+  const companyEmail =
+    String(window.CONTACT_FORM?.email || '').trim() ||
+    String(window.WEBSITE_CONTENT?.email || '').trim() ||
+    'hello@nolimitcontractor.com';
+  const companyPhone = String(window.CONTACT_FORM?.phone || '').trim() || '(732) 555-0178';
+
+  return {
+    phone: companyPhone,
+    email: companyEmail
+  };
+}
+
+function buildDemoCaption(categoryName) {
+  const contact = getBrandContactDetails();
+  return `${categoryName} by No Limit. Clean finish carpentry, ready for your next project. ${contact.phone} • ${contact.email}`;
+}
+
+function readDemoMedia() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(getDemoStorageKey()) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDemoMedia(records) {
+  try {
+    localStorage.setItem(getDemoStorageKey(), JSON.stringify(records));
+  } catch (error) {
+    console.warn('Could not persist Gallery Control demo media.', error);
+  }
+}
+
+function getAvailableCategories() {
+  return state.categories.length ? state.categories : DEMO_CATEGORIES;
+}
+
+function getCategoryDetailsById(categoryId) {
+  const categories = getAvailableCategories();
+  return categories.find((category) => String(category.id) === String(categoryId)) || categories[0] || DEMO_CATEGORIES[0];
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read the selected image.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Could not load image: ${source}`));
+    image.src = source;
+  });
+}
+
+async function generateDemoArtUrl(item) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 1080;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not start browser artwork generation.');
+
+  const [sourceImage, logoImage, anniversaryImage] = await Promise.all([
+    loadImage(item.originalUrl),
+    loadImage('assets/brand.png').catch(() => null),
+    loadImage('assets/anniversary-18.png').catch(() => null)
+  ]);
+
+  const scale = Math.max(canvas.width / sourceImage.width, canvas.height / sourceImage.height);
+  const drawWidth = sourceImage.width * scale;
+  const drawHeight = sourceImage.height * scale;
+  const drawX = (canvas.width - drawWidth) / 2;
+  const drawY = (canvas.height - drawHeight) / 2;
+
+  context.fillStyle = '#0f0f0f';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(sourceImage, drawX, drawY, drawWidth, drawHeight);
+
+  const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, 'rgba(10,10,10,0.08)');
+  gradient.addColorStop(0.55, 'rgba(10,10,10,0.22)');
+  gradient.addColorStop(1, 'rgba(10,10,10,0.72)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (logoImage) {
+    context.drawImage(logoImage, 72, 68, 280, 120);
+  }
+
+  if (anniversaryImage) {
+    context.drawImage(anniversaryImage, 902, 56, 120, 120);
+  }
+
+  context.fillStyle = '#ffffff';
+  context.font = '700 76px Georgia, serif';
+  context.fillText(item.categoryName, 72, 808);
+
+  context.font = '500 34px Arial, sans-serif';
+  context.fillStyle = 'rgba(255,255,255,0.92)';
+  context.fillText('Premium finish carpentry with clean detail and dependable delivery.', 72, 874);
+
+  const contact = getBrandContactDetails();
+  context.font = '600 28px Arial, sans-serif';
+  context.fillText(`${contact.phone}  |  ${contact.email}`, 72, 938);
+
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+async function uploadDemoMedia(formData) {
+  const file = formData.get('image');
+  if (!(file instanceof File) || !file.size) {
+    throw new Error('Choose an image file before uploading in test mode.');
+  }
+
+  const title = String(formData.get('title') || '').trim();
+  if (!title) {
+    throw new Error('Title is required in test mode too.');
+  }
+
+  const category = getCategoryDetailsById(String(formData.get('categoryId') || '').trim());
+  const originalUrl = await readFileAsDataUrl(file);
+  const record = {
+    id: `demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    categoryId: category.id,
+    categoryName: category.name,
+    categorySlug: category.slug,
+    originalUrl,
+    generatedArtUrl: '',
+    createdAt: new Date().toISOString(),
+    published: String(formData.get('published') || '') === 'on',
+    usedInSocial: false,
+    captionText: buildDemoCaption(category.name),
+    demo: true
+  };
+
+  const nextRecords = [record, ...readDemoMedia()];
+  writeDemoMedia(nextRecords);
+  return record;
+}
+
+async function patchDemoMedia(item, action) {
+  const records = readDemoMedia();
+  const index = records.findIndex((entry) => entry.id === item.id);
+  if (index === -1) throw new Error('This demo media item is no longer available.');
+
+  const nextItem = { ...records[index] };
+
+  if (action === 'generate') {
+    nextItem.generatedArtUrl = await generateDemoArtUrl(nextItem);
+  }
+
+  if (action === 'publish') {
+    nextItem.published = !Boolean(nextItem.published);
+  }
+
+  if (action === 'social') {
+    nextItem.usedInSocial = !Boolean(nextItem.usedInSocial);
+  }
+
+  records[index] = nextItem;
+  writeDemoMedia(records);
+  return nextItem;
+}
+
 function buildUrl(path, params = {}) {
   const base = state.apiBaseUrl;
   const url = new URL(`${base}${path}`, window.location.origin);
@@ -261,7 +454,21 @@ function buildUrl(path, params = {}) {
 
 function updateAccessPanel() {
   if (apiUrlInput) apiUrlInput.value = state.apiBaseUrl || '';
-  if (lockButton) lockButton.disabled = !state.canManage;
+  if (lockButton) lockButton.disabled = !state.canManage && state.mode !== 'demo';
+  if (testModeButton) testModeButton.disabled = state.mode === 'demo';
+
+  if (state.mode === 'demo') {
+    if (accessModeChip) accessModeChip.textContent = 'Test mode';
+    if (accessStatus) {
+      accessStatus.textContent =
+        'Browser test mode is active. Uploads, artwork generation, publish status, and social tracking are being saved only on this device.';
+    }
+    if (adminTokenInput) {
+      adminTokenInput.value = '';
+      adminTokenInput.placeholder = 'Not required in test mode';
+    }
+    return;
+  }
 
   if (state.canManage) {
     if (accessModeChip) accessModeChip.textContent = 'Management unlocked';
@@ -303,6 +510,7 @@ function setApiSession({ apiBaseUrl = '', adminToken = '' } = {}) {
 
   writeStoredValue(getApiUrlStorageKey(), state.apiBaseUrl);
   writeStoredValue(getAuthStorageKey(), state.adminToken);
+  writeStoredValue(getDemoModeStorageKey(), '');
   setManagementAvailability(Boolean(state.apiBaseUrl && state.adminToken));
   updateAccessPanel();
 }
@@ -310,6 +518,20 @@ function setApiSession({ apiBaseUrl = '', adminToken = '' } = {}) {
 function clearAdminSession({ keepApiUrl = true } = {}) {
   const apiBaseUrl = keepApiUrl ? state.apiBaseUrl : '';
   setApiSession({ apiBaseUrl, adminToken: '' });
+}
+
+function enableDemoMode() {
+  state.mode = 'demo';
+  writeStoredValue(getDemoModeStorageKey(), 'true');
+  setManagementAvailability(true);
+  updateAccessPanel();
+}
+
+function disableDemoMode() {
+  writeStoredValue(getDemoModeStorageKey(), '');
+  state.mode = state.apiBaseUrl && state.adminToken ? 'api' : 'public';
+  setManagementAvailability(Boolean(state.apiBaseUrl && state.adminToken));
+  updateAccessPanel();
 }
 
 async function apiFetch(path, options = {}, params) {
@@ -551,6 +773,11 @@ function renderTable() {
 }
 
 async function loadCategories() {
+  if (state.mode === 'demo' && state.categories.length) {
+    renderCategories();
+    return;
+  }
+
   if (state.mode === 'api') {
     const data = await apiFetch('/api/categories');
     state.categories = Array.isArray(data.categories) ? data.categories : [];
@@ -574,10 +801,29 @@ async function loadCategories() {
     ['order', 'name.asc']
   ]);
   state.categories = (Array.isArray(categoryRows) ? categoryRows : []).map(normalizeCategoryRow).filter(Boolean);
+  if (!state.categories.length) state.categories = [...DEMO_CATEGORIES];
   renderCategories();
 }
 
 async function loadMedia() {
+  if (state.mode === 'demo') {
+    const demoMedia = readDemoMedia();
+    state.media = demoMedia.filter((item) => {
+      if (state.filters.search) {
+        const haystack = `${item.title} ${item.categoryName}`.toLowerCase();
+        if (!haystack.includes(state.filters.search.toLowerCase())) return false;
+      }
+      if (state.filters.category && item.categorySlug !== state.filters.category) return false;
+      if (state.filters.published === 'true' && !item.published) return false;
+      if (state.filters.published === 'false' && item.published) return false;
+      return true;
+    });
+    state.connected = true;
+    if (apiBadge) apiBadge.textContent = 'Browser test mode';
+    renderTable();
+    return;
+  }
+
   if (state.mode === 'api') {
     const data = await apiFetch('/api/media', {}, state.filters);
     state.media = Array.isArray(data.media) ? data.media : [];
@@ -632,13 +878,18 @@ async function refreshAll() {
   try {
     if (state.mode === 'api') {
       await Promise.all([loadCategories(), loadMedia()]);
+    } else if (state.mode === 'demo') {
+      await loadCategories();
+      await loadMedia();
     } else if (state.apiBaseUrl) {
       await Promise.all([loadCategories(), loadMedia()]);
     } else {
       await loadCategories();
       await loadMedia();
     }
-    if (state.canManage) {
+    if (state.mode === 'demo') {
+      setAlert('Browser test mode is active. You can upload photos and test the tools safely on this device.', 'success');
+    } else if (state.canManage) {
       setAlert('Gallery Control connected successfully. You can upload, generate, and publish from here.', 'success');
     } else {
       setAlert(
@@ -665,13 +916,22 @@ async function handleUpload(event) {
 
   try {
     setBusy(uploadButton, true, 'Uploading...', 'Upload image');
-    await apiFetch('/api/media/upload', {
-      method: 'POST',
-      body: formData
-    });
+    if (state.mode === 'demo') {
+      await uploadDemoMedia(formData);
+    } else {
+      await apiFetch('/api/media/upload', {
+        method: 'POST',
+        body: formData
+      });
+    }
     uploadForm.reset();
     await loadMedia();
-    setAlert('Image uploaded successfully. You can now generate the branded social art or publish it.', 'success');
+    setAlert(
+      state.mode === 'demo'
+        ? 'Image uploaded in browser test mode. You can now generate art or publish it inside this test workspace.'
+        : 'Image uploaded successfully. You can now generate the branded social art or publish it.',
+      'success'
+    );
   } catch (error) {
     setAlert(error.message, 'error');
   } finally {
@@ -694,23 +954,35 @@ async function handleTableAction(event) {
   try {
     button.disabled = true;
     if (action === 'generate') {
-      await apiFetch(`/api/media/${id}/generate-art`, { method: 'POST' });
+      if (state.mode === 'demo') {
+        await patchDemoMedia(item, 'generate');
+      } else {
+        await apiFetch(`/api/media/${id}/generate-art`, { method: 'POST' });
+      }
       setAlert(`Branded social art generated for "${item.title}".`, 'success');
     }
     if (action === 'publish') {
-      await apiFetch(`/api/media/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ published: !item.published })
-      });
+      if (state.mode === 'demo') {
+        await patchDemoMedia(item, 'publish');
+      } else {
+        await apiFetch(`/api/media/${id}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ published: !item.published })
+        });
+      }
       setAlert(item.published ? 'Media moved back to draft.' : 'Media published to the gallery pipeline.', 'success');
     }
     if (action === 'social') {
-      await apiFetch(`/api/media/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usedInSocial: !item.usedInSocial })
-      });
+      if (state.mode === 'demo') {
+        await patchDemoMedia(item, 'social');
+      } else {
+        await apiFetch(`/api/media/${id}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usedInSocial: !item.usedInSocial })
+        });
+      }
       setAlert(item.usedInSocial ? 'Media marked as not yet used in social.' : 'Media marked as used in social.', 'success');
     }
 
@@ -753,9 +1025,18 @@ async function handleAccessSubmit(event) {
 }
 
 function handleLockManagement() {
-  clearAdminSession();
+  if (state.mode === 'demo') {
+    disableDemoMode();
+  } else {
+    clearAdminSession();
+  }
   void refreshAll();
   setAlert('Gallery management was locked for this browser. Public tracking view remains available.', 'success');
+}
+
+function handleStartTestMode() {
+  enableDemoMode();
+  void refreshAll();
 }
 
 function bindFilters() {
@@ -783,6 +1064,7 @@ function bindFilters() {
   });
 
   lockButton?.addEventListener('click', handleLockManagement);
+  testModeButton?.addEventListener('click', handleStartTestMode);
 }
 
 function init() {
@@ -790,6 +1072,8 @@ function init() {
     apiBaseUrl: getApiBaseUrl(),
     adminToken: getStoredAdminToken()
   });
+
+  if (isDemoModeStored()) enableDemoMode();
 
   uploadForm?.addEventListener('submit', handleUpload);
 

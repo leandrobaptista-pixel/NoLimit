@@ -24,8 +24,8 @@
     <div class="viewer-wrap">
       <header class="viewer-header">
         <a class="brand" href="index.html">
-          <img src="assets/brand.png" alt="A No Limit Carpentry" />
-          <strong>A No Limit Carpentry</strong>
+          <img id="viewerBrandLogo" src="assets/brand.png" alt="No Limit Carpentry" />
+          <strong id="viewerBrandName">No Limit Carpentry</strong>
         </a>
       </header>
       <main class="viewer-main">
@@ -54,8 +54,45 @@
       const backLink = document.getElementById('backLink');
       const prevBtn = document.getElementById('prevBtn');
       const nextBtn = document.getElementById('nextBtn');
+      const viewerBrandLogo = document.getElementById('viewerBrandLogo');
+      const viewerBrandName = document.getElementById('viewerBrandName');
 
-      const toURL = (p) => (p || '').split('/').map(encodeURIComponent).join('/');
+      const toURL = (p) => {
+        const value = String(p || '').trim();
+        if (!value) return '';
+        if (/^(?:[a-z]+:)?\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
+        return value.split('/').map(encodeURIComponent).join('/');
+      };
+
+      function getStoredSettings() {
+        try {
+          const rawSettings = localStorage.getItem('websiteSiteSettings');
+          const parsed = JSON.parse(rawSettings || '{}');
+          return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+          return {};
+        }
+      }
+
+      function getStoredCategoryLabel() {
+        if (!cat) return '';
+        try {
+          return localStorage.getItem(`galleryCategoryLabel:${cat}`) || '';
+        } catch {
+          return '';
+        }
+      }
+
+      function applyViewerSettings() {
+        const settings = getStoredSettings();
+        if (settings.logoUrl && viewerBrandLogo) {
+          viewerBrandLogo.src = settings.logoUrl;
+          viewerBrandLogo.alt = `${settings.companyName || 'No Limit Carpentry'} logo`;
+        }
+        if (settings.companyName && viewerBrandName) {
+          viewerBrandName.textContent = settings.companyName;
+        }
+      }
 
       function getStoredList() {
         if (!cat) return [];
@@ -94,14 +131,15 @@
       function render(list, index) {
         const safeIndex = Math.max(0, Math.min(index, list.length - 1));
         const current = list[safeIndex] || raw;
+        const categoryLabel = getStoredCategoryLabel() || cat;
 
         photo.src = toURL(current);
         photo.onerror = () => { photo.src = 'assets/placeholder.svg'; };
         openRaw.href = toURL(current);
 
         const posText = list.length ? ` (${safeIndex + 1}/${list.length})` : '';
-        meta.textContent = cat ? `Segment: ${cat}${posText}` : `Photo${posText}`;
-        document.title = `Photo Viewer - ${cat || 'A No Limit'}`;
+        meta.textContent = categoryLabel ? `Segment: ${categoryLabel}${posText}` : `Photo${posText}`;
+        document.title = `Photo Viewer - ${categoryLabel || 'A No Limit'}`;
 
         prevBtn.disabled = list.length <= 1;
         nextBtn.disabled = list.length <= 1;
@@ -116,6 +154,7 @@
       }
 
       (async function init() {
+        applyViewerSettings();
         updateBackLink();
 
         let list = getStoredList();

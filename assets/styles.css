@@ -359,6 +359,10 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 /* Footer */
 .site-footer{border-top:1px solid var(--border);padding:18px 0;background:#efe0d9}
 .footer-inner{display:flex;align-items:center;justify-content:space-between}
+.footer-meta{display:grid;gap:6px}
+.footer-links{display:flex;flex-wrap:wrap;gap:12px}
+.footer-links a{color:var(--text);opacity:.82}
+.footer-links a:hover{opacity:1;text-decoration:underline}
 .to-top{opacity:.75}
 .to-top:hover{opacity:1}
 

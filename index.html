@@ -11,8 +11,8 @@
     <header class="site-header">
       <div class="container nav">
         <a class="brand" href="#home">
-          <img class="logo" src="assets/brand.png" onerror="this.src='assets/logo.svg'" alt="A No Limit Carpentry logo">
-          <span>Trim - Decks - Kitchens & Custom Work</span>
+          <img id="brandLogo" class="logo" src="assets/brand.png" onerror="this.src='assets/logo.svg'" alt="No Limit Carpentry logo">
+          <span id="brandName">No Limit Carpentry</span>
         </a>
         <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primaryNav" aria-label="Toggle navigation">
           <span></span>
@@ -26,7 +26,7 @@
           <a href="#catalogs">Catalogs</a>
           <a href="./installation-control/">Installation Control</a>
           <a href="#process">Process</a>
-          <a class="btn btn-small" href="#visit">Request a Visit</a>
+          <a class="btn btn-small" href="#visit" data-default-cta>Request a Visit</a>
         </nav>
       </div>
     </header>
@@ -35,14 +35,14 @@
       <section id="home" class="hero">
         <div class="container hero-inner">
           <div class="hero-brand">
-            <img src="assets/brand-hero.png" alt="No Limit Carpentry" fetchpriority="high" decoding="async">
+            <img id="heroLogo" src="assets/brand-hero.png" alt="No Limit Carpentry" fetchpriority="high" decoding="async">
           </div>
           <h1>Premium Finish Carpentry, Built to Last</h1>
           <p>
             High-quality trim, custom built-ins, crown molding, wall paneling, interior doors, and more — crafted with precision for a refined, lasting look.
           </p>
           <div class="hero-ctas">
-            <a class="btn" href="#visit">Request a Free On‑Site Visit</a>
+            <a class="btn" href="#visit" data-default-cta>Request a Free On‑Site Visit</a>
             <a class="btn btn-secondary" href="#services">Explore Services</a>
           </div>
         </div>
@@ -50,7 +50,7 @@
 
       <section id="about" class="section">
         <div class="container">
-          <h2>About A No Limit Carpentry</h2>
+          <h2 id="aboutHeading">About No Limit Carpentry</h2>
           <div class="about-grid">
             <div>
               <p>
@@ -61,7 +61,7 @@
               </p>
             </div>
             <figure class="badge">
-              <img src="assets/anniversary-18.png" alt="No Limit Carpentry — 18 Years" loading="lazy" />
+              <img id="anniversaryLogo" src="assets/anniversary-18.png" alt="No Limit Carpentry — 18 Years" loading="lazy" />
               <figcaption>NJ, NY and FL</figcaption>
             </figure>
           </div>
@@ -103,8 +103,8 @@
       <section id="gallery" class="section">
         <div class="container">
           <h2>Gallery</h2>
-          <p class="hint">Browse by segment. Photos load from your folders under <code>assets/</code>.</p>
-          <div class="gallery-controls">
+          <p id="galleryHint" class="hint">Browse by segment. Published gallery items load automatically when connected.</p>
+          <div id="galleryControls" class="gallery-controls">
             <button class="filter-btn active" data-cat="Trim">Trim</button>
             <button class="filter-btn" data-cat="Wainscoting">Wainscoting</button>
             <button class="filter-btn" data-cat="Stairs">Stairs</button>
@@ -348,7 +348,13 @@
 
     <footer class="site-footer">
       <div class="container footer-inner">
-        <span>© <span id="year"></span> No Limit Carpentry. 2137 Aldrin Rd Suite 6B Ocean NJ 07712. All rights reserved.</span>
+        <div class="footer-meta">
+          <span>© <span id="year"></span> <span id="footerCompany">No Limit Carpentry</span>. 2137 Aldrin Rd Suite 6B Ocean NJ 07712. All rights reserved.</span>
+          <div class="footer-links">
+            <a id="footerPhoneLink" href="#" hidden></a>
+            <a id="footerEmailLink" href="#" hidden></a>
+          </div>
+        </div>
         <a href="#home" class="to-top">Back to top ↑</a>
       </div>
     </footer>
@@ -358,6 +364,6 @@
     </noscript>
     <script src="assets/gallery-manifest.js" defer></script>
     <script src="assets/contact-config.js" defer></script>
-    <script src="assets/script.js?v=20260323-links1" defer></script>
+    <script src="assets/script.js?v=20260323-content1" defer></script>
   </body>
   </html>

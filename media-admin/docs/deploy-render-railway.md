@@ -28,7 +28,10 @@ This path keeps the backend as a standard Node.js service and is the best fit wh
 
 - `DATABASE_URL`
 - `PUBLIC_BASE_URL`
+- `MEDIA_ADMIN_PASSWORD`
 - `MEDIA_ADMIN_TOKEN`
+- `MEDIA_ADMIN_SESSION_SECRET`
+- `MEDIA_ADMIN_SESSION_TTL_HOURS`
 - `STORAGE_DRIVER`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
@@ -42,7 +45,9 @@ This path keeps the backend as a standard Node.js service and is the best fit wh
 ### Suggested production values
 
 - `STORAGE_DRIVER=supabase`
-- `MEDIA_ADMIN_TOKEN=<long random token used by the Gallery Control page>`
+- `MEDIA_ADMIN_PASSWORD=<shared admin password used by Gallery Control sign-in>`
+- `MEDIA_ADMIN_SESSION_SECRET=<long random secret used to sign browser sessions>`
+- `MEDIA_ADMIN_TOKEN=<optional long random token for legacy direct bearer access>`
 - `LOGO_PATH=https://nolimitcontractor.pages.dev/assets/brand.png`
 - `ANNIVERSARY_BADGE_PATH=https://nolimitcontractor.pages.dev/assets/anniversary-18.png`
 

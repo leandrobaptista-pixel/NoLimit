@@ -6,6 +6,7 @@ import path from 'node:path';
 import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { requireAdminApi } from './middleware/require-admin-api.js';
+import { authRouter } from './routes/auth-routes.js';
 import { categoryRouter } from './routes/category-routes.js';
 import { healthRouter } from './routes/health-routes.js';
 import { mediaRouter } from './routes/media-routes.js';
@@ -22,6 +23,7 @@ export function createApp() {
 
   app.use('/storage', express.static(path.resolve(env.storageRoot)));
   app.use('/api/health', healthRouter);
+  app.use('/api/auth', authRouter);
   app.use('/api/categories', requireAdminApi, categoryRouter);
   app.use('/api/media', requireAdminApi, mediaRouter);
   app.use('/api/public', publicRouter);

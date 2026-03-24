@@ -57,6 +57,8 @@ media-admin/
 ## Public API Examples
 
 - `GET /api/health`
+- `POST /api/auth/login`
+- `GET /api/auth/session`
 - `GET /api/public/categories`
 - `GET /api/categories`
 - `GET /api/media?category=trim`
@@ -68,8 +70,10 @@ media-admin/
 ## Admin protection
 
 - `GET /api/public/*` stays public for website consumption
-- `GET /api/categories` and all `/api/media/*` routes now require `Authorization: Bearer <MEDIA_ADMIN_TOKEN>`
-- set `MEDIA_ADMIN_TOKEN` in the API environment before going live
+- `POST /api/auth/login` accepts the shared admin password and returns a signed session token
+- `GET /api/categories` and all `/api/media/*` routes accept `Authorization: Bearer <session-token>`
+- `MEDIA_ADMIN_TOKEN` can still be used for legacy direct bearer access if needed
+- set `MEDIA_ADMIN_PASSWORD` and `MEDIA_ADMIN_SESSION_SECRET` in the API environment before going live
 
 ## Notes
 

@@ -83,8 +83,8 @@
                 </div>
 
                 <p id="studioAccessStatus" class="hint studio-access-copy">
-                  Public tracking is live. Enter the secure media API URL and your admin token to unlock upload,
-                  artwork generation, and publish controls.
+                  Public tracking is live. Enter the secure media API URL and sign in with the admin password to
+                  unlock upload, artwork generation, and publish controls.
                 </p>
 
                 <form id="studioAccessForm" class="studio-form">
@@ -100,17 +100,17 @@
                   </label>
 
                   <label class="field">
-                    <span class="field-label">Admin access token</span>
+                    <span class="field-label">Admin password</span>
                     <input
                       id="studioAdminTokenInput"
                       type="password"
                       autocomplete="current-password"
-                      placeholder="Enter the media admin token"
+                      placeholder="Enter the admin password"
                     />
                   </label>
 
                   <div class="studio-access-actions">
-                    <button id="studioUnlockButton" class="btn" type="submit">Unlock management</button>
+                    <button id="studioUnlockButton" class="btn" type="submit">Sign in</button>
                     <button id="studioTestModeButton" class="btn btn-secondary" type="button">Start test mode</button>
                     <button id="studioLockButton" class="btn btn-secondary" type="button">Lock management</button>
                   </div>
@@ -349,6 +349,6 @@
     </footer>
 
     <script src="assets/contact-config.js" defer></script>
-    <script src="assets/media-studio.js?v=20260324-gallerycontrol2" defer></script>
+    <script src="assets/media-studio.js?v=20260324-gallerycontrol3" defer></script>
   </body>
 </html>

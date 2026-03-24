@@ -32,7 +32,10 @@ Use these values in the Node API service:
 
 - `DATABASE_URL=<Supabase Postgres connection string>`
 - `STORAGE_DRIVER=supabase`
-- `MEDIA_ADMIN_TOKEN=<long random token used by the Gallery Control page>`
+- `MEDIA_ADMIN_PASSWORD=<shared admin password used by Gallery Control sign-in>`
+- `MEDIA_ADMIN_SESSION_SECRET=<long random secret used to sign browser sessions>`
+- `MEDIA_ADMIN_SESSION_TTL_HOURS=24`
+- `MEDIA_ADMIN_TOKEN=<optional long random token for legacy direct bearer access>`
 - `SUPABASE_URL=<your Supabase URL>`
 - `SUPABASE_SERVICE_ROLE_KEY=<service role key>`
 - `SUPABASE_STORAGE_BUCKET=nolimit-media`

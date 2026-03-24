@@ -1,34 +1,14 @@
-import { timingSafeEqual } from 'node:crypto';
-import { env } from '../config/env.js';
-
-function extractToken(req) {
-  const authorization = String(req.headers.authorization || '').trim();
-  if (authorization.toLowerCase().startsWith('bearer ')) {
-    return authorization.slice(7).trim();
-  }
-
-  return String(req.headers['x-media-admin-token'] || '').trim();
-}
-
-function tokensMatch(received, expected) {
-  if (!received || !expected) return false;
-
-  const left = Buffer.from(received);
-  const right = Buffer.from(expected);
-  if (left.length !== right.length) return false;
-
-  return timingSafeEqual(left, right);
-}
+import { canAuthorizeAdminRequests, extractAdminToken, verifyAdminAccessToken } from '../lib/admin-auth.js';
 
 export function requireAdminApi(req, res, next) {
-  if (!env.mediaAdminToken) {
+  if (!canAuthorizeAdminRequests()) {
     res.status(503).json({
-      message: 'Media admin token is not configured on the server yet.'
+      message: 'Media admin authentication is not configured on the server yet.'
     });
     return;
   }
 
-  const token = extractToken(req);
+  const token = extractAdminToken(req);
   if (!token) {
     res.status(401).json({
       message: 'Admin authorization is required for media management.'
@@ -36,9 +16,9 @@ export function requireAdminApi(req, res, next) {
     return;
   }
 
-  if (!tokensMatch(token, env.mediaAdminToken)) {
+  if (!verifyAdminAccessToken(token)) {
     res.status(403).json({
-      message: 'Invalid media admin token.'
+      message: 'Invalid media admin session.'
     });
     return;
   }

@@ -474,31 +474,31 @@ function updateAccessPanel() {
     if (accessModeChip) accessModeChip.textContent = 'Management unlocked';
     if (accessStatus) {
       accessStatus.textContent =
-        'Upload, artwork generation, publish status, and social tracking are unlocked for this browser session.';
+        'Signed in successfully. Upload, artwork generation, publish status, and social tracking are unlocked for this browser session.';
     }
     if (adminTokenInput) {
       adminTokenInput.value = '';
-      adminTokenInput.placeholder = 'Token stored for this browser';
+      adminTokenInput.placeholder = 'Session is already active in this browser';
     }
     return;
   }
 
   if (adminTokenInput) {
     adminTokenInput.value = '';
-    adminTokenInput.placeholder = 'Enter the media admin token';
+    adminTokenInput.placeholder = 'Enter the admin password';
   }
 
   if (state.apiBaseUrl) {
     if (accessModeChip) accessModeChip.textContent = 'API locked';
     if (accessStatus) {
       accessStatus.textContent =
-        'The secure media API is configured. Enter the admin token to unlock upload and publish controls, or stay in public tracking mode.';
+        'The secure media API is configured. Sign in with the admin password to unlock upload and publish controls, or stay in public tracking mode.';
     }
   } else {
     if (accessModeChip) accessModeChip.textContent = 'Public view';
     if (accessStatus) {
       accessStatus.textContent =
-        'Public tracking is live. Add the secure media API URL and your admin token to unlock upload, artwork generation, and publishing.';
+        'Public tracking is live. Add the secure media API URL and sign in with the admin password to unlock upload, artwork generation, and publishing.';
     }
   }
 }
@@ -550,11 +550,40 @@ async function apiFetch(path, options = {}, params) {
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
       clearAdminSession();
-      throw new Error('Admin access was rejected. Check the media API URL and token, then unlock management again.');
+      throw new Error('Admin access was rejected. Sign in again and check the media API connection.');
     }
     throw new Error(data.message || 'Gallery Control request failed.');
   }
   return data;
+}
+
+async function loginWithApiPassword(apiBaseUrl, password) {
+  const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ password })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (response.ok && data?.token) {
+    return {
+      token: String(data.token).trim(),
+      expiresAt: data.expiresAt || null,
+      mode: 'session'
+    };
+  }
+
+  if (response.status === 404 || response.status === 405) {
+    return {
+      token: String(password || '').trim(),
+      expiresAt: null,
+      mode: 'legacy-token'
+    };
+  }
+
+  throw new Error(data.message || 'Could not sign in to the media API.');
 }
 
 async function publicApiFetch(path, params) {
@@ -998,29 +1027,35 @@ async function handleAccessSubmit(event) {
   event.preventDefault();
 
   const apiBaseUrl = normalizeApiBaseUrl(apiUrlInput?.value || state.apiBaseUrl);
-  const adminToken = String(adminTokenInput?.value || '').trim() || state.adminToken;
+  const adminPassword = String(adminTokenInput?.value || '').trim();
 
   if (!apiBaseUrl) {
     setAlert('Enter the secure media API URL before unlocking management.', 'error');
     return;
   }
 
-  if (!adminToken) {
-    setAlert('Enter the media admin token to unlock upload and publish controls.', 'error');
+  if (!adminPassword) {
+    setAlert('Enter the admin password to unlock upload and publish controls.', 'error');
     return;
   }
 
   try {
-    setBusy(unlockButton, true, 'Unlocking...', 'Unlock management');
-    setApiSession({ apiBaseUrl, adminToken });
+    setBusy(unlockButton, true, 'Signing in...', 'Sign in');
+    const session = await loginWithApiPassword(apiBaseUrl, adminPassword);
+    setApiSession({ apiBaseUrl, adminToken: session.token });
     await refreshAll();
-    setAlert('Gallery management unlocked successfully.', 'success');
+    setAlert(
+      session.mode === 'legacy-token'
+        ? 'Gallery management unlocked with legacy token access.'
+        : 'Gallery management unlocked successfully.',
+      'success'
+    );
   } catch (error) {
     clearAdminSession();
     await refreshAll().catch(() => {});
     setAlert(error.message, 'error');
   } finally {
-    setBusy(unlockButton, false, 'Unlocking...', 'Unlock management');
+    setBusy(unlockButton, false, 'Signing in...', 'Sign in');
   }
 }
 

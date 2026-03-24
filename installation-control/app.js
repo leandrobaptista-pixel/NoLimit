@@ -1155,6 +1155,7 @@ let timeClockStatusMessage = "";
 let timeClockLastGeoPoint = null;
 let timeClockLastHandledAt = 0;
 let timeClockProcessing = false;
+let pendingTimeClockFocus = false;
 let workforceWeekAnchor = "";
 let workforceProjectFilter = "";
 let workforceEmploymentFilter = "all";
@@ -6619,12 +6620,21 @@ function renderAuth() {
     userBadge.textContent = `${currentUser.name} (${systemRoleLabel(userSystemRole(currentUser))} / ${roleLabel(userAccessProfile(currentUser))})`;
     currentView = viewFromHash();
     render();
+    if (pendingTimeClockFocus && canUseTimeClock()) {
+      window.setTimeout(() => {
+        const active = activeTimeEntryForUser(currentUser?.id || "");
+        timeClockPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+        (active ? timeClockCheckOutBtn : timeClockCheckInBtn)?.focus();
+      }, 80);
+    }
+    pendingTimeClockFocus = false;
     void maybeAutoDispatchCoiReminder();
     return;
   }
 
   stopAutoPullLoop();
   stopAutoTimeClock({ clearStatus: true });
+  pendingTimeClockFocus = false;
   appMain.classList.add("hidden");
   authView.classList.remove("hidden");
   userBadge.classList.add("hidden");
@@ -13284,6 +13294,7 @@ loginForm.addEventListener("submit", async (event) => {
   pushAppAudit("Session login", "session", "auth");
   window.history.replaceState(null, "", "#home");
   loginForm.reset();
+  pendingTimeClockFocus = true;
   await pullCloud({ silent: true, force: true });
   renderAuth();
 });

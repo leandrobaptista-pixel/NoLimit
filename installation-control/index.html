@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260323-admin1" />
+    <link rel="stylesheet" href="styles.css?v=20260323-loginclock1" />
   </head>
   <body>
     <header class="app-header">
@@ -135,6 +135,44 @@
         <small id="permissionLine"></small>
       </section>
 
+      <section id="timeClockPanel" class="panel time-clock-entry-panel hidden">
+        <div class="time-clock-entry-head">
+          <div>
+            <p class="eyebrow">Workday Quick Access</p>
+            <h2>Start or close the workday right after login</h2>
+          </div>
+          <p class="hint time-clock-entry-copy">
+            Use manual check-in for office, warehouse, or homeworking, or start automatic project geofence check-in while this app stays open.
+          </p>
+        </div>
+        <form id="timeClockForm" class="grid-form compact">
+          <label>Assignment
+            <select id="timeClockSiteTypeSelect">
+              <option value="project">Project job site</option>
+              <option value="office">Office</option>
+              <option value="warehouse">Warehouse</option>
+              <option value="homeworking">Homeworking</option>
+            </select>
+          </label>
+          <label>Project
+            <select id="timeClockProjectSelect">
+              <option value="">Nearest project with geofence</option>
+            </select>
+          </label>
+          <label>Shift note
+            <input id="timeClockNoteInput" placeholder="Optional note for this shift" />
+          </label>
+          <div class="row full">
+            <button id="timeClockCheckInBtn" class="primary" type="button">Check in now</button>
+            <button id="timeClockCheckOutBtn" class="secondary" type="button">Check out now</button>
+            <button id="timeClockAutoStartBtn" class="secondary" type="button">Start auto check-in</button>
+            <button id="timeClockAutoStopBtn" class="secondary" type="button">Stop auto check-in</button>
+          </div>
+        </form>
+        <p id="timeClockSummary" class="hint">No active shift for this user.</p>
+        <p id="timeClockStatus" class="hint"></p>
+      </section>
+
       <section id="quickNavPanel" class="panel quick-nav">
         <div class="row">
           <button class="secondary nav-btn" type="button" data-nav-action="developer"><span class="nav-icon">DV</span>Developer</button>
@@ -196,39 +234,7 @@
 
       <section id="homePanel" class="panel">
         <h2>Dashboard</h2>
-        <p class="hint">Use the top menu to navigate between system sections.</p>
-        <article id="timeClockPanel" class="subpanel hidden">
-          <h3>Workforce Time Clock</h3>
-          <p class="hint">
-            Automatic geofence check-in/check-out works while this app is open, with location permission enabled on the device.
-          </p>
-          <form id="timeClockForm" class="grid-form compact">
-            <label>Assignment
-              <select id="timeClockSiteTypeSelect">
-                <option value="project">Project job site</option>
-                <option value="office">Office</option>
-                <option value="warehouse">Warehouse</option>
-                <option value="homeworking">Homeworking</option>
-              </select>
-            </label>
-            <label>Project
-              <select id="timeClockProjectSelect">
-                <option value="">Nearest project with geofence</option>
-              </select>
-            </label>
-            <label>Shift note
-              <input id="timeClockNoteInput" placeholder="Optional note for this shift" />
-            </label>
-            <div class="row full">
-              <button id="timeClockCheckInBtn" class="primary" type="button">Check in now</button>
-              <button id="timeClockCheckOutBtn" class="secondary" type="button">Check out now</button>
-              <button id="timeClockAutoStartBtn" class="secondary" type="button">Start auto check-in</button>
-              <button id="timeClockAutoStopBtn" class="secondary" type="button">Stop auto check-in</button>
-            </div>
-          </form>
-          <p id="timeClockSummary" class="hint">No active shift for this user.</p>
-          <p id="timeClockStatus" class="hint"></p>
-        </article>
+        <p class="hint">Use the top menu to navigate between system sections. The workday check-in/check-out control stays available above for faster access.</p>
         <div id="coiReminderPanel" class="subpanel reminder-panel hidden"></div>
       </section>
 
@@ -1598,6 +1604,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260323-admin2" defer></script>
+    <script src="app.js?v=20260323-loginclock1" defer></script>
   </body>
 </html>

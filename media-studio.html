@@ -33,12 +33,12 @@
             <p class="studio-kicker">Gallery Control</p>
             <h1>Add new photos, follow daily posts, and publish the gallery with control.</h1>
             <p class="studio-lead">
-              Use this menu to upload original jobsite images, review the social posting queue for the day,
-              and decide exactly what goes live in the public website gallery.
+              This page is the definitive upload route for new jobsite photos. Use it to send original images into
+              the website gallery pipeline, review the social posting queue for the day, and decide exactly what goes live.
             </p>
           </div>
           <div class="studio-hero-actions">
-            <span class="studio-pill">Gallery control</span>
+            <span class="studio-pill">Definitive upload route</span>
             <span class="studio-pill studio-pill-accent">Daily posting view</span>
           </div>
         </div>
@@ -73,7 +73,27 @@
 
           <div class="studio-shell">
             <aside class="studio-sidebar">
-              <section class="studio-panel studio-access-panel">
+              <section class="studio-panel" id="studioEntryPanel">
+                <div class="studio-panel-head">
+                  <div>
+                    <p class="studio-kicker">Upload Entry</p>
+                    <h2>Definitive route for new photos</h2>
+                  </div>
+                  <span class="studio-chip">Website to social</span>
+                </div>
+
+                <p class="hint">
+                  This is the fixed path for all new project photos. If the production media API is online, sign in and upload.
+                  If it is still being connected, start test mode and simulate the final upload flow now.
+                </p>
+
+                <div class="studio-access-actions">
+                  <a class="btn" href="#studioUploadPanel">Go to upload</a>
+                  <button id="studioSimulateUploadButton" class="btn btn-secondary" type="button">Simulate final upload flow</button>
+                </div>
+              </section>
+
+              <section class="studio-panel studio-access-panel" id="studioAccessPanel">
                 <div class="studio-panel-head">
                   <div>
                     <p class="studio-kicker">Secure Access</p>
@@ -117,7 +137,7 @@
                 </form>
               </section>
 
-              <section class="studio-panel">
+              <section class="studio-panel" id="studioUploadPanel">
                 <div class="studio-panel-head">
                   <div>
                     <p class="studio-kicker">Step 1</p>
@@ -349,6 +369,6 @@
     </footer>
 
     <script src="assets/contact-config.js" defer></script>
-    <script src="assets/media-studio.js?v=20260324-gallerycontrol3" defer></script>
+    <script src="assets/media-studio.js?v=20260324-gallerycontrol4" defer></script>
   </body>
 </html>

@@ -5,6 +5,7 @@ const studioAlert = document.getElementById('studioAlert');
 const accessForm = document.getElementById('studioAccessForm');
 const accessModeChip = document.getElementById('studioAccessModeChip');
 const accessStatus = document.getElementById('studioAccessStatus');
+const simulateUploadButton = document.getElementById('studioSimulateUploadButton');
 const apiUrlInput = document.getElementById('studioApiUrlInput');
 const adminTokenInput = document.getElementById('studioAdminTokenInput');
 const unlockButton = document.getElementById('studioUnlockButton');
@@ -12,6 +13,7 @@ const testModeButton = document.getElementById('studioTestModeButton');
 const lockButton = document.getElementById('studioLockButton');
 const uploadForm = document.getElementById('studioUploadForm');
 const uploadButton = document.getElementById('studioUploadButton');
+const uploadPanel = document.getElementById('studioUploadPanel');
 const refreshButton = document.getElementById('studioRefreshButton');
 const categorySelect = document.getElementById('studioCategorySelect');
 const categoryFilter = document.getElementById('studioCategoryFilter');
@@ -66,6 +68,18 @@ const DEMO_CATEGORIES = [
 
 function getMediaStudioConfig() {
   return window.MEDIA_STUDIO || {};
+}
+
+function getUrlParams() {
+  return new URLSearchParams(window.location.search || '');
+}
+
+function getRequestedEntry() {
+  return String(getUrlParams().get('entry') || '').trim().toLowerCase();
+}
+
+function isUploadEntryRequested() {
+  return getRequestedEntry() === 'upload';
 }
 
 function isLocalHost() {
@@ -532,6 +546,39 @@ function disableDemoMode() {
   state.mode = state.apiBaseUrl && state.adminToken ? 'api' : 'public';
   setManagementAvailability(Boolean(state.apiBaseUrl && state.adminToken));
   updateAccessPanel();
+}
+
+function focusUploadFlow() {
+  const target = uploadPanel || uploadForm;
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  window.setTimeout(() => {
+    uploadForm?.querySelector('input[name="title"]')?.focus();
+  }, 160);
+}
+
+function applyRequestedEntryExperience() {
+  if (!isUploadEntryRequested()) return;
+
+  focusUploadFlow();
+
+  if (state.mode === 'demo') {
+    setAlert(
+      'Final upload flow simulation is active. You can upload photos, generate artwork, and test publishing from this browser right now.',
+      'success'
+    );
+    return;
+  }
+
+  if (state.canManage) {
+    setAlert('Definitive upload flow is ready. You can start uploading photos now.', 'success');
+    return;
+  }
+
+  setAlert(
+    'This is the definitive upload route. Sign in to the media API to upload live, or start test mode to simulate the final workflow now.',
+    'success'
+  );
 }
 
 async function apiFetch(path, options = {}, params) {
@@ -1074,6 +1121,15 @@ function handleStartTestMode() {
   void refreshAll();
 }
 
+function handleSimulateUploadFlow() {
+  if (!state.canManage && state.mode !== 'demo') {
+    enableDemoMode();
+  }
+  void refreshAll().finally(() => {
+    applyRequestedEntryExperience();
+  });
+}
+
 function bindFilters() {
   searchInput?.addEventListener('input', () => {
     state.filters.search = searchInput.value.trim();
@@ -1100,6 +1156,7 @@ function bindFilters() {
 
   lockButton?.addEventListener('click', handleLockManagement);
   testModeButton?.addEventListener('click', handleStartTestMode);
+  simulateUploadButton?.addEventListener('click', handleSimulateUploadFlow);
 }
 
 function init() {
@@ -1108,13 +1165,15 @@ function init() {
     adminToken: getStoredAdminToken()
   });
 
-  if (isDemoModeStored()) enableDemoMode();
+  if (isDemoModeStored() || (isUploadEntryRequested() && !state.canManage)) enableDemoMode();
 
   uploadForm?.addEventListener('submit', handleUpload);
 
   tableBody?.addEventListener('click', handleTableAction);
   bindFilters();
-  void refreshAll();
+  void refreshAll().finally(() => {
+    applyRequestedEntryExperience();
+  });
 }
 
 init();

@@ -10422,6 +10422,27 @@ async function closeTimeEntry(entry, { mode = "manual", geoSnapshot = null, note
   return true;
 }
 
+async function closeTimeEntryAsAdmin(entryId) {
+  if (!can("manageUsers")) return;
+  const activeEntry = activeTimeEntries().find((entry) => entry.id === entryId);
+  if (!activeEntry) {
+    alert("This active shift is no longer available.");
+    renderWorkforceAdminPanel();
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Check out ${activeEntry.userName || "this user"} from ${timeEntryAssignmentLabel(activeEntry)} now?`
+  );
+  if (!confirmed) return;
+
+  await closeTimeEntry(activeEntry, {
+    mode: "manual",
+    note: `Administrative check-out by ${currentUser?.name || "Admin"}`,
+    silent: false,
+  });
+}
+
 async function processAutoTimeClockGeo(position) {
   if (!currentUser || !canUseTimeClock() || timeClockProcessing) return;
   const geoSnapshot = timeClockGeoSnapshotFromCoords(position?.coords || position);
@@ -10696,12 +10717,13 @@ function renderWorkforceAdminPanel() {
         <td>${escapeHtml(entry.mode || "-")}</td>
         <td>${escapeHtml(fmtDate(entry.checkInAt))}</td>
         <td>${escapeHtml(elapsedFrom(entry.checkInAt))}</td>
+        <td><button class="secondary xs-btn" type="button" data-workforce-checkout="${escapeHtml(entry.id)}">Check out</button></td>
       </tr>`
     )
     .join("");
   if (workforceActiveTable) {
-    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Assignment</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th></tr></thead><tbody>${
-      activeTableRows || '<tr><td colspan="8">No people currently checked in.</td></tr>'
+    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Assignment</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th><th>Action</th></tr></thead><tbody>${
+      activeTableRows || '<tr><td colspan="9">No people currently checked in.</td></tr>'
     }</tbody></table>`;
   }
 
@@ -13415,6 +13437,13 @@ workforceEmploymentFilterSelect?.addEventListener("change", () => {
 
 workforceWeeklyReportBtn?.addEventListener("click", () => {
   generateWorkforceWeeklyReport();
+});
+
+workforceActiveTable?.addEventListener("click", (event) => {
+  const checkoutBtn = event.target.closest("[data-workforce-checkout]");
+  if (!checkoutBtn) return;
+  event.preventDefault();
+  void closeTimeEntryAsAdmin(checkoutBtn.dataset.workforceCheckout || "");
 });
 
 adminWeekInput?.addEventListener("change", () => {

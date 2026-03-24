@@ -11,3 +11,7 @@ window.WEBSITE_CONTENT = {
   categoriesTables: ["website_categories", "categories"],
   galleryItemsTables: ["website_gallery_items", "gallery_items", "portfolio_items"],
 };
+
+window.MEDIA_STUDIO = {
+  apiBaseUrl: "",
+};

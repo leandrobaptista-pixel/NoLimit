@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>No Limit | Gallery Control</title>
+    <meta
+      name="description"
+      content="No Limit Gallery Control for photo uploads, daily social post checks, and gallery publishing control."
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="stylesheet" href="assets/media-studio.css" />
+  </head>
+  <body class="studio-body">
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="./index.html#home">
+          <img class="logo" src="assets/brand.png" onerror="this.src='assets/logo.svg'" alt="No Limit Carpentry logo" />
+          <span>No Limit Carpentry</span>
+        </a>
+        <nav class="studio-top-nav">
+          <a href="./index.html#media-studio">Website</a>
+          <a href="./index.html#gallery">Public Gallery</a>
+          <a class="btn btn-small" href="./installation-control/">Installation Control</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="studio-main">
+      <section class="section studio-hero">
+        <div class="container studio-hero-inner">
+          <div>
+            <p class="studio-kicker">Gallery Control</p>
+            <h1>Add new photos, follow daily posts, and publish the gallery with control.</h1>
+            <p class="studio-lead">
+              Use this menu to upload original jobsite images, review the social posting queue for the day,
+              and decide exactly what goes live in the public website gallery.
+            </p>
+          </div>
+          <div class="studio-hero-actions">
+            <span class="studio-pill">Gallery control</span>
+            <span class="studio-pill studio-pill-accent">Daily posting view</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div id="studioAlert" class="studio-alert" hidden></div>
+
+          <div class="studio-metrics" id="studioMetrics">
+            <article class="studio-metric-card">
+              <span>Total media</span>
+              <strong id="metricTotal">0</strong>
+              <p>Current library records returned by the active filters.</p>
+            </article>
+            <article class="studio-metric-card">
+              <span>Published</span>
+              <strong id="metricPublished">0</strong>
+              <p>Items visible to the public gallery API.</p>
+            </article>
+            <article class="studio-metric-card">
+              <span>Social art ready</span>
+              <strong id="metricGenerated">0</strong>
+              <p>Media that already has branded creative generated.</p>
+            </article>
+            <article class="studio-metric-card">
+              <span>Used in social</span>
+              <strong id="metricSocial">0</strong>
+              <p>Assets already marked as used on other platforms.</p>
+            </article>
+          </div>
+
+          <div class="studio-shell">
+            <aside class="studio-sidebar">
+              <section class="studio-panel">
+                <div class="studio-panel-head">
+                  <div>
+                    <p class="studio-kicker">Step 1</p>
+                    <h2>Upload original photo</h2>
+                  </div>
+                  <span class="studio-chip">Draft or publish</span>
+                </div>
+
+                <form id="studioUploadForm" class="studio-form">
+                  <label class="field">
+                    <span class="field-label">Title</span>
+                    <input type="text" name="title" required placeholder="Example: Custom white oak deck" />
+                  </label>
+
+                  <label class="field">
+                    <span class="field-label">Category</span>
+                    <select name="categoryId" id="studioCategorySelect" required>
+                      <option value="">Select category</option>
+                    </select>
+                  </label>
+
+                  <label class="field">
+                    <span class="field-label">Image file</span>
+                    <input type="file" name="image" accept="image/*" required />
+                  </label>
+
+                  <label class="check studio-check">
+                    <input type="checkbox" name="published" />
+                    <span class="check-copy">
+                      <strong>Publish immediately</strong>
+                      <small>Leave unchecked to keep the item as draft until the media is ready.</small>
+                    </span>
+                  </label>
+
+                  <button id="studioUploadButton" class="btn" type="submit">Upload image</button>
+                </form>
+              </section>
+
+              <section class="studio-panel">
+                <div class="studio-panel-head">
+                  <div>
+                    <p class="studio-kicker">Step 2</p>
+                    <h2>Filter the media library</h2>
+                  </div>
+                </div>
+
+                <div class="studio-form">
+                  <label class="field">
+                    <span class="field-label">Search title</span>
+                    <input id="studioSearchInput" type="search" placeholder="Search uploaded jobs" />
+                  </label>
+
+                  <label class="field">
+                    <span class="field-label">Category</span>
+                    <select id="studioCategoryFilter">
+                      <option value="">All categories</option>
+                    </select>
+                  </label>
+
+                  <label class="field">
+                    <span class="field-label">Status</span>
+                    <select id="studioPublishedFilter">
+                      <option value="all">All records</option>
+                      <option value="true">Published only</option>
+                      <option value="false">Draft only</option>
+                    </select>
+                  </label>
+
+                  <button id="studioRefreshButton" class="btn btn-secondary" type="button">Refresh library</button>
+                </div>
+              </section>
+            </aside>
+
+            <div class="studio-content">
+              <section class="studio-panel">
+                <div class="studio-panel-head">
+                  <div>
+                    <p class="studio-kicker">Step 3</p>
+                    <h2>Follow generation and publication</h2>
+                  </div>
+                  <span class="studio-chip studio-chip-muted" id="studioApiBadge">API ready</span>
+                </div>
+
+                <div class="studio-workflow">
+                  <article class="studio-stage">
+                    <strong>Original uploaded</strong>
+                    <span>The source image is stored and ready for management.</span>
+                  </article>
+                  <article class="studio-stage">
+                    <strong>Social art generated</strong>
+                    <span>Generate the branded creative before sending it to other platforms.</span>
+                  </article>
+                  <article class="studio-stage">
+                    <strong>Published to website</strong>
+                    <span>Control which items are visible in the public gallery.</span>
+                  </article>
+                  <article class="studio-stage">
+                    <strong>Marked as used</strong>
+                    <span>Track what already went out to social so nothing gets lost.</span>
+                  </article>
+                </div>
+              </section>
+
+              <section class="studio-panel">
+                <div class="studio-panel-head">
+                  <div>
+                    <p class="studio-kicker">Daily Posts</p>
+                    <h2>Posting board for today</h2>
+                  </div>
+                  <span class="studio-chip studio-chip-muted" id="studioPostsBadge">0 ready</span>
+                </div>
+
+                <div class="studio-posts-grid">
+                  <article class="studio-posts-card">
+                    <strong id="studioReadyTodayCount">0</strong>
+                    <span>Ready to post</span>
+                    <p>Generated assets still available for the next daily posts.</p>
+                  </article>
+                  <article class="studio-posts-card">
+                    <strong id="studioSentTodayCount">0</strong>
+                    <span>Already sent</span>
+                    <p>Items already marked as used in social and out of the active queue.</p>
+                  </article>
+                  <article class="studio-posts-card">
+                    <strong id="studioNeedsArtCount">0</strong>
+                    <span>Need artwork</span>
+                    <p>Photos that still need branded art before they can join the posting flow.</p>
+                  </article>
+                </div>
+
+                <div class="studio-post-lists">
+                  <article class="studio-post-list">
+                    <h3>Ready queue</h3>
+                    <div id="studioReadyQueue" class="studio-post-items">
+                      <p class="studio-post-empty">No ready items yet.</p>
+                    </div>
+                  </article>
+                  <article class="studio-post-list">
+                    <h3>Already sent</h3>
+                    <div id="studioSentQueue" class="studio-post-items">
+                      <p class="studio-post-empty">No sent items yet.</p>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <section class="studio-panel">
+                <div class="studio-panel-head">
+                  <div>
+                    <p class="studio-kicker">Media Library</p>
+                    <h2>Current records</h2>
+                  </div>
+                  <span class="studio-chip studio-chip-muted" id="studioCountBadge">0 items</span>
+                </div>
+
+                <div class="studio-table-wrap">
+                  <table class="studio-table">
+                    <thead>
+                      <tr>
+                        <th>Preview</th>
+                        <th>Title</th>
+                        <th>Category</th>
+                        <th>Story status</th>
+                        <th>Publish</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="studioTableBody">
+                      <tr>
+                        <td colspan="6" class="studio-empty">Configure the API and refresh to load media records.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="studio-panel">
+                <div class="studio-panel-head">
+                  <div>
+                    <p class="studio-kicker">Selected item</p>
+                    <h2 id="studioPreviewTitle">No media selected</h2>
+                  </div>
+                </div>
+
+                <div class="studio-preview-grid">
+                  <article class="studio-preview-card">
+                    <p>Original image</p>
+                    <div id="studioOriginalPreview" class="studio-preview-placeholder">Select a media item to preview the original photo.</div>
+                  </article>
+                  <article class="studio-preview-card">
+                    <p>Generated social art</p>
+                    <div id="studioGeneratedPreview" class="studio-preview-placeholder">Generate the branded asset to preview it here.</div>
+                  </article>
+                </div>
+
+                <div class="studio-meta-grid">
+                  <div>
+                    <dt>Category</dt>
+                    <dd id="studioMetaCategory">-</dd>
+                  </div>
+                  <div>
+                    <dt>Created</dt>
+                    <dd id="studioMetaCreated">-</dd>
+                  </div>
+                  <div>
+                    <dt>Social status</dt>
+                    <dd id="studioMetaSocial">-</dd>
+                  </div>
+                </div>
+
+                <label class="field">
+                  <span class="field-label">Generated caption</span>
+                  <textarea id="studioCaption" rows="5" readonly placeholder="Generated caption will appear here."></textarea>
+                </label>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div class="footer-meta">
+          <span>© <span id="studioYear"></span> No Limit Carpentry. Media operations workspace.</span>
+        </div>
+        <a href="./index.html#media-studio" class="to-top">Back to website ↑</a>
+      </div>
+    </footer>
+
+    <script src="assets/contact-config.js" defer></script>
+    <script src="assets/media-studio.js?v=20260324-gallerycontrol1" defer></script>
+  </body>
+</html>

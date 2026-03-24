@@ -843,6 +843,14 @@ form.row > :is(button, .file-label) {
   background: #fff;
 }
 
+.table-print-toolbar {
+  margin: 0.1rem 0 0.28rem;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .clients-summary-scroll {
   display: grid;
   grid-template-columns: 1fr;

@@ -4873,6 +4873,7 @@ function openManifestItemQrLabels(container, manifestItem, { autoPrint = false }
       <meta charset="utf-8" />
       <title>Manifest QR Labels</title>
       <style>
+        ${printWindowBaseStyles()}
         body { font-family: Arial, sans-serif; margin: 18px; color: #1f2937; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
         .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 12px; page-break-inside: avoid; }
@@ -4881,14 +4882,12 @@ function openManifestItemQrLabels(container, manifestItem, { autoPrint = false }
         img { width: 180px; height: 180px; border: 1px solid #e5e7eb; display: block; margin: 10px auto; }
         p { margin: 4px 0; font-size: 12px; }
         .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
-        .actions { margin-bottom: 10px; }
         .spec { color: #475569; }
-        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
-        @media print { .actions { display: none; } body { margin: 0; } }
+        @media print { body { margin: 0; } }
       </style>
     </head>
     <body>
-      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      ${printWindowActionsHtml()}
       <div class="grid">
         ${qrItems
           .map(
@@ -4948,6 +4947,7 @@ function openManifestItemQrDetails(container, manifestItem) {
       <meta charset="utf-8" />
       <title>Manifest QR Detail</title>
       <style>
+        ${printWindowBaseStyles()}
         body { font-family: Georgia, "Times New Roman", serif; margin: 24px; color: #222; }
         h1 { margin: 0 0 6px; }
         p { margin: 2px 0; }
@@ -4960,13 +4960,11 @@ function openManifestItemQrDetails(container, manifestItem) {
         th, td { border: 1px solid #bbb; padding: 6px; font-size: 12px; text-align: left; vertical-align: top; }
         th { background: #efefef; }
         .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
-        .actions { margin-bottom: 10px; }
-        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
-        @media print { .actions { display: none; } body { margin: 0; } }
+        @media print { body { margin: 0; } }
       </style>
     </head>
     <body>
-      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      ${printWindowActionsHtml()}
       <h1>Manifest QR detail: ${escapeHtml(manifestItem.code || manifestItem.description || "-")}</h1>
       <div class="meta">
         <p><strong>Container:</strong> ${escapeHtml(container?.containerCode || "-")}</p>
@@ -5021,6 +5019,7 @@ function openFilteredManifestQrLabels(container, manifestItems, { autoPrint = fa
       <meta charset="utf-8" />
       <title>Manifest QR Labels</title>
       <style>
+        ${printWindowBaseStyles()}
         body { font-family: Arial, sans-serif; margin: 18px; color: #1f2937; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
         .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 12px; page-break-inside: avoid; }
@@ -5029,13 +5028,11 @@ function openFilteredManifestQrLabels(container, manifestItems, { autoPrint = fa
         img { width: 180px; height: 180px; border: 1px solid #e5e7eb; display: block; margin: 10px auto; }
         p { margin: 4px 0; font-size: 12px; }
         .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
-        .actions { margin-bottom: 10px; }
-        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
-        @media print { .actions { display: none; } body { margin: 0; } }
+        @media print { body { margin: 0; } }
       </style>
     </head>
     <body>
-      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      ${printWindowActionsHtml()}
       <div class="grid">
         ${labels
           .map(
@@ -5295,6 +5292,7 @@ function openUnitChecklistQrLabels(unit, item, { autoPrint = false } = {}) {
       <meta charset="utf-8" />
       <title>Unit Item QR Labels</title>
       <style>
+        ${printWindowBaseStyles()}
         body { font-family: Arial, sans-serif; margin: 18px; color: #1f2937; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
         .label { border: 1px solid #d1d5db; border-radius: 12px; padding: 10px; }
@@ -5303,13 +5301,11 @@ function openUnitChecklistQrLabels(unit, item, { autoPrint = false } = {}) {
         img { width: 170px; height: 170px; border: 1px solid #e5e7eb; display: block; margin: 8px auto; }
         p { margin: 4px 0; font-size: 12px; }
         .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
-        .actions { margin-bottom: 10px; }
-        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
-        @media print { .actions { display: none; } body { margin: 0; } .label { page-break-inside: avoid; } }
+        @media print { body { margin: 0; } .label { page-break-inside: avoid; } }
       </style>
     </head>
     <body>
-      <div class="actions"><button onclick="window.print()">Print / Save PDF</button></div>
+      ${printWindowActionsHtml()}
       <div class="grid">
         ${labels
           .map(
@@ -6103,18 +6099,19 @@ function openQrLabelWindow(container, item, { autoPrint = false } = {}) {
       <meta charset="utf-8" />
       <title>QR Label ${escapeHtml(item.code || "")}</title>
       <style>
+        ${printWindowBaseStyles()}
         body { font-family: Arial, sans-serif; margin: 20px; color: #1f2937; }
         .label { width: 340px; border: 1px solid #d1d5db; border-radius: 12px; padding: 14px; }
         h1 { margin: 0 0 8px; font-size: 14px; letter-spacing: 0.02em; }
         img { width: 220px; height: 220px; border: 1px solid #e5e7eb; display: block; margin: 10px auto; }
         p { margin: 4px 0; font-size: 12px; }
         .qr-code { font-family: "Courier New", monospace; word-break: break-all; font-size: 11px; }
-        .actions { margin-top: 12px; display: flex; gap: 8px; }
-        button { border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; padding: 6px 10px; cursor: pointer; }
-        @media print { .actions { display: none; } body { margin: 0; } .label { border: none; border-radius: 0; } }
+        .print-actions { margin-top: 0; margin-bottom: 12px; }
+        @media print { body { margin: 0; } .label { border: none; border-radius: 0; } }
       </style>
     </head>
     <body>
+      ${printWindowActionsHtml()}
       <div class="label">
         <h1>${escapeHtml(item.code || "-")} | ${escapeHtml(item.description || "-")}</h1>
         <img src="${imageUrl}" alt="QR ${escapeHtml(item.qrCode)}" />
@@ -6124,9 +6121,6 @@ function openQrLabelWindow(container, item, { autoPrint = false } = {}) {
         <p><strong>Project:</strong> ${escapeHtml(project?.name || "-")}</p>
         <p><strong>Unit:</strong> ${escapeHtml(item.unitLabel || unit?.unitCode || "-")}</p>
         <p><strong>Kitchen Type:</strong> ${escapeHtml(item.kitchenType || "-")}</p>
-        <div class="actions">
-          <button onclick="window.print()">Print / Save PDF</button>
-        </div>
       </div>
     </body>
   </html>`;
@@ -12670,6 +12664,7 @@ function render() {
   renderUnits();
   applyViewMode();
   renderSectionShortcutPanel();
+  renderTablePrintButtons();
   applyLanguageToUi();
 }
 
@@ -13127,6 +13122,125 @@ function startAutoPullLoop() {
   void runAutoPullCycle();
 }
 
+function printWindowBaseStyles() {
+  return `
+    .print-actions { margin: 0 0 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .print-actions button {
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #fff;
+      padding: 6px 10px;
+      cursor: pointer;
+      font: inherit;
+    }
+    @media print { .print-actions { display: none !important; } }
+  `;
+}
+
+function printWindowActionsHtml() {
+  return `
+    <div class="print-actions">
+      <button type="button" onclick="if (window.opener && !window.opener.closed) { window.opener.focus(); window.close(); } else { window.history.back(); }">Back to app</button>
+      <button type="button" onclick="window.print()">Print / Save PDF</button>
+    </div>
+  `;
+}
+
+function openPrintWindow(html, { autoPrint = false, delay = 300 } = {}) {
+  const win = window.open("", "_blank");
+  if (!win) return null;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  if (autoPrint) setTimeout(() => win.print(), delay);
+  return win;
+}
+
+function cleanPrintText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function currentViewPrintLabel() {
+  const labels = {
+    home: "Dashboard",
+    workday: "Workday Quick Access",
+    sync: "Cloud Sync",
+    users: "Users",
+    admin: "Admin",
+    clients: "Clients",
+    projects: "Projects",
+    manufacture: "Manufacture",
+    userEdit: "User profile",
+    ocrImporter: "OCR Importer",
+  };
+  return labels[currentView] || "App";
+}
+
+function printableTableHeading(table) {
+  const explicitScope = table.closest("[data-print-title]");
+  const explicit = cleanPrintText(explicitScope?.dataset?.printTitle || table.dataset.printTitle || "");
+  if (explicit) return explicit;
+  const section = table.closest("article, section, details, .panel, .subpanel");
+  const heading = cleanPrintText(section?.querySelector("h1, h2, h3, h4, summary")?.textContent || "");
+  if (heading) return heading;
+  return "Table report";
+}
+
+function printableTableHint(table) {
+  const section = table.closest("article, section, details, .panel, .subpanel");
+  return cleanPrintText(section?.querySelector(".hint")?.textContent || "");
+}
+
+function openPrintableTableReport(targetId) {
+  const table = document.getElementById(targetId);
+  if (!table) return;
+  const title = printableTableHeading(table);
+  const hint = printableTableHint(table);
+  const html = reportShell(
+    `${title} table`,
+    `
+      <h1>${escapeHtml(title)}</h1>
+      <div class="meta">
+        <p><strong>App area:</strong> ${escapeHtml(currentViewPrintLabel())}</p>
+        ${hint ? `<p><strong>Notes:</strong> ${escapeHtml(hint)}</p>` : ""}
+        <p><strong>Generated at:</strong> ${escapeHtml(fmtDate(new Date().toISOString()))}</p>
+      </div>
+      ${table.outerHTML}
+    `
+  );
+  openPrintWindow(html, { autoPrint: true });
+}
+
+function renderTablePrintButtons() {
+  if (!appMain) return;
+  const seenTargets = new Set();
+  appMain.querySelectorAll("table.data-table").forEach((table) => {
+    if (!table.id) table.id = `print-table-${uid()}`;
+    const targetId = table.id;
+    seenTargets.add(targetId);
+
+    const anchor = table.closest(".table-wrap") || table;
+    const parent = anchor.parentElement;
+    if (!parent) return;
+
+    let toolbar = Array.from(appMain.querySelectorAll(".table-print-toolbar")).find((node) => node.dataset.printTarget === targetId) || null;
+    if (!toolbar) {
+      toolbar = document.createElement("div");
+      toolbar.className = "table-print-toolbar";
+      toolbar.dataset.printTarget = targetId;
+    }
+    toolbar.innerHTML = `<button class="secondary xs-btn" type="button" data-table-print="${escapeHtml(targetId)}">Print table</button>`;
+    if (toolbar.parentElement !== parent || toolbar.nextElementSibling !== anchor) {
+      parent.insertBefore(toolbar, anchor);
+    }
+  });
+
+  appMain.querySelectorAll(".table-print-toolbar").forEach((toolbar) => {
+    const targetId = toolbar.dataset.printTarget || "";
+    if (!seenTargets.has(targetId) || !document.getElementById(targetId)) toolbar.remove();
+  });
+}
+
 function reportShell(title, bodyHtml) {
   return `
   <!doctype html>
@@ -13135,6 +13249,7 @@ function reportShell(title, bodyHtml) {
       <meta charset="UTF-8" />
       <title>${escapeHtml(title)}</title>
       <style>
+        ${printWindowBaseStyles()}
         body { font-family: Georgia, "Times New Roman", serif; margin: 24px; color: #222; }
         h1 { margin: 0 0 6px; }
         p { margin: 2px 0; }
@@ -13146,7 +13261,7 @@ function reportShell(title, bodyHtml) {
         .photos img { width: 150px; height: 120px; object-fit: cover; border: 1px solid #aaa; }
       </style>
     </head>
-    <body>${bodyHtml}</body>
+    <body>${printWindowActionsHtml()}${bodyHtml}</body>
   </html>`;
 }
 
@@ -15655,6 +15770,13 @@ appMain?.addEventListener("click", (event) => {
   if (helpTipBtn) {
     event.preventDefault();
     helpTipBtn.classList.toggle("is-open");
+    return;
+  }
+
+  const tablePrintBtn = event.target.closest("[data-table-print]");
+  if (tablePrintBtn) {
+    event.preventDefault();
+    openPrintableTableReport(tablePrintBtn.dataset.tablePrint || "");
     return;
   }
 

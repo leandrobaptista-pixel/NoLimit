@@ -272,6 +272,7 @@ initManagedForms();
 const DEFAULT_LANG = "en";
 const SUPPORTED_LANGS = ["en"];
 const PRIMARY_DEVELOPER_NAME = "leandro baptista";
+const PRIMARY_DEVELOPER_EMAILS = ["leandro@nolimitcontractor.net", "leandrobaptista@me.com"];
 const PRIMARY_DEVELOPER_PASSWORD = "0000";
 const PROJECT_SECTORS = ["fabrica", "warehouse", "delivery", "distribuicao", "instalacao", "punchlist"];
 const PROJECT_SCOPE_LABELS = {
@@ -2388,8 +2389,9 @@ function normalizeUser(user) {
   const firstName = user.firstName || "";
   const lastName = user.lastName || "";
   const composedName = `${firstName} ${lastName}`.trim();
-  const accessProfile = userAccessProfile(user);
-  const systemRole = userSystemRole(user);
+  const primaryDeveloper = isPrimaryDeveloperUser(user);
+  const accessProfile = primaryDeveloper ? "developer" : userAccessProfile(user);
+  const systemRole = primaryDeveloper ? "developer" : userSystemRole(user);
   const normalizedCoiFile =
     user.contractorCoiFile && typeof user.contractorCoiFile === "object"
       ? {
@@ -2867,9 +2869,25 @@ function normalizePersonName(value) {
     .replace(/\s+/g, " ");
 }
 
+function normalizePrimaryDeveloperKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function isPrimaryDeveloperUser(user) {
   const fullName = user.name || `${user.firstName || ""} ${user.lastName || ""}`;
-  return normalizePersonName(fullName) === normalizePersonName(PRIMARY_DEVELOPER_NAME);
+  const normalizedName = normalizePersonName(fullName);
+  const normalizedUsername = normalizePrimaryDeveloperKey(user.username);
+  const normalizedEmail = normalizePrimaryDeveloperKey(user.email);
+  return (
+    normalizedName === normalizePersonName(PRIMARY_DEVELOPER_NAME) ||
+    PRIMARY_DEVELOPER_EMAILS.some((entry) => normalizePrimaryDeveloperKey(entry) === normalizedEmail) ||
+    normalizedUsername === "leandro-baptista" ||
+    normalizedUsername === "leandrobaptista"
+  );
 }
 
 async function ensureDeveloperRolePresence() {
@@ -2888,6 +2906,11 @@ async function ensureDeveloperRolePresence() {
     preferredDeveloperChanged = true;
   }
 
+  if (userSystemRole(preferredDeveloper) !== "developer") {
+    preferredDeveloperDraft.systemRole = "developer";
+    preferredDeveloperChanged = true;
+  }
+
   if (!userPasswordMatches(preferredDeveloper, PRIMARY_DEVELOPER_PASSWORD, developerPasswordHash)) {
     preferredDeveloperDraft.passwordHash = developerPasswordHash;
     preferredDeveloperDraft.legacyPassword = "";
@@ -2901,11 +2924,15 @@ async function ensureDeveloperRolePresence() {
   }
 
   users
-    .filter((user) => user.id !== preferredDeveloper.id && userAccessProfile(user) === "developer")
+    .filter(
+      (user) =>
+        user.id !== preferredDeveloper.id && (userAccessProfile(user) === "developer" || userSystemRole(user) === "developer")
+    )
     .forEach((user) => {
       usersToUpdate.push(
         normalizeUser({
           ...user,
+          systemRole: "admin",
           accessProfile: "admin",
           updatedAt: now,
         })
@@ -6291,7 +6318,7 @@ function isProjectManager() {
 }
 
 function isDeveloper(user = currentUser) {
-  return userSystemRole(user) === "developer";
+  return Boolean(user) && (userSystemRole(user) === "developer" || isPrimaryDeveloperUser(user));
 }
 
 function normalizeCompanyName(value) {

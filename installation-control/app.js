@@ -1180,6 +1180,8 @@ let userEditReturnView = "home";
 let adminEditingUserId = "";
 let adminSelectedEmployeeId = "";
 let adminEditingReceiptId = "";
+let selectedAdminPaymentUserId = "";
+let selectedWorkforceActiveEntryId = "";
 let userAdminFormOpen = false;
 let usersSubView = "directory";
 let lastQrLookupCode = "";
@@ -1196,6 +1198,8 @@ let selectedClientId = "";
 let selectedProjectId = "";
 let selectedContractId = "";
 let selectedClientDetailsProjectId = "";
+let selectedContactId = "";
+let selectedMaterialId = "";
 let keepClientFormBlank = false;
 let clientSearchQuery = "";
 let projectsViewMode = "overview";
@@ -8892,13 +8896,243 @@ function renderClientDetails(client) {
   });
 }
 
+function htmlDataAttributes(attributes = {}) {
+  return Object.entries(attributes)
+    .filter(([, value]) => value !== null && value !== undefined && value !== false && value !== "")
+    .map(([key, value]) => ` ${key}="${escapeHtml(String(value))}"`)
+    .join("");
+}
+
+function tableContextActionButtonHtml(action) {
+  if (!action?.label) return "";
+  const tone = action.tone === "danger" ? "danger" : action.tone === "primary" ? "primary" : "secondary";
+  return `<button class="${tone} xs-btn" type="button"${htmlDataAttributes(action.attrs || {})}${action.disabled ? " disabled" : ""}>${escapeHtml(
+    action.label
+  )}</button>`;
+}
+
+function renderTableContextBar(target, config = {}) {
+  const anchor = typeof target === "string" ? document.getElementById(target) : target;
+  if (!anchor?.parentElement) return;
+  if (!anchor.id) anchor.id = `table-wrap-${uid()}`;
+
+  const targetId = anchor.id;
+  let bar = anchor.parentElement.querySelector(`.table-context-bar[data-context-target="${targetId}"]`);
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.className = "table-context-bar";
+    bar.dataset.contextTarget = targetId;
+  }
+
+  const title = String(config.title || "Row actions").trim();
+  const name = String(config.name || "No row selected").trim();
+  const detail = String(config.detail || "Select a row to reveal actions outside the table.").trim();
+  const actions = ensureArray(config.actions).map(tableContextActionButtonHtml).join("");
+  const empty = !ensureArray(config.actions).length && !config.selected;
+
+  bar.classList.toggle("is-empty", empty);
+  bar.innerHTML = `
+    <div class="table-context-copy">
+      <span class="table-context-label">${escapeHtml(title)}</span>
+      <strong>${escapeHtml(name)}</strong>
+      <p>${escapeHtml(detail)}</p>
+    </div>
+    <div class="table-context-actions"></div>
+  `;
+  const actionsContainer = bar.querySelector(".table-context-actions");
+  if (actionsContainer) actionsContainer.innerHTML = actions;
+
+  if (bar.parentElement !== anchor.parentElement || bar.nextElementSibling !== anchor) {
+    anchor.parentElement.insertBefore(bar, anchor);
+  }
+}
+
+function bindSelectableRows(container, selector, onSelect) {
+  if (!container || typeof onSelect !== "function") return;
+  container.querySelectorAll(selector).forEach((row) => {
+    row.classList.add("selectable-row");
+    row.tabIndex = 0;
+    row.addEventListener("click", () => onSelect(row));
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      onSelect(row);
+    });
+  });
+}
+
+async function deleteProjectRecord(projectId) {
+  if (!projectId) return;
+  if (units.some((unit) => unit.projectId === projectId)) {
+    alert(t("Nao e possivel excluir projeto com unidades vinculadas."));
+    return;
+  }
+  if (contacts.some((contact) => contact.projectId === projectId)) {
+    alert(t("Nao e possivel excluir projeto com pessoas vinculadas."));
+    return;
+  }
+  if (containers.some((container) => container.projectId === projectId)) {
+    alert(t("Nao e possivel excluir projeto com containers vinculados."));
+    return;
+  }
+  const targetProject = projects.find((entry) => entry.id === projectId);
+  if (!targetProject) return;
+  const confirmed = confirmDeleteAction(`project "${targetProject.name}"`);
+  if (!confirmed) return;
+  pushEntityAudit("Projects", "deleted", `${targetProject.name}`, "projects");
+  await trashDeleteRecord(PROJECT_STORE, targetProject, {
+    label: `Project: ${targetProject.name}`,
+    scope: "projects",
+  });
+  if (projectForm?.elements?.projectId?.value === projectId) resetProjectForm({ clientId: selectedClientId });
+  if (selectedProjectId === projectId) selectedProjectId = "";
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+async function editContactRecord(contactId) {
+  const contact = contacts.find((entry) => entry.id === contactId);
+  if (!contact) return;
+  const name = prompt("Name:", contact.name)?.trim();
+  if (!name) return;
+  const company = prompt("Company:", contact.company || "")?.trim() || "";
+  const phone = prompt("Phone:", contact.phone || "")?.trim() || "";
+  const email = prompt("Email:", contact.email || "")?.trim() || "";
+  const updatedContact = normalizeContact({
+    ...contact,
+    name,
+    company,
+    phone,
+    email,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(CONTACT_STORE, updatedContact);
+  const changes = collectAuditChanges(contact, updatedContact, [
+    { key: "name", label: "Contact name" },
+    { key: "company", label: "Company" },
+    { key: "phone", label: "Phone" },
+    { key: "email", label: "Email" },
+  ]);
+  pushEntityAudit(
+    "Contacts",
+    "updated",
+    `${updatedContact.name}${changes.length ? ` | ${changes.join("; ")}` : " | no field changes"}`,
+    "contacts"
+  );
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+async function deleteContactRecord(contactId) {
+  const targetContact = contacts.find((entry) => entry.id === contactId);
+  if (!targetContact) return;
+  const confirmed = confirmDeleteAction(`contact "${targetContact.name}"`);
+  if (!confirmed) return;
+  pushEntityAudit("Contacts", "deleted", `${targetContact.name}`, "contacts");
+  await trashDeleteRecord(CONTACT_STORE, targetContact, {
+    label: `Contact: ${targetContact.name}`,
+    scope: "contacts",
+  });
+  if (selectedContactId === contactId) selectedContactId = "";
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+async function deleteContractRecord(contractId) {
+  const targetContract = contractById(contractId);
+  if (!targetContract) return;
+  const confirmed = confirmDeleteAction(`contract "${targetContract.title || targetContract.contractCode || targetContract.id}"`);
+  if (!confirmed) return;
+  pushEntityAudit(
+    "Contracts",
+    "deleted",
+    `${targetContract.title} | code "${auditValue(targetContract.contractCode)}"`,
+    "contracts"
+  );
+  await trashDeleteRecord(CONTRACT_STORE, targetContract, {
+    label: `Contract: ${targetContract.title || targetContract.contractCode || targetContract.id}`,
+    scope: "contracts",
+  });
+  if (selectedContractId === contractId) resetContractForm({ clientId: selectedClientId || "" });
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+async function editMaterialRecord(materialId) {
+  const material = materials.find((entry) => entry.id === materialId);
+  if (!material) return;
+
+  const sku = prompt("SKU/Code:", material.sku)?.trim();
+  if (!sku) return;
+  const description = prompt("Description:", material.description)?.trim();
+  if (!description) return;
+  const category =
+    prompt("Category (examples: kitchen, vanity, tile, curtain, wood-floor, extra-material):", material.category)?.trim() ||
+    "other";
+  const unit = prompt("Unit:", material.unit || "pcs")?.trim() || "pcs";
+  const kitchenType = prompt("Kitchen type:", material.kitchenType || "")?.trim() || "";
+
+  const updatedMaterial = normalizeMaterial({
+    ...material,
+    sku,
+    description,
+    category,
+    unit,
+    kitchenType,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(MATERIAL_STORE, updatedMaterial);
+  const changes = collectAuditChanges(material, updatedMaterial, [
+    { key: "sku", label: "SKU" },
+    { key: "description", label: "Description" },
+    { key: "category", label: "Category" },
+    { key: "unit", label: "Unit" },
+    { key: "kitchenType", label: "Kitchen type" },
+  ]);
+  pushEntityAudit(
+    "Materials",
+    "updated",
+    `${updatedMaterial.sku}${changes.length ? ` | ${changes.join("; ")}` : " | no field changes"}`,
+    "materials"
+  );
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+async function deleteMaterialRecord(materialId) {
+  const linked = containers.some((container) => container.materialItems.some((item) => item.materialId === materialId));
+  if (linked) {
+    alert("Cannot delete material already used in a container manifest.");
+    return;
+  }
+  const targetMaterial = materials.find((entry) => entry.id === materialId);
+  if (!targetMaterial) return;
+  const confirmed = confirmDeleteAction(`material "${targetMaterial.sku} | ${targetMaterial.description}"`);
+  if (!confirmed) return;
+  pushEntityAudit("Materials", "deleted", `${targetMaterial.sku} | ${targetMaterial.description}`, "materials");
+  await trashDeleteRecord(MATERIAL_STORE, targetMaterial, {
+    label: `Material: ${targetMaterial.sku} | ${targetMaterial.description}`,
+    scope: "materials",
+  });
+  if (selectedMaterialId === materialId) selectedMaterialId = "";
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
 function renderProjectsTable() {
   const canManage = can("manageCatalog");
   const scopedProjects = (selectedClientId ? projects.filter((project) => project.clientId === selectedClientId) : projects)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) selectedProjectId = "";
+  if (selectedProjectId && !scopedProjects.some((project) => project.id === selectedProjectId)) selectedProjectId = "";
+  const selectedProject = selectedProjectId ? scopedProjects.find((project) => project.id === selectedProjectId) || null : null;
 
   const rows = scopedProjects
     .map((project) => {
@@ -8906,7 +9140,7 @@ function renderProjectsTable() {
       const scopeSummary = projectScopeSummary(project) || "-";
       const unitTemplateCount = projectChecklistTemplate(project).length;
       const geofenceSummary = projectGeofenceSummary(project);
-      return `<tr class="${project.id === selectedProjectId ? "selected-row" : ""}">
+      return `<tr class="${project.id === selectedProjectId ? "selected-row" : ""}" data-project-row="${escapeHtml(project.id)}">
         <td>${escapeHtml(project.name)}</td>
         <td>${escapeHtml(client?.name || "-")}</td>
         <td>${escapeHtml(project.code)}</td>
@@ -8916,83 +9150,52 @@ function renderProjectsTable() {
         <td>${escapeHtml(geofenceSummary)}</td>
         <td>${escapeHtml(scopeSummary)}</td>
         <td>${unitTemplateCount}</td>
-        <td>
-          <div class="actions-inline">
-            <button class="secondary xs-btn" data-select-project="${project.id}">Select</button>
-            <button class="secondary xs-btn" data-open-project-warehouse="${project.id}">Warehouse</button>
-            ${canManage ? `<button class="danger xs-btn" data-del-project="${project.id}">Delete</button>` : ""}
-          </div>
-        </td>
       </tr>`;
     })
     .join("");
 
-  projectsTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Client</th><th>Code</th><th>Address</th><th>Floors</th><th>Apartments</th><th>Geofence</th><th>Scope</th><th>Unit checklist</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="10">No projects for the selected client.</td></tr>'
+  projectsTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Client</th><th>Code</th><th>Address</th><th>Floors</th><th>Apartments</th><th>Geofence</th><th>Scope</th><th>Unit checklist</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="9">No projects for the selected client.</td></tr>'
   }</tbody></table>`;
 
-  projectsTable.querySelectorAll("[data-select-project]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const project = projects.find((entry) => entry.id === button.dataset.selectProject);
-      if (!project) return;
-      selectedProjectId = project.id;
-      selectedClientId = project.clientId || selectedClientId;
-      populateProjectForm(project);
-      render();
-      projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
+  renderTableContextBar(projectsTable, {
+    title: "Project actions",
+    selected: Boolean(selectedProject),
+    name: selectedProject ? selectedProject.name || "Selected project" : "No project selected",
+    detail: selectedProject
+      ? `${clientById(selectedProject.clientId)?.name || "No client"} • ${projectGeofenceSummary(selectedProject)}`
+      : "Select one project row to keep actions outside the grid.",
+    actions: selectedProject
+      ? [
+          { label: "Warehouse", attrs: { "data-open-project-warehouse": selectedProject.id } },
+          ...(canManage ? [{ label: "Delete", tone: "danger", attrs: { "data-del-project": selectedProject.id } }] : []),
+        ]
+      : [],
   });
 
-  projectsTable.querySelectorAll("[data-open-project-warehouse]").forEach((button) => {
-    button.addEventListener("click", () => {
-      openProjectWarehouse(button.dataset.openProjectWarehouse || "");
-    });
+  bindSelectableRows(projectsTable, "[data-project-row]", (row) => {
+    const project = projects.find((entry) => entry.id === row.dataset.projectRow);
+    if (!project) return;
+    selectedProjectId = project.id;
+    selectedClientId = project.clientId || selectedClientId;
+    populateProjectForm(project);
+    render();
+    projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
-
-  if (!canManage) return;
-
-  projectsTable.querySelectorAll("[data-del-project]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const id = button.dataset.delProject;
-      if (units.some((unit) => unit.projectId === id)) {
-        alert(t("Nao e possivel excluir projeto com unidades vinculadas."));
-        return;
-      }
-      if (contacts.some((contact) => contact.projectId === id)) {
-        alert(t("Nao e possivel excluir projeto com pessoas vinculadas."));
-        return;
-      }
-      if (containers.some((container) => container.projectId === id)) {
-        alert(t("Nao e possivel excluir projeto com containers vinculados."));
-        return;
-      }
-      const targetProject = projects.find((entry) => entry.id === id);
-      if (!targetProject) return;
-      const confirmed = confirmDeleteAction(`project "${targetProject.name}"`);
-      if (!confirmed) return;
-      pushEntityAudit("Projects", "deleted", `${targetProject.name}`, "projects");
-      await trashDeleteRecord(PROJECT_STORE, targetProject, {
-        label: `Project: ${targetProject.name}`,
-        scope: "projects",
-      });
-      if (projectForm?.elements?.projectId?.value === id) resetProjectForm({ clientId: selectedClientId });
-      if (selectedProjectId === id) selectedProjectId = "";
-      await loadAll();
-      render();
-      queueAutoSync();
-    });
-  });
+  renderTablePrintButtons();
 }
 
 function renderContactsTable() {
   const canManage = can("manageCatalog");
   const scopedContacts = selectedClientId ? contacts.filter((contact) => contact.clientId === selectedClientId) : contacts;
+  if (selectedContactId && !scopedContacts.some((contact) => contact.id === selectedContactId)) selectedContactId = "";
+  const selectedContact = selectedContactId ? scopedContacts.find((contact) => contact.id === selectedContactId) || null : null;
 
   const rows = scopedContacts
     .map((contact) => {
       const client = clientById(contact.clientId);
       const project = projectById(contact.projectId);
-      return `<tr>
+      return `<tr class="${contact.id === selectedContactId ? "selected-row" : ""}" data-contact-row="${escapeHtml(contact.id)}">
         <td>${escapeHtml(contact.name)}</td>
         <td>${escapeHtml(contactRoleLabel(contact.role))}</td>
         <td>${escapeHtml(contact.company)}</td>
@@ -9000,73 +9203,34 @@ function renderContactsTable() {
         <td>${escapeHtml(project?.name || "-")}</td>
         <td>${escapeHtml(contact.phone)}</td>
         <td>${escapeHtml(contact.email)}</td>
-        <td>${
-          canManage
-            ? `<div class="actions-inline"><button class="secondary xs-btn" data-edit-contact="${contact.id}">Edit</button><button class="danger xs-btn" data-del-contact="${contact.id}">Delete</button></div>`
-            : "-"
-        }</td>
       </tr>`;
     })
     .join("");
 
-  contactsTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Job Title Project</th><th>Company</th><th>Client</th><th>Project</th><th>Phone</th><th>Email</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="8">No people registered for the selected client.</td></tr>'
+  contactsTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Job Title Project</th><th>Company</th><th>Client</th><th>Project</th><th>Phone</th><th>Email</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="7">No people registered for the selected client.</td></tr>'
   }</tbody></table>`;
 
-  if (!canManage) return;
-  contactsTable.querySelectorAll("[data-edit-contact]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const id = button.dataset.editContact;
-      const contact = contacts.find((entry) => entry.id === id);
-      if (!contact) return;
-      const name = prompt("Name:", contact.name)?.trim();
-      if (!name) return;
-      const company = prompt("Company:", contact.company || "")?.trim() || "";
-      const phone = prompt("Phone:", contact.phone || "")?.trim() || "";
-      const email = prompt("Email:", contact.email || "")?.trim() || "";
-      const updatedContact = normalizeContact({
-        ...contact,
-        name,
-        company,
-        phone,
-        email,
-        updatedAt: new Date().toISOString(),
-      });
-      await put(CONTACT_STORE, updatedContact);
-      const changes = collectAuditChanges(contact, updatedContact, [
-        { key: "name", label: "Contact name" },
-        { key: "company", label: "Company" },
-        { key: "phone", label: "Phone" },
-        { key: "email", label: "Email" },
-      ]);
-      pushEntityAudit(
-        "Contacts",
-        "updated",
-        `${updatedContact.name}${changes.length ? ` | ${changes.join("; ")}` : " | no field changes"}`,
-        "contacts"
-      );
-      await loadAll();
-      render();
-      queueAutoSync();
-    });
+  renderTableContextBar(contactsTable, {
+    title: "Contact actions",
+    selected: Boolean(selectedContact),
+    name: selectedContact ? selectedContact.name || "Selected contact" : "No contact selected",
+    detail: selectedContact
+      ? `${selectedContact.company || "No company"} • ${selectedContact.phone || selectedContact.email || "No direct contact"}`
+      : "Select one contact row to keep edit and delete actions outside the grid.",
+    actions: selectedContact && canManage
+      ? [
+          { label: "Edit", attrs: { "data-edit-contact": selectedContact.id } },
+          { label: "Delete", tone: "danger", attrs: { "data-del-contact": selectedContact.id } },
+        ]
+      : [],
   });
 
-  contactsTable.querySelectorAll("[data-del-contact]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const targetContact = contacts.find((entry) => entry.id === button.dataset.delContact);
-      if (!targetContact) return;
-      const confirmed = confirmDeleteAction(`contact "${targetContact.name}"`);
-      if (!confirmed) return;
-      if (targetContact) pushEntityAudit("Contacts", "deleted", `${targetContact.name}`, "contacts");
-      await trashDeleteRecord(CONTACT_STORE, targetContact, {
-        label: `Contact: ${targetContact.name}`,
-        scope: "contacts",
-      });
-      await loadAll();
-      render();
-      queueAutoSync();
-    });
+  bindSelectableRows(contactsTable, "[data-contact-row]", (row) => {
+    selectedContactId = row.dataset.contactRow || "";
+    renderContactsTable();
   });
+  renderTablePrintButtons();
 }
 
 function resetContractForm({ clientId = "", projectId = "" } = {}) {
@@ -9125,12 +9289,13 @@ function renderContractsTable() {
     if (selectedContractId) selectedContractId = "";
     if (contractForm?.elements?.contractId?.value) resetContractForm({ clientId: selectedClientId || "" });
   }
+  const selectedContract = selectedContractId ? scopedContracts.find((entry) => entry.id === selectedContractId) || null : null;
 
   const rows = scopedContracts
     .map((contract) => {
       const client = clientById(contract.clientId);
       const project = projectById(contract.projectId);
-      return `<tr class="${contract.id === selectedContractId ? "selected-row" : ""}">
+      return `<tr class="${contract.id === selectedContractId ? "selected-row" : ""}" data-contract-row="${escapeHtml(contract.id)}">
         <td>${escapeHtml(contract.title || "-")}</td>
         <td>${escapeHtml(contract.contractCode || "-")}</td>
         <td>${escapeHtml(client?.name || "-")}</td>
@@ -9140,150 +9305,76 @@ function renderContractsTable() {
         <td>${escapeHtml(contract.endDate || "-")}</td>
         <td>${escapeHtml(contract.amount || "-")}</td>
         <td>${escapeHtml(fmtDate(contract.updatedAt))}</td>
-        <td>${
-          canManage
-            ? `<div class="actions-inline"><button class="secondary xs-btn" data-select-contract="${contract.id}">Select</button><button class="danger xs-btn" data-del-contract="${contract.id}">Delete</button></div>`
-            : "-"
-        }</td>
       </tr>`;
     })
     .join("");
 
-  contractsTable.innerHTML = `<table class="data-table"><thead><tr><th>Title</th><th>Code</th><th>Client</th><th>Project</th><th>Status</th><th>Signed</th><th>End</th><th>Value (USD)</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="10">No contracts registered for the selected client.</td></tr>'
+  contractsTable.innerHTML = `<table class="data-table"><thead><tr><th>Title</th><th>Code</th><th>Client</th><th>Project</th><th>Status</th><th>Signed</th><th>End</th><th>Value (USD)</th><th>Updated</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="9">No contracts registered for the selected client.</td></tr>'
   }</tbody></table>`;
 
-  if (!canManage) return;
-
-  contractsTable.querySelectorAll("[data-select-contract]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const contract = contractById(button.dataset.selectContract);
-      if (!contract) return;
-      selectedContractId = contract.id;
-      selectedClientId = contract.clientId || selectedClientId;
-      populateContractForm(contract);
-      renderContractsTable();
-    });
+  renderTableContextBar(contractsTable, {
+    title: "Contract actions",
+    selected: Boolean(selectedContract),
+    name: selectedContract ? selectedContract.title || selectedContract.contractCode || "Selected contract" : "No contract selected",
+    detail: selectedContract
+      ? `${contractStatusLabel(selectedContract.status)} • ${selectedContract.amount || "-"}`
+      : "Select one contract row to keep delete actions outside the grid.",
+    actions: selectedContract && canManage ? [{ label: "Delete", tone: "danger", attrs: { "data-del-contract": selectedContract.id } }] : [],
   });
 
-  contractsTable.querySelectorAll("[data-del-contract]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const targetId = button.dataset.delContract || "";
-      const targetContract = contractById(targetId);
-      if (!targetContract) return;
-      const confirmed = confirmDeleteAction(`contract "${targetContract.title || targetContract.contractCode || targetContract.id}"`);
-      if (!confirmed) return;
-      pushEntityAudit(
-        "Contracts",
-        "deleted",
-        `${targetContract.title} | code "${auditValue(targetContract.contractCode)}"`,
-        "contracts"
-      );
-      await trashDeleteRecord(CONTRACT_STORE, targetContract, {
-        label: `Contract: ${targetContract.title || targetContract.contractCode || targetContract.id}`,
-        scope: "contracts",
-      });
-      if (selectedContractId === targetId) resetContractForm({ clientId: selectedClientId || "" });
-      await loadAll();
-      render();
-      queueAutoSync();
-    });
+  bindSelectableRows(contractsTable, "[data-contract-row]", (row) => {
+    const contract = contractById(row.dataset.contractRow);
+    if (!contract) return;
+    selectedContractId = contract.id;
+    selectedClientId = contract.clientId || selectedClientId;
+    populateContractForm(contract);
+    renderContractsTable();
   });
+  renderTablePrintButtons();
 }
 
 function renderMaterialsTable() {
   const canManage = can("manageCatalog");
+  if (selectedMaterialId && !materials.some((material) => material.id === selectedMaterialId)) selectedMaterialId = "";
+  const selectedMaterial = selectedMaterialId ? materials.find((entry) => entry.id === selectedMaterialId) || null : null;
   const rows = materials
     .map(
-      (material) => `<tr>
+      (material) => `<tr class="${material.id === selectedMaterialId ? "selected-row" : ""}" data-material-row="${escapeHtml(material.id)}">
       <td>${escapeHtml(material.sku)}</td>
       <td>${escapeHtml(material.description)}</td>
       <td>${escapeHtml(containerCategoryLabel(material.category))}</td>
       <td>${escapeHtml(material.unit)}</td>
       <td>${escapeHtml(material.kitchenType || "-")}</td>
       <td>${escapeHtml(fmtDate(material.updatedAt))}</td>
-      <td>${
-        canManage
-          ? `<div class="actions-inline"><button class="secondary xs-btn" data-edit-material="${material.id}">Edit</button><button class="danger xs-btn" data-del-material="${material.id}">Delete</button></div>`
-          : "-"
-      }</td>
     </tr>`
     )
     .join("");
 
-  materialsTable.innerHTML = `<table class="data-table"><thead><tr><th>SKU</th><th>Description</th><th>Category</th><th>Unit</th><th>Kitchen Type</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="7">No materials registered.</td></tr>'
+  materialsTable.innerHTML = `<table class="data-table"><thead><tr><th>SKU</th><th>Description</th><th>Category</th><th>Unit</th><th>Kitchen Type</th><th>Updated</th></tr></thead><tbody>${
+    rows || '<tr><td colspan="6">No materials registered.</td></tr>'
   }</tbody></table>`;
 
-  if (!canManage) return;
-
-  materialsTable.querySelectorAll("[data-edit-material]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const id = button.dataset.editMaterial;
-      const material = materials.find((entry) => entry.id === id);
-      if (!material) return;
-
-      const sku = prompt("SKU/Code:", material.sku)?.trim();
-      if (!sku) return;
-      const description = prompt("Description:", material.description)?.trim();
-      if (!description) return;
-      const category =
-        prompt("Category (examples: kitchen, vanity, tile, curtain, wood-floor, extra-material):", material.category)?.trim() ||
-        "other";
-      const unit = prompt("Unit:", material.unit || "pcs")?.trim() || "pcs";
-      const kitchenType = prompt("Kitchen type:", material.kitchenType || "")?.trim() || "";
-
-      const updatedMaterial = normalizeMaterial({
-        ...material,
-        sku,
-        description,
-        category,
-        unit,
-        kitchenType,
-        updatedAt: new Date().toISOString(),
-      });
-      await put(MATERIAL_STORE, updatedMaterial);
-      const changes = collectAuditChanges(material, updatedMaterial, [
-        { key: "sku", label: "SKU" },
-        { key: "description", label: "Description" },
-        { key: "category", label: "Category" },
-        { key: "unit", label: "Unit" },
-        { key: "kitchenType", label: "Kitchen type" },
-      ]);
-      pushEntityAudit(
-        "Materials",
-        "updated",
-        `${updatedMaterial.sku}${changes.length ? ` | ${changes.join("; ")}` : " | no field changes"}`,
-        "materials"
-      );
-      await loadAll();
-      render();
-      queueAutoSync();
-    });
+  renderTableContextBar(materialsTable, {
+    title: "Material actions",
+    selected: Boolean(selectedMaterial),
+    name: selectedMaterial ? `${selectedMaterial.sku} • ${selectedMaterial.description}` : "No material selected",
+    detail: selectedMaterial
+      ? `${containerCategoryLabel(selectedMaterial.category)} • ${selectedMaterial.unit || "-"}`
+      : "Select one material row to keep edit and delete actions outside the grid.",
+    actions: selectedMaterial && canManage
+      ? [
+          { label: "Edit", attrs: { "data-edit-material": selectedMaterial.id } },
+          { label: "Delete", tone: "danger", attrs: { "data-del-material": selectedMaterial.id } },
+        ]
+      : [],
   });
 
-  materialsTable.querySelectorAll("[data-del-material]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const id = button.dataset.delMaterial;
-      const linked = containers.some((container) => container.materialItems.some((item) => item.materialId === id));
-      if (linked) {
-        alert("Cannot delete material already used in a container manifest.");
-        return;
-      }
-      const targetMaterial = materials.find((entry) => entry.id === id);
-      if (!targetMaterial) return;
-      const confirmed = confirmDeleteAction(`material "${targetMaterial.sku} | ${targetMaterial.description}"`);
-      if (!confirmed) return;
-      if (targetMaterial) pushEntityAudit("Materials", "deleted", `${targetMaterial.sku} | ${targetMaterial.description}`, "materials");
-      await trashDeleteRecord(MATERIAL_STORE, targetMaterial, {
-        label: `Material: ${targetMaterial.sku} | ${targetMaterial.description}`,
-        scope: "materials",
-      });
-      await loadAll();
-      render();
-      queueAutoSync();
-    });
+  bindSelectableRows(materialsTable, "[data-material-row]", (row) => {
+    selectedMaterialId = row.dataset.materialRow || "";
+    renderMaterialsTable();
   });
+  renderTablePrintButtons();
 }
 
 function renderMasterData() {
@@ -11632,7 +11723,7 @@ function renderWorkforceAdminPanel() {
 
   const activeTableRows = activeRows
     .map(
-      (entry) => `<tr>
+      (entry) => `<tr class="${entry.id === selectedWorkforceActiveEntryId ? "selected-row" : ""}" data-workforce-active-row="${escapeHtml(entry.id)}">
         <td>${escapeHtml(entry.userName || "-")}</td>
         <td>${escapeHtml(entry.companyName || "-")}</td>
         <td>${escapeHtml(entry.jobTitle || "-")}</td>
@@ -11641,14 +11732,36 @@ function renderWorkforceAdminPanel() {
         <td>${escapeHtml(entry.mode || "-")}</td>
         <td>${escapeHtml(fmtDate(entry.checkInAt))}</td>
         <td>${escapeHtml(elapsedFrom(entry.checkInAt))}</td>
-        <td><button class="secondary xs-btn" type="button" data-workforce-checkout="${escapeHtml(entry.id)}">Check out</button></td>
       </tr>`
     )
     .join("");
   if (workforceActiveTable) {
-    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Assignment</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th><th>Action</th></tr></thead><tbody>${
-      activeTableRows || '<tr><td colspan="9">No people currently checked in.</td></tr>'
+    if (selectedWorkforceActiveEntryId && !activeRows.some((entry) => entry.id === selectedWorkforceActiveEntryId)) {
+      selectedWorkforceActiveEntryId = "";
+    }
+    const selectedActiveRow = selectedWorkforceActiveEntryId
+      ? activeRows.find((entry) => entry.id === selectedWorkforceActiveEntryId) || null
+      : null;
+
+    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Assignment</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th></tr></thead><tbody>${
+      activeTableRows || '<tr><td colspan="8">No people currently checked in.</td></tr>'
     }</tbody></table>`;
+
+    renderTableContextBar(workforceActiveTable, {
+      title: "Check-in actions",
+      selected: Boolean(selectedActiveRow),
+      name: selectedActiveRow ? selectedActiveRow.userName || "Selected active entry" : "No active row selected",
+      detail: selectedActiveRow
+        ? `${timeEntryAssignmentLabel(selectedActiveRow)} • ${elapsedFrom(selectedActiveRow.checkInAt)}`
+        : "Select one active row to keep the checkout button outside the table.",
+      actions: selectedActiveRow
+        ? [{ label: "Check out", attrs: { "data-workforce-checkout": selectedActiveRow.id } }]
+        : [],
+    });
+    bindSelectableRows(workforceActiveTable, "[data-workforce-active-row]", (row) => {
+      selectedWorkforceActiveEntryId = row.dataset.workforceActiveRow || "";
+      renderWorkforceAdminPanel();
+    });
   }
 
   const weeklyRows = employees
@@ -11691,6 +11804,7 @@ function renderWorkforceAdminPanel() {
       subcontractorRows || '<tr><td colspan="8">No Sub Contractor presence found for this week/filter.</td></tr>'
     }</tbody></table>`;
   }
+  renderTablePrintButtons();
 }
 
 function generateWorkforceWeeklyReport() {
@@ -12207,7 +12321,7 @@ function renderAdminPanel() {
         const workStatus = snapshot.active
           ? `${timeEntryAssignmentLabel(snapshot.active)} • ${elapsedFrom(snapshot.active.checkInAt)}`
           : "Off shift";
-        return `<tr data-admin-employee-row="${escapeHtml(user.id)}">
+        return `<tr class="${user.id === adminSelectedEmployeeId ? "selected-row" : ""}" data-admin-employee-row="${escapeHtml(user.id)}">
           <td>${escapeHtml(user.name || user.username || "-")}</td>
           <td>${escapeHtml(user.companyName || "-")}</td>
           <td>${escapeHtml(user.jobTitle || "-")}</td>
@@ -12218,33 +12332,44 @@ function renderAdminPanel() {
           <td>${snapshot.workedDays}</td>
           <td>${escapeHtml(formatMinutesAsHours(snapshot.workedMinutes))}</td>
           <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
-          <td>
-            <div class="actions-inline">
-              <button class="secondary xs-btn" type="button" data-admin-edit-employee="${escapeHtml(user.id)}">Edit</button>
-            </div>
-          </td>
         </tr>`;
       })
       .join("");
-    adminEmployeesTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Job Title</th><th>System Role</th><th>Operational Access</th><th>Current status</th><th>Pay setup</th><th>Days</th><th>Hours</th><th>Total payment</th><th>Actions</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="11">No employees matched the current filters.</td></tr>'
+    const selectedAdminEmployee = adminSelectedEmployeeId ? users.find((user) => user.id === adminSelectedEmployeeId) || null : null;
+    adminEmployeesTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Job Title</th><th>System Role</th><th>Operational Access</th><th>Current status</th><th>Pay setup</th><th>Days</th><th>Hours</th><th>Total payment</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="10">No employees matched the current filters.</td></tr>'
     }</tbody></table>`;
-    adminEmployeesTable.querySelectorAll("[data-admin-employee-row]").forEach((row) => {
-      row.addEventListener("click", () => {
-        const target = users.find((user) => user.id === row.dataset.adminEmployeeRow);
-        if (target) populateAdminEmployeeForm(target);
-      });
+    renderTableContextBar(adminEmployeesTable, {
+      title: "Employee actions",
+      selected: Boolean(selectedAdminEmployee),
+      name: selectedAdminEmployee ? selectedAdminEmployee.name || selectedAdminEmployee.username || "Selected employee" : "No employee selected",
+      detail: selectedAdminEmployee
+        ? `${systemRoleLabel(userSystemRole(selectedAdminEmployee))} • ${roleLabel(userAccessProfile(selectedAdminEmployee))}`
+        : "Select one employee row to keep edit actions outside the table.",
+      actions: selectedAdminEmployee ? [{ label: "Edit in controls", attrs: { "data-admin-edit-employee": selectedAdminEmployee.id } }] : [],
+    });
+    bindSelectableRows(adminEmployeesTable, "[data-admin-employee-row]", (row) => {
+      const target = users.find((user) => user.id === row.dataset.adminEmployeeRow);
+      if (!target) return;
+      adminSelectedEmployeeId = target.id;
+      renderAdminPanel();
     });
   }
 
   if (adminPaymentsTable) {
+    if (selectedAdminPaymentUserId && !payrollRows.some((snapshot) => snapshot.user.id === selectedAdminPaymentUserId)) {
+      selectedAdminPaymentUserId = "";
+    }
+    const selectedPaymentSnapshot = selectedAdminPaymentUserId
+      ? payrollRows.find((snapshot) => snapshot.user.id === selectedAdminPaymentUserId) || null
+      : null;
     const rows = payrollRows
       .map((snapshot) => {
         const canReview = can("approvePayroll") && (snapshot.workedMinutes > 0 || snapshot.expensesTotal > 0);
         const paymentProfile = snapshot.user.bankName
           ? `${snapshot.user.bankName} • ${maskedBankAccountNumber(snapshot.user.bankAccountNumber)}`
           : "No bank details";
-        return `<tr>
+        return `<tr class="${snapshot.user.id === selectedAdminPaymentUserId ? "selected-row" : ""}" data-admin-payment-row="${escapeHtml(snapshot.user.id)}">
           <td>${escapeHtml(snapshot.user.name || snapshot.user.username || "-")}</td>
           <td>${escapeHtml(systemRoleLabel(userSystemRole(snapshot.user)))}</td>
           <td>${snapshot.workedDays}</td>
@@ -12256,24 +12381,48 @@ function renderAdminPanel() {
           <td>${escapeHtml(formatCurrency(snapshot.totalPayment))}</td>
           <td>${escapeHtml(paymentProfile)}</td>
           <td>${escapeHtml(snapshot.needsReview ? "Pending review" : approvalStatusLabel(snapshot.paymentStatus))}</td>
-          <td>
-            <div class="actions-inline">
-              <button class="secondary xs-btn" type="button" data-payment-approve="${escapeHtml(snapshot.user.id)}" ${canReview ? "" : "disabled"}>Approve</button>
-              <button class="danger xs-btn" type="button" data-payment-reject="${escapeHtml(snapshot.user.id)}" ${canReview ? "" : "disabled"}>Reject</button>
-            </div>
-          </td>
         </tr>`;
       })
       .join("");
-    adminPaymentsTable.innerHTML = `<table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Payment profile</th><th>Status</th><th>Actions</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="12">No payroll rows matched the current filters.</td></tr>'
+    adminPaymentsTable.innerHTML = `<table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Payment profile</th><th>Status</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="11">No payroll rows matched the current filters.</td></tr>'
     }</tbody></table>`;
+    renderTableContextBar(adminPaymentsTable, {
+      title: "Weekly payment actions",
+      selected: Boolean(selectedPaymentSnapshot),
+      name: selectedPaymentSnapshot ? selectedPaymentSnapshot.user.name || selectedPaymentSnapshot.user.username || "Selected payment" : "No payment row selected",
+      detail: selectedPaymentSnapshot
+        ? `${formatCurrency(selectedPaymentSnapshot.totalPayment)} • ${approvalStatusLabel(selectedPaymentSnapshot.paymentStatus)}`
+        : "Select one payment row to keep approval buttons outside the table.",
+      actions:
+        selectedPaymentSnapshot
+          ? [
+              {
+                label: "Approve",
+                attrs: { "data-payment-approve": selectedPaymentSnapshot.user.id },
+                disabled: !(can("approvePayroll") && (selectedPaymentSnapshot.workedMinutes > 0 || selectedPaymentSnapshot.expensesTotal > 0)),
+              },
+              {
+                label: "Reject",
+                tone: "danger",
+                attrs: { "data-payment-reject": selectedPaymentSnapshot.user.id },
+                disabled: !(can("approvePayroll") && (selectedPaymentSnapshot.workedMinutes > 0 || selectedPaymentSnapshot.expensesTotal > 0)),
+              },
+            ]
+          : [],
+    });
+    bindSelectableRows(adminPaymentsTable, "[data-admin-payment-row]", (row) => {
+      selectedAdminPaymentUserId = row.dataset.adminPaymentRow || "";
+      renderAdminPanel();
+    });
   }
 
   if (adminReceiptsTable) {
+    if (adminEditingReceiptId && !receiptRows.some((receipt) => receipt.id === adminEditingReceiptId)) adminEditingReceiptId = "";
+    const selectedReceiptRow = adminEditingReceiptId ? receiptRows.find((receipt) => receipt.id === adminEditingReceiptId) || null : null;
     const rows = receiptRows
       .map(
-        (receipt) => `<tr>
+        (receipt) => `<tr class="${receipt.id === adminEditingReceiptId ? "selected-row" : ""}" data-admin-receipt-row="${escapeHtml(receipt.id)}">
           <td>${escapeHtml(fmtDateOnly(receipt.expenseDate))}</td>
           <td>${escapeHtml(receipt.userName || "-")}</td>
           <td>${escapeHtml(receiptCategoryLabel(receipt.category))}</td>
@@ -12282,22 +12431,32 @@ function renderAdminPanel() {
           <td>${escapeHtml(approvalStatusLabel(receipt.approvalStatus))}</td>
           <td>${escapeHtml(receipt.description || "-")}</td>
           <td>${escapeHtml(receiptAttachmentLabel(receipt))}</td>
-          <td>
-            <div class="actions-inline">
-              <button class="secondary xs-btn" type="button" data-receipt-edit="${escapeHtml(receipt.id)}">Edit</button>
-              <button class="secondary xs-btn" type="button" data-receipt-open="${escapeHtml(receipt.id)}" ${
-                receipt.attachment?.dataUrl ? "" : "disabled"
-              }>Open</button>
-              <button class="secondary xs-btn" type="button" data-receipt-approve="${escapeHtml(receipt.id)}" ${can("approveExpenses") ? "" : "disabled"}>Approve</button>
-              <button class="danger xs-btn" type="button" data-receipt-reject="${escapeHtml(receipt.id)}" ${can("approveExpenses") ? "" : "disabled"}>Reject</button>
-            </div>
-          </td>
         </tr>`
       )
       .join("");
-    adminReceiptsTable.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>Employee</th><th>Category</th><th>Project</th><th>Amount</th><th>Status</th><th>Description</th><th>Attachment</th><th>Actions</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="9">No receipts matched the current filters.</td></tr>'
+    adminReceiptsTable.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>Employee</th><th>Category</th><th>Project</th><th>Amount</th><th>Status</th><th>Description</th><th>Attachment</th></tr></thead><tbody>${
+      rows || '<tr><td colspan="8">No receipts matched the current filters.</td></tr>'
     }</tbody></table>`;
+    renderTableContextBar(adminReceiptsTable, {
+      title: "Receipt actions",
+      selected: Boolean(selectedReceiptRow),
+      name: selectedReceiptRow ? `${selectedReceiptRow.userName || "-"} • ${receiptCategoryLabel(selectedReceiptRow.category)}` : "No receipt selected",
+      detail: selectedReceiptRow
+        ? `${formatCurrency(selectedReceiptRow.amount)} • ${approvalStatusLabel(selectedReceiptRow.approvalStatus)}`
+        : "Select one receipt row to keep actions outside the table.",
+      actions: selectedReceiptRow
+        ? [
+            { label: "Edit", attrs: { "data-receipt-edit": selectedReceiptRow.id } },
+            { label: "Open", attrs: { "data-receipt-open": selectedReceiptRow.id }, disabled: !selectedReceiptRow.attachment?.dataUrl },
+            { label: "Approve", attrs: { "data-receipt-approve": selectedReceiptRow.id }, disabled: !can("approveExpenses") },
+            { label: "Reject", tone: "danger", attrs: { "data-receipt-reject": selectedReceiptRow.id }, disabled: !can("approveExpenses") },
+          ]
+        : [],
+    });
+    bindSelectableRows(adminReceiptsTable, "[data-admin-receipt-row]", (row) => {
+      adminEditingReceiptId = row.dataset.adminReceiptRow || "";
+      renderAdminPanel();
+    });
   }
 
   if (adminSubcontractorTable) {
@@ -12329,6 +12488,7 @@ function renderAdminPanel() {
   else resetReceiptForm();
 
   renderWorkforceAdminPanel();
+  renderTablePrintButtons();
 }
 
 async function saveAdminEmployeeSettings() {
@@ -14035,6 +14195,21 @@ function renderTablePrintButtons() {
     const parent = anchor.parentElement;
     if (!parent) return;
 
+    const contextTargetId = anchor.id || "";
+    const contextBar = contextTargetId ? parent.querySelector(`.table-context-bar[data-context-target="${contextTargetId}"]`) : null;
+    if (contextBar) {
+      const actionsContainer = contextBar.querySelector(".table-context-actions");
+      if (actionsContainer && !actionsContainer.querySelector(`[data-table-print="${targetId}"]`)) {
+        actionsContainer.insertAdjacentHTML(
+          "beforeend",
+          `<button class="secondary xs-btn" type="button" data-table-print="${escapeHtml(targetId)}">Print table</button>`
+        );
+      }
+      const existingToolbar = Array.from(appMain.querySelectorAll(".table-print-toolbar")).find((node) => node.dataset.printTarget === targetId) || null;
+      if (existingToolbar) existingToolbar.remove();
+      return;
+    }
+
     let toolbar = Array.from(appMain.querySelectorAll(".table-print-toolbar")).find((node) => node.dataset.printTarget === targetId) || null;
     if (!toolbar) {
       toolbar = document.createElement("div");
@@ -14675,8 +14850,13 @@ adminOpenUserRegistrationBtn?.addEventListener("click", () => {
 
 adminEmployeeSelect?.addEventListener("change", () => {
   const target = users.find((user) => user.id === (adminEmployeeSelect.value || ""));
-  if (target) populateAdminEmployeeForm(target);
-  else resetAdminEmployeeForm();
+  if (target) {
+    adminSelectedEmployeeId = target.id;
+    populateAdminEmployeeForm(target);
+  } else {
+    resetAdminEmployeeForm();
+  }
+  renderAdminPanel();
 });
 
 adminEmployeeForm?.addEventListener("submit", async (event) => {
@@ -14686,10 +14866,12 @@ adminEmployeeForm?.addEventListener("submit", async (event) => {
 
 adminEmployeeCancelBtn?.addEventListener("click", () => {
   resetAdminEmployeeForm();
+  renderAdminPanel();
 });
 
 receiptFormNewBtn?.addEventListener("click", () => {
   resetReceiptForm();
+  renderAdminPanel();
 });
 
 receiptForm?.addEventListener("submit", async (event) => {
@@ -14703,6 +14885,7 @@ receiptFormDeleteBtn?.addEventListener("click", async () => {
 
 receiptFormCancelBtn?.addEventListener("click", () => {
   resetReceiptForm();
+  renderAdminPanel();
 });
 
 openReceiptFileBtn?.addEventListener("click", () => {
@@ -16617,6 +16800,62 @@ appMain?.addEventListener("click", (event) => {
     return;
   }
 
+  const projectWarehouseBtn = event.target.closest("[data-open-project-warehouse]");
+  if (projectWarehouseBtn) {
+    event.preventDefault();
+    openProjectWarehouse(projectWarehouseBtn.dataset.openProjectWarehouse || "");
+    return;
+  }
+
+  const deleteProjectBtn = event.target.closest("[data-del-project]");
+  if (deleteProjectBtn) {
+    event.preventDefault();
+    void deleteProjectRecord(deleteProjectBtn.dataset.delProject || "");
+    return;
+  }
+
+  const editContactBtn = event.target.closest("[data-edit-contact]");
+  if (editContactBtn) {
+    event.preventDefault();
+    void editContactRecord(editContactBtn.dataset.editContact || "");
+    return;
+  }
+
+  const deleteContactBtn = event.target.closest("[data-del-contact]");
+  if (deleteContactBtn) {
+    event.preventDefault();
+    void deleteContactRecord(deleteContactBtn.dataset.delContact || "");
+    return;
+  }
+
+  const deleteContractBtn = event.target.closest("[data-del-contract]");
+  if (deleteContractBtn) {
+    event.preventDefault();
+    void deleteContractRecord(deleteContractBtn.dataset.delContract || "");
+    return;
+  }
+
+  const editMaterialBtn = event.target.closest("[data-edit-material]");
+  if (editMaterialBtn) {
+    event.preventDefault();
+    void editMaterialRecord(editMaterialBtn.dataset.editMaterial || "");
+    return;
+  }
+
+  const deleteMaterialBtn = event.target.closest("[data-del-material]");
+  if (deleteMaterialBtn) {
+    event.preventDefault();
+    void deleteMaterialRecord(deleteMaterialBtn.dataset.delMaterial || "");
+    return;
+  }
+
+  const workforceCheckoutBtn = event.target.closest("[data-workforce-checkout]");
+  if (workforceCheckoutBtn) {
+    event.preventDefault();
+    void closeTimeEntryAsAdmin(workforceCheckoutBtn.dataset.workforceCheckout || "");
+    return;
+  }
+
   const actionTrigger = event.target.closest("[data-nav-action]");
   if (actionTrigger) {
     event.preventDefault();
@@ -16667,14 +16906,20 @@ adminPanel?.addEventListener("click", (event) => {
   const editEmployeeBtn = event.target.closest("[data-admin-edit-employee]");
   if (editEmployeeBtn) {
     const target = users.find((user) => user.id === editEmployeeBtn.dataset.adminEditEmployee);
-    if (target) populateAdminEmployeeForm(target);
+    if (target) {
+      adminSelectedEmployeeId = target.id;
+      populateAdminEmployeeForm(target);
+    }
     return;
   }
 
   const receiptEditBtn = event.target.closest("[data-receipt-edit]");
   if (receiptEditBtn) {
     const target = receipts.find((receipt) => receipt.id === receiptEditBtn.dataset.receiptEdit);
-    if (target) populateReceiptForm(target);
+    if (target) {
+      adminEditingReceiptId = target.id;
+      populateReceiptForm(target);
+    }
     return;
   }
 

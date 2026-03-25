@@ -1176,6 +1176,7 @@ let projectsViewMode = "overview";
 let clientsWorkspaceMode = "hub";
 let manufactureSubView = "schedule";
 let warehouseSubView = "operations";
+let applyingRouteState = false;
 let appAuditLog = loadAppAuditLog();
 let projectScopeExtrasDraft = [];
 let projectChecklistExtrasDraft = [];
@@ -6868,11 +6869,10 @@ function renderAuth() {
     editProfileBtn?.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
     userBadge.textContent = `${currentUser.name} (${systemRoleLabel(userSystemRole(currentUser))} / ${roleLabel(userAccessProfile(currentUser))})`;
-    currentView = pendingPostLoginLanding ? "workday" : viewFromHash();
+    const route = pendingPostLoginLanding ? { view: "workday" } : routeStateFromHash();
+    applyRouteState(route, { updateHash: false });
     render();
-    if (pendingPostLoginLanding && window.location.hash !== "#workday") {
-      window.history.replaceState(null, "", "#workday");
-    }
+    if (pendingPostLoginLanding) syncRouteHash();
     if (pendingTimeClockFocus && canUseTimeClock()) {
       window.setTimeout(() => {
         const active = activeTimeEntryForUser(currentUser?.id || "");
@@ -6911,11 +6911,105 @@ function setFormEnabled(form, enabled) {
   });
 }
 
-function viewFromHash() {
+function routeStateFromHash() {
   const raw = window.location.hash.replace(/^#/, "").trim();
-  if (!raw) return "home";
-  const allowed = new Set(["home", "workday", "sync", "users", "admin", "clients", "projects", "manufacture", "userEdit", "ocrImporter"]);
-  return allowed.has(raw) ? raw : "home";
+  if (!raw) return { view: "home" };
+  const parts = raw.split("/").map((part) => String(part || "").trim()).filter(Boolean);
+  const allowedViews = new Set(["home", "workday", "sync", "users", "admin", "clients", "projects", "manufacture", "userEdit", "ocrImporter"]);
+  const view = allowedViews.has(parts[0]) ? parts[0] : "home";
+  const route = { view };
+
+  if (view === "users") {
+    route.usersSubView = ["directory", "registration", "self", "checkin"].includes(parts[1]) ? parts[1] : "directory";
+    return route;
+  }
+
+  if (view === "clients") {
+    route.clientsWorkspaceMode = ["hub", "newClients", "projects", "contracts"].includes(parts[1]) ? parts[1] : "hub";
+    return route;
+  }
+
+  if (view === "manufacture") {
+    route.manufactureSubView = ["schedule", "catalog", "solicitation"].includes(parts[1]) ? parts[1] : "schedule";
+    return route;
+  }
+
+  if (view === "projects") {
+    let mode = "overview";
+    let cursor = 1;
+    if (["overview", "operations"].includes(parts[cursor])) {
+      mode = parts[cursor];
+      cursor += 1;
+    } else if (PROJECT_SECTORS.includes(parts[cursor])) {
+      mode = "operations";
+    }
+    route.projectsViewMode = mode;
+    const sector = parts[cursor];
+    if (PROJECT_SECTORS.includes(sector)) {
+      route.projectSector = sector;
+      cursor += 1;
+    }
+    const subView = parts[cursor];
+    if (["schedule", "inventory", "qr", "operations"].includes(subView)) {
+      route.warehouseSubView = normalizeWarehouseSubView(subView);
+    }
+  }
+
+  return route;
+}
+
+function routeHashForState() {
+  const parts = [currentView];
+  if (currentView === "users") {
+    parts.push(usersSubView || "directory");
+  } else if (currentView === "clients") {
+    parts.push(clientsWorkspaceMode || "hub");
+  } else if (currentView === "manufacture") {
+    parts.push(manufactureSubView || "schedule");
+  } else if (currentView === "projects") {
+    parts.push(projectsViewMode || "overview");
+    if ((projectsViewMode || "overview") === "operations") {
+      parts.push(currentProjectSector || "delivery");
+      if (["warehouse", "delivery"].includes(currentProjectSector)) {
+        parts.push(normalizeWarehouseSubView(warehouseSubView));
+      }
+    }
+  }
+  return `#${parts.filter(Boolean).join("/")}`;
+}
+
+function syncRouteHash() {
+  if (applyingRouteState) return;
+  const hash = routeHashForState();
+  if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
+}
+
+function applyRouteState(route = { view: "home" }, { updateHash = false } = {}) {
+  const targetView = canOpenView(route.view) ? route.view : "home";
+  applyingRouteState = true;
+  try {
+    if (targetView === "users") {
+      setUsersSubView(route.usersSubView || (can("manageUsers") ? "directory" : "self"));
+    }
+    if (targetView === "clients") {
+      setClientsWorkspaceMode(route.clientsWorkspaceMode || "hub");
+    }
+    if (targetView === "manufacture") {
+      setManufactureSubView(route.manufactureSubView || "schedule");
+    }
+    if (targetView === "projects") {
+      projectsViewMode = route.projectsViewMode === "operations" ? "operations" : "overview";
+      if (route.projectSector && allowedProjectSectors().includes(route.projectSector)) {
+        currentProjectSector = route.projectSector;
+      }
+      if (route.warehouseSubView) {
+        setWarehouseSubView(route.warehouseSubView);
+      }
+    }
+    setView(targetView, { updateHash });
+  } finally {
+    applyingRouteState = false;
+  }
 }
 
 function canOpenManufactureWorkspace() {
@@ -6990,9 +7084,10 @@ function setManufactureSubView(view = "schedule") {
   const normalized = ["schedule", "catalog", "solicitation"].includes(view) ? view : "schedule";
   const previous = manufactureSubView;
   manufactureSubView = normalized;
-  if (previous !== manufactureSubView && currentUser) {
+  if (previous !== manufactureSubView && currentUser && !applyingRouteState) {
     pushAppAudit(`Navigation factory folder: ${previous} -> ${manufactureSubView}`, "navigation", "manufacture");
   }
+  if (currentView === "manufacture") syncRouteHash();
 }
 
 function applyManufactureSubviewVisibility() {
@@ -7011,9 +7106,10 @@ function setWarehouseSubView(view = "operations") {
   const normalized = normalizeWarehouseSubView(view);
   const previous = warehouseSubView;
   warehouseSubView = normalized;
-  if (previous !== warehouseSubView && currentUser) {
+  if (previous !== warehouseSubView && currentUser && !applyingRouteState) {
     pushAppAudit(`Navigation warehouse folder: ${previous} -> ${warehouseSubView}`, "navigation", "warehouse");
   }
+  if (currentView === "projects" && ["warehouse", "delivery"].includes(currentProjectSector)) syncRouteHash();
 }
 
 function applyMasterSubpanelMode() {
@@ -7188,10 +7284,7 @@ function setView(view, { updateHash = true } = {}) {
   if (previousView !== currentView) {
     pushAppAudit(`Navigation view: ${previousView || "-"} -> ${currentView}`, "navigation", `sector:${currentProjectSector}`);
   }
-  if (updateHash) {
-    const hash = `#${currentView}`;
-    if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
-  }
+  if (updateHash) syncRouteHash();
 }
 
 function setProjectSector(sector, { rerender = true } = {}) {
@@ -7199,13 +7292,14 @@ function setProjectSector(sector, { rerender = true } = {}) {
   if (!allowedProjectSectors().includes(sector)) return;
   const previousSector = currentProjectSector;
   currentProjectSector = sector;
-  if (previousSector !== currentProjectSector) {
+  if (previousSector !== currentProjectSector && !applyingRouteState) {
     pushAppAudit(
       `Navigation sector: ${previousSector || "-"} -> ${currentProjectSector}`,
       "navigation",
       `view:${currentView}`
     );
   }
+  if (currentView === "projects") syncRouteHash();
   if (rerender && currentUser) render();
 }
 
@@ -7611,6 +7705,10 @@ function handleQuickNavAction(action) {
     openProjectReportsView();
     return;
   }
+
+  if (action) {
+    pushAppAudit(`Unknown navigation action ignored: ${action}`, "navigation", "invalid-action");
+  }
 }
 
 function renderStats() {
@@ -7894,9 +7992,11 @@ function setClientsWorkspaceMode(mode = "hub") {
     selectedClientDetailsProjectId = "";
     keepClientFormBlank = true;
     setClientsSectionMode("create");
+    if (currentView === "clients") syncRouteHash();
     return;
   }
   if (normalized === "hub") setClientsSectionMode("hub");
+  if (currentView === "clients") syncRouteHash();
 }
 
 function openClientDetails(clientId) {
@@ -10386,6 +10486,7 @@ function setUsersSubView(view = "directory") {
   usersRegistrationTabBtn?.classList.toggle("active", normalized === "registration");
   usersDirectoryTabBtn?.classList.toggle("active", normalized === "directory" || normalized === "self");
   usersCheckInTabBtn?.classList.toggle("active", normalized === "checkin");
+  if (currentView === "users") syncRouteHash();
 }
 
 function openUsersRegistrationClean() {
@@ -15976,7 +16077,14 @@ appMain?.addEventListener("click", (event) => {
       setUsersSubView(can("manageUsers") ? "directory" : "self");
       render();
     }
-    const targetSection = document.getElementById(targetId);
+    let targetSection = document.getElementById(targetId);
+    if (!targetSection || targetSection.classList.contains("hidden-view") || targetSection.classList.contains("hidden")) {
+      render();
+      targetSection = document.getElementById(targetId);
+    }
+    if (!targetSection || targetSection.classList.contains("hidden-view") || targetSection.classList.contains("hidden")) {
+      return;
+    }
     targetSection?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
@@ -16070,9 +16178,9 @@ projectSectorPanel?.addEventListener("click", (event) => {
 
 window.addEventListener("hashchange", () => {
   if (!currentUser) return;
-  const target = viewFromHash();
-  if (target === currentView) return;
-  setView(target, { updateHash: false });
+  const route = routeStateFromHash();
+  applyRouteState(route, { updateHash: false });
+  render();
 });
 
 window.addEventListener("pageshow", () => {

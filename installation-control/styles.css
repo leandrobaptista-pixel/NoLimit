@@ -1698,6 +1698,11 @@ table.data-table th {
   color: #627768;
 }
 
+.users-checkin-meta.is-warning {
+  color: #8a5b18;
+  font-weight: 700;
+}
+
 .users-checkin-empty {
   margin: 0;
   padding: 1rem;

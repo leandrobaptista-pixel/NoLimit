@@ -2453,9 +2453,13 @@ function canViewCheckInBadge(targetUser) {
 
 function usersCheckedInBadgeEntries() {
   const activeMap = new Map(activeTimeEntries().map((entry) => [entry.userId, entry]));
+  const includeUnsyncedActiveEntries = can("accessAdmin");
   return users
     .map((user) => ({ user, entry: activeMap.get(user.id) || null }))
-    .filter(({ user, entry }) => Boolean(entry) && userSessionIsActive(user) && canViewCheckInBadge(user))
+    .filter(
+      ({ user, entry }) =>
+        Boolean(entry) && canViewCheckInBadge(user) && (includeUnsyncedActiveEntries || userSessionIsActive(user))
+    )
     .sort((a, b) => {
       const aStart = new Date(a.entry?.checkInAt || 0).getTime();
       const bStart = new Date(b.entry?.checkInAt || 0).getTime();
@@ -2467,6 +2471,10 @@ function usersCheckedInBadgeCard(user, entry) {
   const { first, last } = splitNameParts(user);
   const photoSrc = userAvatarSrc(user) || defaultAvatarForGender(user.gender) || "avatar-neutral.svg";
   const sessionStamp = user.lastLoginAt || user.sessionStartedAt || entry.checkInAt || "";
+  const sessionActive = userSessionIsActive(user);
+  const sessionMeta = sessionActive
+    ? `Logged in ${fmtDate(sessionStamp)}`
+    : "Check-in active • session sync pending";
   return `
     <article class="user-id-card users-checkin-card">
       <div class="user-id-card-head">
@@ -2481,7 +2489,7 @@ function usersCheckedInBadgeCard(user, entry) {
             <span class="user-id-card-last">${escapeHtml(last || "Last Name")}</span>
           </p>
           <span class="users-checkin-company">${escapeHtml(user.companyName || "No company")}</span>
-          <span class="users-checkin-meta">Logged in ${escapeHtml(fmtDate(sessionStamp))}</span>
+          <span class="users-checkin-meta${sessionActive ? "" : " is-warning"}">${escapeHtml(sessionMeta)}</span>
         </div>
         <img class="user-id-card-photo" src="${escapeHtml(photoSrc)}" alt="${escapeHtml(user.name || user.username || "User")}" />
       </div>
@@ -2498,7 +2506,11 @@ function usersCheckedInBadgeCard(user, entry) {
             <strong class="user-id-card-workvalue">${escapeHtml(timeEntryAssignmentLabel(entry))}</strong>
           </div>
         </div>
-        <small class="user-id-card-status">Checked in ${escapeHtml(fmtDate(entry.checkInAt))}</small>
+        <small class="user-id-card-status">${
+          sessionActive
+            ? `Checked in ${escapeHtml(fmtDate(entry.checkInAt))}`
+            : `Checked in ${escapeHtml(fmtDate(entry.checkInAt))} • Session flag not synced yet`
+        }</small>
       </div>
     </article>
   `;
@@ -2512,14 +2524,15 @@ function renderUsersCheckInView() {
 
   const badgeEntries = usersCheckedInBadgeEntries();
   const canSeeAllActiveBadges = can("accessAdmin");
+  const unsyncedBadgeCount = badgeEntries.filter(({ user }) => !userSessionIsActive(user)).length;
   if (usersCheckInStatus) {
     if (badgeEntries.length) {
       usersCheckInStatus.textContent = canSeeAllActiveBadges
-        ? `Showing ${badgeEntries.length} badge(s) from all users who are logged in and currently checked in. Logging out or checking out removes the badge automatically.`
+        ? `Showing ${badgeEntries.length} active badge(s). ${unsyncedBadgeCount ? `${unsyncedBadgeCount} badge(s) still have a pending session sync.` : "All visible session flags are synced."}`
         : `Showing ${badgeEntries.length} badge(s) from visible users who are logged in and currently checked in. Logging out or checking out removes the badge automatically.`;
     } else {
       usersCheckInStatus.textContent = canSeeAllActiveBadges
-        ? "No users are currently logged in and checked in."
+        ? "No active check-in badges were found."
         : "No visible users are currently logged in and checked in.";
     }
   }
@@ -2527,7 +2540,7 @@ function renderUsersCheckInView() {
     ? badgeEntries.map(({ user, entry }) => usersCheckedInBadgeCard(user, entry)).join("")
     : `<p class="hint users-checkin-empty">${
         canSeeAllActiveBadges
-          ? "No users are currently logged in and checked in."
+          ? "No active check-in badges were found."
           : "No visible users are currently logged in and checked in."
       }</p>`;
 }

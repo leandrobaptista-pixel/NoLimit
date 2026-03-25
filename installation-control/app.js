@@ -2441,6 +2441,7 @@ function renderUserIdCard(user = null, { useFormValues = false } = {}) {
 
 function canViewCheckInBadge(targetUser) {
   if (!currentUser || !targetUser) return false;
+  if (can("accessAdmin")) return true;
   if (can("manageUsers")) return canAccessEmployeeRecord(targetUser);
   if (userSystemRole(targetUser) === "developer" || userAccessProfile(targetUser) === "developer" || isPrimaryDeveloperUser(targetUser)) {
     return false;
@@ -2510,14 +2511,25 @@ function renderUsersCheckInView() {
   if (!open) return;
 
   const badgeEntries = usersCheckedInBadgeEntries();
+  const canSeeAllActiveBadges = can("accessAdmin");
   if (usersCheckInStatus) {
-    usersCheckInStatus.textContent = badgeEntries.length
-      ? `Showing ${badgeEntries.length} badge(s) from people who are logged in and currently checked in. Logging out or checking out removes the badge automatically.`
-      : "No logged-in users are currently checked in.";
+    if (badgeEntries.length) {
+      usersCheckInStatus.textContent = canSeeAllActiveBadges
+        ? `Showing ${badgeEntries.length} badge(s) from all users who are logged in and currently checked in. Logging out or checking out removes the badge automatically.`
+        : `Showing ${badgeEntries.length} badge(s) from visible users who are logged in and currently checked in. Logging out or checking out removes the badge automatically.`;
+    } else {
+      usersCheckInStatus.textContent = canSeeAllActiveBadges
+        ? "No users are currently logged in and checked in."
+        : "No visible users are currently logged in and checked in.";
+    }
   }
   usersCheckInGrid.innerHTML = badgeEntries.length
     ? badgeEntries.map(({ user, entry }) => usersCheckedInBadgeCard(user, entry)).join("")
-    : '<p class="hint users-checkin-empty">No logged-in users are currently checked in.</p>';
+    : `<p class="hint users-checkin-empty">${
+        canSeeAllActiveBadges
+          ? "No users are currently logged in and checked in."
+          : "No visible users are currently logged in and checked in."
+      }</p>`;
 }
 
 function renderUserWorkforceCard(user = null) {

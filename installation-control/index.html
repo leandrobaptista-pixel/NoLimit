@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260324-reportprint1" />
+    <link rel="stylesheet" href="styles.css?v=20260324-userscheckin1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -261,6 +261,7 @@
             <div class="nav-submenu" aria-label="Users sub menu">
               <button class="secondary nav-submenu-btn" type="button" data-nav-action="usersRegistration">Registration</button>
               <button class="secondary nav-submenu-btn" type="button" data-nav-action="usersPeople">People</button>
+              <button class="secondary nav-submenu-btn" type="button" data-nav-action="usersCheckIn">Check-in</button>
             </div>
           </div>
           <div class="nav-group nav-group-clients" data-nav-group="clients">
@@ -740,6 +741,9 @@
           <button id="usersDirectoryTabBtn" class="secondary users-subview-btn" type="button" data-users-subview="directory">
             People Folder
           </button>
+          <button id="usersCheckInTabBtn" class="secondary users-subview-btn" type="button" data-users-subview="checkin">
+            Check-in Folder
+          </button>
         </div>
 
         <div id="usersDirectoryView" class="users-workspace users-directory-view">
@@ -831,6 +835,20 @@
               </p>
             </article>
           </div>
+        </div>
+
+        <div id="usersCheckInView" class="users-checkin-view hidden">
+          <article id="usersCheckInSection" class="subpanel users-checkin-panel">
+            <div class="row admin-section-head">
+              <div>
+                <h3>Check-in Folder</h3>
+                <p id="usersCheckInStatus" class="hint">
+                  Only badges from people who are logged in and currently checked in appear here.
+                </p>
+              </div>
+            </div>
+            <div id="usersCheckInGrid" class="users-checkin-grid"></div>
+          </article>
         </div>
 
         <div id="usersRegistrationView" class="users-registration-view hidden">
@@ -1752,6 +1770,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260324-reportprint1" defer></script>
+    <script src="app.js?v=20260324-userscheckin1" defer></script>
   </body>
 </html>

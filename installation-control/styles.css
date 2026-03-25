@@ -1652,6 +1652,51 @@ table.data-table th {
   gap: 0.46rem;
 }
 
+.users-checkin-view {
+  margin-top: 0.08rem;
+}
+
+.users-checkin-panel {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.users-checkin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 0.72rem;
+  align-items: start;
+}
+
+.users-checkin-grid .user-id-card {
+  width: min(100%, 280px);
+  margin: 0 auto;
+}
+
+.users-checkin-company {
+  display: block;
+  margin-top: 0.24rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #4c6a5a;
+}
+
+.users-checkin-meta {
+  display: block;
+  margin-top: 0.16rem;
+  font-size: 0.76rem;
+  color: #627768;
+}
+
+.users-checkin-empty {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px dashed #cfd9d0;
+  background: #fbfdf8;
+  text-align: center;
+}
+
 .users-registration-table {
   max-height: 390px;
 }
@@ -2765,6 +2810,10 @@ table.data-table :is(button, .file-label) {
 
   .users-subviews > * {
     flex: 1 1 48%;
+  }
+
+  .users-checkin-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
 
   .users-left-column,

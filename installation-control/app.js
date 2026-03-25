@@ -96,10 +96,11 @@ const SECTION_SHORTCUTS = {
     { id: "developerDeletedRecoverySection", label: "Deleted Records Recovery" },
   ],
   users: [
-    { id: "usersSelfWorkdaySection", label: "Workday Quick Access", requiresSelfService: true },
-    { id: "userIdCard", label: "My badge", requiresSelfService: true },
-    { id: "usersDirectoryView", label: "People Folder", requiresManager: true },
-    { id: "usersRegistrationView", label: "Registration Folder", requiresManager: true },
+    { id: "usersSelfWorkdaySection", label: "Workday Quick Access", requiresSelfService: true, usersSubViews: ["self", "directory"] },
+    { id: "userIdCard", label: "My badge", requiresSelfService: true, usersSubViews: ["self", "directory"] },
+    { id: "usersDirectoryView", label: "People Folder", requiresManager: true, usersSubViews: ["directory"] },
+    { id: "usersRegistrationView", label: "Registration Folder", requiresManager: true, usersSubViews: ["registration"] },
+    { id: "usersCheckInSection", label: "Check-in Folder", usersSubViews: ["checkin"] },
   ],
   admin: [
     { id: "adminEmployeeListSection", label: "Complete Employee List" },
@@ -1410,8 +1411,12 @@ const developerAuditPanel = document.getElementById("developerAuditPanel");
 const usersPanel = document.getElementById("usersPanel");
 const usersRegistrationTabBtn = document.getElementById("usersRegistrationTabBtn");
 const usersDirectoryTabBtn = document.getElementById("usersDirectoryTabBtn");
+const usersCheckInTabBtn = document.getElementById("usersCheckInTabBtn");
 const usersDirectoryView = document.getElementById("usersDirectoryView");
+const usersCheckInView = document.getElementById("usersCheckInView");
 const usersRegistrationView = document.getElementById("usersRegistrationView");
+const usersCheckInGrid = document.getElementById("usersCheckInGrid");
+const usersCheckInStatus = document.getElementById("usersCheckInStatus");
 const usersSelfQuickAccessCard = document.getElementById("usersSelfQuickAccessCard");
 const usersSelfWorkdaySummary = document.getElementById("usersSelfWorkdaySummary");
 const usersSelfOpenWorkdayBtn = document.getElementById("usersSelfOpenWorkdayBtn");
@@ -2427,6 +2432,87 @@ function renderUserIdCard(user = null, { useFormValues = false } = {}) {
   renderUserWorkforceCard(user);
 }
 
+function canViewCheckInBadge(targetUser) {
+  if (!currentUser || !targetUser) return false;
+  if (can("manageUsers")) return canAccessEmployeeRecord(targetUser);
+  if (userSystemRole(targetUser) === "developer" || userAccessProfile(targetUser) === "developer" || isPrimaryDeveloperUser(targetUser)) {
+    return false;
+  }
+  const myCompany = normalizeCompanyName(currentUser.companyName);
+  if (!myCompany) return targetUser.id === currentUser.id;
+  return normalizeCompanyName(targetUser.companyName) === myCompany || targetUser.id === currentUser.id;
+}
+
+function usersCheckedInBadgeEntries() {
+  const activeMap = new Map(activeTimeEntries().map((entry) => [entry.userId, entry]));
+  return users
+    .map((user) => ({ user, entry: activeMap.get(user.id) || null }))
+    .filter(({ user, entry }) => Boolean(entry) && userSessionIsActive(user) && canViewCheckInBadge(user))
+    .sort((a, b) => {
+      const aStart = new Date(a.entry?.checkInAt || 0).getTime();
+      const bStart = new Date(b.entry?.checkInAt || 0).getTime();
+      return aStart - bStart || (a.user.name || a.user.username || "").localeCompare(b.user.name || b.user.username || "");
+    });
+}
+
+function usersCheckedInBadgeCard(user, entry) {
+  const { first, last } = splitNameParts(user);
+  const photoSrc = userAvatarSrc(user) || defaultAvatarForGender(user.gender) || "avatar-neutral.svg";
+  const sessionStamp = user.lastLoginAt || user.sessionStartedAt || entry.checkInAt || "";
+  return `
+    <article class="user-id-card users-checkin-card">
+      <div class="user-id-card-head">
+        <div class="user-id-card-brand">
+          <img class="user-id-card-logo" src="tag-logo.svg" alt="TAG logo" />
+        </div>
+      </div>
+      <div class="user-id-card-body">
+        <div class="user-id-card-info">
+          <p class="user-id-card-name">
+            <span class="user-id-card-first">${escapeHtml(first || "First Name")}</span>
+            <span class="user-id-card-last">${escapeHtml(last || "Last Name")}</span>
+          </p>
+          <span class="users-checkin-company">${escapeHtml(user.companyName || "No company")}</span>
+          <span class="users-checkin-meta">Logged in ${escapeHtml(fmtDate(sessionStamp))}</span>
+        </div>
+        <img class="user-id-card-photo" src="${escapeHtml(photoSrc)}" alt="${escapeHtml(user.name || user.username || "User")}" />
+      </div>
+      <div class="user-id-card-foot">
+        <span class="user-id-card-role">${escapeHtml(user.jobTitle || "Job Title")}</span>
+        <div class="user-id-card-work-grid">
+          <span class="user-id-card-check-pill is-active">Check-in</span>
+          <div class="user-id-card-workline">
+            <span class="user-id-card-worklabel">Time active</span>
+            <strong class="user-id-card-workvalue">${escapeHtml(elapsedFrom(entry.checkInAt))}</strong>
+          </div>
+          <div class="user-id-card-workline">
+            <span class="user-id-card-worklabel">Project / location</span>
+            <strong class="user-id-card-workvalue">${escapeHtml(timeEntryAssignmentLabel(entry))}</strong>
+          </div>
+        </div>
+        <small class="user-id-card-status">Checked in ${escapeHtml(fmtDate(entry.checkInAt))}</small>
+      </div>
+    </article>
+  `;
+}
+
+function renderUsersCheckInView() {
+  if (!usersCheckInView || !usersCheckInGrid) return;
+  const open = currentView === "users" && usersSubView === "checkin" && Boolean(currentUser);
+  usersCheckInView.classList.toggle("hidden", !open);
+  if (!open) return;
+
+  const badgeEntries = usersCheckedInBadgeEntries();
+  if (usersCheckInStatus) {
+    usersCheckInStatus.textContent = badgeEntries.length
+      ? `Showing ${badgeEntries.length} badge(s) from people who are logged in and currently checked in. Logging out or checking out removes the badge automatically.`
+      : "No logged-in users are currently checked in.";
+  }
+  usersCheckInGrid.innerHTML = badgeEntries.length
+    ? badgeEntries.map(({ user, entry }) => usersCheckedInBadgeCard(user, entry)).join("")
+    : '<p class="hint users-checkin-empty">No logged-in users are currently checked in.</p>';
+}
+
 function renderUserWorkforceCard(user = null) {
   if (
     !userWorkforceCard ||
@@ -2514,6 +2600,10 @@ function normalizeUser(user) {
     username: (user.username || "").toLowerCase(),
     passwordHash: user.passwordHash || "",
     legacyPassword: user.legacyPassword || user.password || "",
+    sessionActive: Boolean(user.sessionActive),
+    sessionStartedAt: user.sessionStartedAt || "",
+    lastLoginAt: user.lastLoginAt || "",
+    lastLogoutAt: user.lastLogoutAt || "",
     systemRole,
     payRateType: normalizePayRateType(user.payRateType, "hourly"),
     hourlyRate: normalizeMoneyField(user.hourlyRate),
@@ -6708,11 +6798,50 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
+function userSessionIsActive(user = currentUser) {
+  return Boolean(user?.sessionActive);
+}
+
+async function setUserSessionState(userId, active, { bumpLoginAt = false } = {}) {
+  const targetUser = users.find((user) => user.id === userId);
+  if (!targetUser) return null;
+
+  const now = new Date().toISOString();
+  const nextUser = normalizeUser({
+    ...targetUser,
+    sessionActive: Boolean(active),
+    sessionStartedAt: active ? (targetUser.sessionActive ? targetUser.sessionStartedAt || now : now) : "",
+    lastLoginAt: active ? (bumpLoginAt || !targetUser.sessionActive ? now : targetUser.lastLoginAt || now) : targetUser.lastLoginAt || "",
+    lastLogoutAt: active ? "" : now,
+    updatedAt: now,
+  });
+
+  const unchanged =
+    Boolean(targetUser.sessionActive) === Boolean(nextUser.sessionActive) &&
+    String(targetUser.sessionStartedAt || "") === String(nextUser.sessionStartedAt || "") &&
+    String(targetUser.lastLoginAt || "") === String(nextUser.lastLoginAt || "") &&
+    String(targetUser.lastLogoutAt || "") === String(nextUser.lastLogoutAt || "");
+
+  if (!unchanged) {
+    await put(USER_STORE, nextUser);
+    await loadAll();
+  }
+
+  if (currentUser?.id === userId || sessionUserId() === userId) {
+    currentUser = users.find((user) => user.id === userId) || nextUser;
+  }
+
+  queueAutoSync();
+  return nextUser;
+}
+
 async function tryRestoreSession() {
   const id = sessionUserId();
   if (!id) return;
   const found = users.find((user) => user.id === id);
-  if (found) currentUser = found;
+  if (!found) return;
+  currentUser = found;
+  await setUserSessionState(found.id, true);
 }
 
 function showSignupMode(show) {
@@ -7286,6 +7415,13 @@ function handleQuickNavAction(action) {
     }
     setUsersViewFilter("all");
     setUsersSubView("directory");
+    setView("users");
+    return;
+  }
+
+  if (action === "usersCheckIn") {
+    setUsersViewFilter("all");
+    setUsersSubView("checkin");
     setView("users");
     return;
   }
@@ -10236,12 +10372,14 @@ function isPendingUserAssignment(user) {
 }
 
 function setUsersSubView(view = "directory") {
-  const normalized = view === "registration" ? "registration" : view === "self" ? "self" : "directory";
+  const normalized = view === "registration" ? "registration" : view === "checkin" ? "checkin" : view === "self" ? "self" : "directory";
   usersSubView = normalized;
-  usersDirectoryView?.classList.toggle("hidden", normalized === "registration");
+  usersDirectoryView?.classList.toggle("hidden", normalized === "registration" || normalized === "checkin");
+  usersCheckInView?.classList.toggle("hidden", normalized !== "checkin");
   usersRegistrationView?.classList.toggle("hidden", normalized !== "registration");
   usersRegistrationTabBtn?.classList.toggle("active", normalized === "registration");
-  usersDirectoryTabBtn?.classList.toggle("active", normalized === "directory");
+  usersDirectoryTabBtn?.classList.toggle("active", normalized === "directory" || normalized === "self");
+  usersCheckInTabBtn?.classList.toggle("active", normalized === "checkin");
 }
 
 function openUsersRegistrationClean() {
@@ -10858,6 +10996,7 @@ function renderSectionShortcutPanel() {
   const items = ensureArray(SECTION_SHORTCUTS[currentView]).filter((item) => {
     if (item.requiresManager && !manageUsers) return false;
     if (item.requiresSelfService && manageUsers) return false;
+    if (ensureArray(item.usersSubViews).length && !ensureArray(item.usersSubViews).includes(usersSubView)) return false;
     return Boolean(document.getElementById(item.id));
   });
 
@@ -11985,10 +12124,12 @@ function renderUsersSelfService() {
   usersPanel.classList.remove("hidden");
   usersPanel.classList.add("self-service-mode");
   usersPanel.classList.remove("management-mode");
-  setUsersSubView("self");
+  if (usersSubView !== "checkin") setUsersSubView("self");
   usersSelfQuickAccessCard?.classList.remove("hidden");
   if (usersSelfOpenWorkdayBtn) usersSelfOpenWorkdayBtn.disabled = !canUseTimeClock(currentUser);
   renderUserIdCard(currentUser);
+  renderUsersCheckInView();
+  if (usersSubView === "checkin") return;
   if (usersSelfWorkdaySummary) {
     const active = activeTimeEntryForUser(currentUser.id);
     usersSelfWorkdaySummary.textContent = !canUseTimeClock(currentUser)
@@ -12017,6 +12158,7 @@ function renderUsers() {
   usersSelfQuickAccessCard?.classList.add("hidden");
   usersPanel.classList.remove("hidden");
   setUsersSubView(usersSubView === "self" ? "directory" : usersSubView);
+  renderUsersCheckInView();
 
   const visibleUsers = users.filter((user) => {
     if (!canAccessEmployeeRecord(user)) return false;
@@ -12128,6 +12270,7 @@ function renderUsers() {
     if (!userAdminFormOpen) renderUserIdCard(null);
   }
   syncSelectedUserRow();
+  renderUsersCheckInView();
 }
 
 function populateUserEditForm(user) {
@@ -12294,6 +12437,7 @@ function renderHomePanel() {
   toggleNav("users", canAnyUsers);
   toggleNav("usersRegistration", canManageUsers);
   toggleNav("usersPeople", canManageUsers);
+  toggleNav("usersCheckIn", canAnyUsers);
   toggleNav("subcontractors", canManageUsers);
   toggleNavGroup("partners", canManageUsers);
   toggleNav("partners", canManageUsers);
@@ -13718,11 +13862,14 @@ loginForm.addEventListener("submit", async (event) => {
   pendingTimeClockFocus = true;
   pendingPostLoginLanding = true;
   await pullCloud({ silent: true, force: true });
+  await setUserSessionState(user.id, true, { bumpLoginAt: true });
   renderAuth();
 });
 
-logoutBtn.addEventListener("click", () => {
+logoutBtn.addEventListener("click", async () => {
+  const userId = currentUser?.id || "";
   if (currentUser) pushAppAudit("Session logout", "session", "auth");
+  if (userId) await setUserSessionState(userId, false);
   currentUser = null;
   hasAutoDispatchedCoiReminder = false;
   editingUserId = "";
@@ -14128,6 +14275,11 @@ usersRegistrationTabBtn?.addEventListener("click", () => {
 usersDirectoryTabBtn?.addEventListener("click", () => {
   if (!can("manageUsers")) return;
   setUsersSubView("directory");
+});
+
+usersCheckInTabBtn?.addEventListener("click", () => {
+  setUsersSubView("checkin");
+  renderUsersCheckInView();
 });
 
 userDirectoryEditBtn?.addEventListener("click", () => {

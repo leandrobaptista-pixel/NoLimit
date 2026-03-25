@@ -84,6 +84,22 @@ const PAY_RATE_TYPE_OPTIONS = [
   { value: "daily", label: "Daily rate" },
 ];
 
+const PROJECT_SECTOR_LABELS = {
+  fabrica: "Factory",
+  warehouse: "Warehouse",
+  delivery: "Delivery",
+  distribuicao: "Distribution",
+  instalacao: "Installation",
+  punchlist: "Punch List",
+};
+
+const WAREHOUSE_SUBVIEW_LABELS = {
+  operations: "Operations board",
+  schedule: "Delivery schedule",
+  inventory: "Inventory catalog",
+  qr: "QR workflow",
+};
+
 const SECTION_SHORTCUTS = {
   workday: [
     { id: "workdayLocationSection", label: "Location and distance" },
@@ -95,6 +111,16 @@ const SECTION_SHORTCUTS = {
     { id: "projectsSubpanel", label: "Projects", requiresVisible: true },
     { id: "contactsSubpanel", label: "People in project", requiresVisible: true },
     { id: "contractsSubpanel", label: "Contracts", requiresVisible: true },
+  ],
+  projects: [
+    { id: "workspaceShellPanel", label: "Workspace Overview", requiresVisible: true },
+    { id: "projectSectorPanel", label: "Operations Segments", requiresVisible: true },
+    { id: "unitEntryPanel", label: "Unit Intake", requiresVisible: true },
+    { id: "statsPanel", label: "Warehouse Metrics", requiresVisible: true },
+    { id: "unitsToolbarPanel", label: "Operational Control", requiresVisible: true },
+    { id: "deliveryInventoryPanel", label: "Delivery Inventory", requiresVisible: true },
+    { id: "qrLookupPanel", label: "QR Search and Workflow", requiresVisible: true },
+    { id: "containerPanel", label: "Factory / Container Board", requiresVisible: true },
   ],
   sync: [
     { id: "syncSettingsSection", label: "Cloud Sync" },
@@ -1227,6 +1253,14 @@ const signupEmploymentTypeSelect = document.getElementById("signupEmploymentType
 const appMain = document.getElementById("appMain");
 const roleLine = document.getElementById("roleLine");
 const permissionLine = document.getElementById("permissionLine");
+const workspaceShellPanel = document.getElementById("workspaceShellPanel");
+const workspaceShellEyebrow = document.getElementById("workspaceShellEyebrow");
+const workspaceShellTitle = document.getElementById("workspaceShellTitle");
+const workspaceShellSummary = document.getElementById("workspaceShellSummary");
+const workspaceShellMetrics = document.getElementById("workspaceShellMetrics");
+const workspaceShellFocus = document.getElementById("workspaceShellFocus");
+const workspaceShellContext = document.getElementById("workspaceShellContext");
+const workspaceShellActions = document.getElementById("workspaceShellActions");
 const workdayPanel = document.getElementById("workdayPanel");
 const workdayContinueBtn = document.getElementById("workdayContinueBtn");
 const workdayGeoStatus = document.getElementById("workdayGeoStatus");
@@ -1769,6 +1803,384 @@ function projectGeofenceSummary(project) {
   const geofence = projectGeofence(project);
   if (!geofence) return "-";
   return `${Math.round(geofence.checkInRadius)}m in / ${Math.round(geofence.checkOutRadius)}m out`;
+}
+
+function projectSectorLabel(sector = currentProjectSector) {
+  return PROJECT_SECTOR_LABELS[sector] || sector || "Projects";
+}
+
+function warehouseSubViewLabel(view = warehouseSubView) {
+  return WAREHOUSE_SUBVIEW_LABELS[normalizeWarehouseSubView(view)] || WAREHOUSE_SUBVIEW_LABELS.operations;
+}
+
+function formatMetricValue(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return new Intl.NumberFormat("en-US").format(value);
+  return String(value ?? "-");
+}
+
+function activeWorkspaceProjectId() {
+  const candidates = [selectedProjectId, unitProjectSelect?.value || "", projectReportSelect?.value || ""].filter(Boolean);
+  for (const candidate of candidates) {
+    if (candidate !== "all" && projects.some((project) => project.id === candidate)) return candidate;
+  }
+  return "";
+}
+
+function activeWorkspaceProject() {
+  return projectById(activeWorkspaceProjectId()) || null;
+}
+
+function projectSnapshot(project = null) {
+  const projectId = project?.id || "";
+  const scopedUnits = projectId ? units.filter((entry) => entry.projectId === projectId) : units;
+  const scopedContainers = projectId ? containers.filter((entry) => entry.projectId === projectId) : containers;
+  const scopedActiveEntries = projectId ? activeTimeEntries().filter((entry) => entry.projectId === projectId) : activeTimeEntries();
+  const completedUnits = scopedUnits.filter((entry) => entry.installationStatus === "completed").length;
+  const blockedUnits = scopedUnits.filter((entry) => entry.installationStatus === "blocked").length;
+  const pendingUnits = scopedUnits.filter((entry) => stageDoneCount(entry) < STAGES.length).length;
+  const qualityIssues = scopedUnits.filter((entry) => entry.deliveryQuality === "rejected").length;
+  const arrivingSoon = scopedContainers.filter((container) => {
+    if (!container.etaDate || container.arrivalStatus === "arrived") return false;
+    const days = daysUntil(container.etaDate);
+    return days !== null && days >= 0 && days <= 7;
+  }).length;
+  const delayedContainers = scopedContainers.filter((container) => {
+    if (container.arrivalStatus === "delayed") return true;
+    if (!container.etaDate || container.arrivalStatus === "arrived") return false;
+    const days = daysUntil(container.etaDate);
+    return days !== null && days < 0;
+  }).length;
+  return {
+    project,
+    units: scopedUnits,
+    containers: scopedContainers,
+    activeEntries: scopedActiveEntries,
+    completedUnits,
+    blockedUnits,
+    pendingUnits,
+    qualityIssues,
+    arrivingSoon,
+    delayedContainers,
+  };
+}
+
+function workspaceActionButtonHtml(action) {
+  const toneClass = action.tone === "primary" ? "primary" : "secondary";
+  return `<button class="${toneClass} workspace-action-btn" type="button" data-nav-action="${escapeHtml(action.action)}">${escapeHtml(
+    action.label
+  )}</button>`;
+}
+
+function workspaceMetricCardHtml(metric) {
+  return `<article class="workspace-metric-card ${metric.tone ? `metric-${escapeHtml(metric.tone)}` : ""}">
+    <span>${escapeHtml(metric.label)}</span>
+    <strong>${escapeHtml(formatMetricValue(metric.value))}</strong>
+    <small>${escapeHtml(metric.note || "")}</small>
+  </article>`;
+}
+
+function workspaceDetailRowsHtml(rows = []) {
+  const validRows = ensureArray(rows).filter((row) => row && row.label);
+  if (!validRows.length) return '<p class="hint">No details available yet.</p>';
+  return `<div class="workspace-detail-list">${validRows
+    .map(
+      (row) => `<div class="workspace-detail-row">
+        <span>${escapeHtml(row.label)}</span>
+        <strong>${escapeHtml(row.value || "-")}</strong>
+      </div>`
+    )
+    .join("")}</div>`;
+}
+
+function workspaceContextListHtml(items = []) {
+  const validItems = ensureArray(items).filter(Boolean);
+  if (!validItems.length) return '<p class="hint">No live context items for this page.</p>';
+  return `<div class="workspace-context-list">${validItems
+    .map((item) => `<div class="workspace-context-item">${escapeHtml(item)}</div>`)
+    .join("")}</div>`;
+}
+
+function buildWorkspaceShellState() {
+  const project = activeWorkspaceProject();
+  const snapshot = projectSnapshot(project);
+  const pendingReceipts = receipts.filter((entry) => entry.approvalStatus === "pending").length;
+  const pendingPayments = weeklyPayments.filter((entry) => entry.approvalStatus === "pending").length;
+
+  if (currentView === "home") {
+    return {
+      eyebrow: "Operations",
+      title: "Daily command center",
+      summary:
+        "Start from one clean overview, then use the left rail for folders and the right rail for section shortcuts inside each page.",
+      actions: [
+        canUseTimeClock() ? { label: "Open workday", action: "workday", tone: "primary" } : null,
+        canOpenView("projects") ? { label: "Warehouse workspace", action: "warehouseOperations" } : null,
+        can("accessAdmin") ? { label: "Admin control", action: "admin" } : null,
+      ].filter(Boolean),
+      metrics: [
+        { label: "People checked in now", value: activeTimeEntries().length, note: "Live workforce" },
+        { label: "Projects", value: projects.length, note: "Registered job sites" },
+        { label: "Units", value: units.length, note: "Tracked production and installation" },
+        { label: "Containers", value: containers.length, note: "Factory and arrival flow" },
+      ],
+      focusTitle: "Start here",
+      focusCopy:
+        "Treat each folder like its own product page: one main task, supporting cards around it, and the right rail for shortcuts instead of squeezed tables.",
+      focusRows: [
+        { label: "Current user", value: currentUser?.name || "-" },
+        { label: "System role", value: systemRoleLabel(userSystemRole(currentUser)) },
+        { label: "Operational access", value: roleLabel(userAccessProfile(currentUser)) },
+      ],
+      contextTitle: "What needs attention",
+      contextCopy: "A quick pulse of the data that usually drives the next decision.",
+      contextItems: [
+        `${activeTimeEntries().length} people currently active in workday.`,
+        `${containers.filter((entry) => entry.arrivalStatus === "delayed").length} delayed container(s) need follow-up.`,
+        `${pendingReceipts} receipt(s) and ${pendingPayments} payment review(s) are waiting in Admin.`,
+      ],
+    };
+  }
+
+  if (currentView === "projects") {
+    const client = clientById(project?.clientId || "");
+    const checklistTemplate = projectChecklistTemplate(project);
+    const scopeSummary = projectScopeSummary(project) || "No scope summary yet.";
+    const projectActions = [];
+    if (currentProjectSector === "warehouse") {
+      projectActions.push({ label: "Warehouse", action: "warehouseOperations", tone: "primary" });
+      if (can("report")) projectActions.push({ label: "Reports", action: "projectReports" });
+    } else if (currentProjectSector === "delivery") {
+      projectActions.push({ label: "Schedule", action: "warehouseDeliverySchedule", tone: "primary" });
+      projectActions.push({ label: "Inventory", action: "warehouseDeliveryInventory" });
+      projectActions.push({ label: "QR flow", action: "warehouseQrScan" });
+      if (can("report")) projectActions.push({ label: "Reports", action: "projectReports" });
+    } else if (currentProjectSector === "distribuicao") {
+      projectActions.push({ label: "Distribution", action: "distribution", tone: "primary" });
+      if (can("report")) projectActions.push({ label: "Reports", action: "projectReports" });
+    } else if (currentProjectSector === "instalacao") {
+      projectActions.push({ label: "Installation", action: "installation", tone: "primary" });
+      if (can("report")) projectActions.push({ label: "Reports", action: "projectReports" });
+    } else if (currentProjectSector === "punchlist") {
+      projectActions.push({ label: "Punch list", action: "changeOrders", tone: "primary" });
+      if (can("report")) projectActions.push({ label: "Reports", action: "projectReports" });
+    } else {
+      projectActions.push({ label: "Factory", action: "manufactureSchedule", tone: "primary" });
+      projectActions.push({ label: "Warehouse", action: "warehouseOperations" });
+    }
+    return {
+      eyebrow: `Projects / ${projectSectorLabel()}`,
+      title:
+        currentProjectSector === "warehouse" || currentProjectSector === "delivery"
+          ? `${projectSectorLabel()} ${warehouseSubViewLabel()}`
+          : `${projectSectorLabel()} workspace`,
+      summary: project
+        ? `${project.name} • ${client?.name || "No client"} • ${project.address || "No job-site address"}`
+        : "Select a project from the catalog or use a project shortcut to focus this workspace on one job site.",
+      actions: projectActions,
+      metrics: [
+        { label: "Units in scope", value: snapshot.units.length, note: project ? project.name : "All projects" },
+        { label: "Completed", value: snapshot.completedUnits, note: "Installation finished" },
+        { label: "Blocked", value: snapshot.blockedUnits, note: "Needs resolution", tone: snapshot.blockedUnits ? "warn" : "ok" },
+        { label: "Crew active now", value: snapshot.activeEntries.length, note: "Checked in on this project" },
+        { label: "Containers", value: snapshot.containers.length, note: "Linked supply flow" },
+        { label: "Quality issues", value: snapshot.qualityIssues, note: "Rejected or missing items", tone: snapshot.qualityIssues ? "warn" : "ok" },
+      ],
+      focusTitle: project ? "Selected project" : "Project focus needed",
+      focusCopy: project
+        ? "This summary stays at the top so the team always knows which job site the current warehouse or delivery page is serving."
+        : "The next step is to pick a project in the catalog or jump here from a project shortcut so the operational pages become contextual.",
+      focusRows: project
+        ? [
+            { label: "Client", value: client?.name || "-" },
+            { label: "Geofence", value: projectGeofenceSummary(project) },
+            { label: "Floors / apartments", value: `${project.floorsCount || "-"} / ${project.apartmentsCount || "-"}` },
+            { label: "Checklist template", value: checklistTemplate.length ? `${checklistTemplate.length} standard item(s)` : "No template yet" },
+          ]
+        : [
+            { label: "Current lane", value: projectSectorLabel() },
+            { label: "Focused page", value: warehouseSubViewLabel() },
+            { label: "Projects available", value: String(projects.length) },
+          ],
+      contextTitle: "Live project context",
+      contextCopy: project
+        ? "Keep the supporting details short here so the main page can stay clean and task-oriented."
+        : "The operational shell will show project-level context here as soon as one job site is selected.",
+      contextItems: project
+        ? [
+            `Scope: ${scopeSummary}`,
+            `${snapshot.pendingUnits} unit(s) still need progress through the workflow.`,
+            `${snapshot.arrivingSoon} container(s) arrive in the next 7 days and ${snapshot.delayedContainers} are already delayed.`,
+          ]
+        : [
+            "Use the Projects catalog to select a job site.",
+            "Warehouse and Delivery pages look best when tied to one active project.",
+          ],
+    };
+  }
+
+  if (currentView === "admin") {
+    const visibleUsers = adminVisibleUsers();
+    return {
+      eyebrow: "Administration",
+      title: "Payroll and expense operations",
+      summary: "Admin pages work better as focused control surfaces: employee data, approvals, payments, and printable reports.",
+      actions: [
+        { label: "Print weekly report", action: "admin", tone: "primary" },
+        { label: "Users", action: "users" },
+      ],
+      metrics: [
+        { label: "Employees", value: visibleUsers.length, note: "Visible in payroll scope" },
+        { label: "Pending receipts", value: pendingReceipts, note: "Awaiting approval", tone: pendingReceipts ? "warn" : "ok" },
+        { label: "Pending payments", value: pendingPayments, note: "Weekly review queue", tone: pendingPayments ? "warn" : "ok" },
+        { label: "Checked in now", value: activeTimeEntries().length, note: "Live workforce" },
+      ],
+      focusTitle: "Recommended flow",
+      focusCopy: "Review employee controls first, approve expenses second, then print the weekly report from a clean filtered state.",
+      focusRows: [
+        { label: "Current week", value: fmtDateOnly(adminWeekAnchor || new Date().toISOString()) },
+        { label: "Receipt queue", value: `${pendingReceipts} pending` },
+        { label: "Payment queue", value: `${pendingPayments} pending` },
+      ],
+      contextTitle: "Admin context",
+      contextCopy: "This keeps the page readable without forcing the user to hunt through multiple tables before acting.",
+      contextItems: [
+        `${weeklyPayments.length} weekly payment snapshot(s) generated.`,
+        `${receipts.length} reimbursement / toll / extra expense record(s) stored.`,
+      ],
+    };
+  }
+
+  if (currentView === "users") {
+    const visiblePeople = can("manageUsers") ? users.filter((entry) => entry.employmentType !== "supplier") : [currentUser].filter(Boolean);
+    return {
+      eyebrow: "Users",
+      title: can("manageUsers") ? "People workspace" : "My profile workspace",
+      summary: can("manageUsers")
+        ? "Keep people data, attendance, and badge status in separate clean pages instead of mixing every table in one screen."
+        : "Your profile page stays simple: badge, workday access, and editable personal data.",
+      actions: [
+        canUseTimeClock() ? { label: "Open workday", action: "workday", tone: "primary" } : null,
+        can("manageUsers") ? { label: "Registration", action: "usersRegistration" } : null,
+        { label: "Check-in board", action: "usersCheckIn" },
+      ].filter(Boolean),
+      metrics: [
+        { label: "People in scope", value: visiblePeople.length, note: can("manageUsers") ? "Employees and sub contractors" : "Only your record" },
+        { label: "Checked in now", value: activeTimeEntries().length, note: "Live attendance" },
+        { label: "Sub Contractors", value: users.filter((entry) => entry.employmentType === "subcontractor").length, note: "Registered crews" },
+        { label: "Profile mode", value: can("manageUsers") ? "Admin" : "Self", note: "Access context" },
+      ],
+      focusTitle: can("manageUsers") ? "How this page should feel" : "What you can do here",
+      focusCopy: can("manageUsers")
+        ? "One page to inspect badge-level identity, one page to register people, and one page just for active check-ins."
+        : "Use this page for your own badge details and jump to Workday when you need to start or end the shift.",
+      focusRows: can("manageUsers")
+        ? [
+            { label: "Directory mode", value: usersSubView === "registration" ? "Registration" : usersSubView === "checkin" ? "Check-in" : "People" },
+            { label: "Current selection", value: selectedUserId ? users.find((entry) => entry.id === selectedUserId)?.name || "-" : "None" },
+          ]
+        : [
+            { label: "Badge owner", value: currentUser?.name || "-" },
+            { label: "Current work status", value: activeTimeEntryForUser(currentUser?.id || "") ? "Checked in" : "Checked out" },
+          ],
+      contextTitle: "Users context",
+      contextCopy: "Support details stay secondary so the badge and the current action remain easy to read.",
+      contextItems: [
+        `${activeTimeEntries().length} active time entry record(s) are live right now.`,
+      ],
+    };
+  }
+
+  if (currentView === "clients") {
+    return {
+      eyebrow: "Clients",
+      title: "Client and project setup",
+      summary: "Keep the catalog pages administrative and spacious: clients first, then projects, then people and contracts.",
+      actions: [
+        { label: "New client", action: "clientsNew", tone: "primary" },
+        { label: "Projects", action: "clientsProjects" },
+        { label: "Contracts", action: "clientsContracts" },
+      ],
+      metrics: [
+        { label: "Clients", value: clients.length, note: "Registered companies" },
+        { label: "Projects", value: projects.length, note: "Active and archived jobs" },
+        { label: "Contacts", value: contacts.length, note: "People in project" },
+        { label: "Contracts", value: contracts.length, note: "Commercial records" },
+      ],
+      focusTitle: "Catalog principle",
+      focusCopy: "This area should feel like setup and reference data, not a task board. One clean table per section works best here.",
+      focusRows: [
+        { label: "Workspace mode", value: clientsWorkspaceMode === "newClients" ? "New clients" : clientsWorkspaceMode === "contracts" ? "Contracts" : "Projects" },
+      ],
+      contextTitle: "Catalog context",
+      contextCopy: "Use the right rail to jump inside the folder once the section list is longer.",
+      contextItems: [
+        `${clients.length} client record(s) and ${projects.length} project record(s) are available for linking.`,
+      ],
+    };
+  }
+
+  if (currentView === "manufacture") {
+    const arrivingSoon = containers.filter((entry) => {
+      if (!entry.etaDate || entry.arrivalStatus === "arrived") return false;
+      const days = daysUntil(entry.etaDate);
+      return days !== null && days >= 0 && days <= 7;
+    }).length;
+    const delayed = containers.filter((entry) => entry.arrivalStatus === "delayed").length;
+    return {
+      eyebrow: "Factory",
+      title: "Container and material flow",
+      summary: "This module becomes much easier to use when schedule, catalog, and solicitations each behave like their own focused page.",
+      actions: [
+        { label: "Schedule", action: "manufactureSchedule", tone: "primary" },
+        { label: "Catalog", action: "manufactureCatalog" },
+        { label: "Solicitation", action: "manufactureSolicitation" },
+      ],
+      metrics: [
+        { label: "Containers", value: containers.length, note: "Tracked arrivals" },
+        { label: "Arriving in 7 days", value: arrivingSoon, note: "Supply planning" },
+        { label: "Delayed", value: delayed, note: "Needs follow-up", tone: delayed ? "warn" : "ok" },
+        { label: "Catalog items", value: materials.length, note: "QR-ready materials" },
+      ],
+      focusTitle: "Flow structure",
+      focusCopy: "Containers feed warehouse work. Material catalog and solicitation should stay supportive, not visually compete with schedule management.",
+      focusRows: [
+        { label: "Subview", value: manufactureSubView === "catalog" ? "Catalog" : manufactureSubView === "solicitation" ? "Solicitation" : "Schedule" },
+      ],
+      contextTitle: "Factory context",
+      contextCopy: "Short, live context is enough here because the deeper detail lives in each dedicated page.",
+      contextItems: [
+        `${containers.length} container(s) and ${materials.length} material catalog line(s) are currently stored.`,
+      ],
+    };
+  }
+
+  if (currentView === "sync") {
+    return {
+      eyebrow: "Developer",
+      title: "Cloud sync control",
+      summary: "Developer pages should be sparse and trustworthy: configuration, status, logs, and recovery tools.",
+      actions: [{ label: "Developer", action: "developer", tone: "primary" }],
+      metrics: [
+        { label: "Users", value: users.length, note: "Local records" },
+        { label: "Projects", value: projects.length, note: "Local records" },
+        { label: "Units", value: units.length, note: "Local records" },
+        { label: "Last sync", value: syncConfig.lastSyncAt ? fmtDate(syncConfig.lastSyncAt) : "Never", note: "Cloud activity" },
+      ],
+      focusTitle: "Developer rule",
+      focusCopy: "Leave this page clean and operational. It should feel like a control room, not like another data grid.",
+      focusRows: [
+        { label: "Tenant", value: syncConfig.tenant || "-" },
+        { label: "Auto-sync", value: syncConfig.autoSync ? "On" : "Off" },
+      ],
+      contextTitle: "Sync context",
+      contextCopy: "Use audit and recovery as supporting detail, not as the main page headline.",
+      contextItems: [
+        syncConfig.supabaseUrl ? "A Supabase endpoint is configured for cloud sync." : "No cloud endpoint configured yet.",
+      ],
+    };
+  }
+
+  return null;
 }
 
 function timeEntryAssignmentLabel(entry) {
@@ -7180,6 +7592,18 @@ function renderProjectSectorPanel() {
     button.classList.toggle("active", enabled && sector === currentProjectSector);
     button.disabled = !enabled;
   });
+
+  const deliveryWorkspace = currentProjectSector === "delivery";
+  const warehouseWorkspace = currentProjectSector === "warehouse";
+  projectSectorPanel.querySelectorAll("[data-warehouse-subview]").forEach((button) => {
+    const view = normalizeWarehouseSubView(button.dataset.warehouseSubview || "");
+    const visible = warehouseWorkspace ? view === "operations" : deliveryWorkspace;
+    button.classList.toggle("hidden", !visible);
+    button.classList.toggle("active", visible && view === normalizeWarehouseSubView(warehouseSubView));
+  });
+
+  const reportBtn = projectSectorPanel.querySelector("[data-workspace-report]");
+  if (reportBtn) reportBtn.classList.toggle("hidden", !can("report"));
 }
 
 function applyProjectSectorLayout() {
@@ -7242,18 +7666,23 @@ function applyViewMode() {
   if (currentView === "userEdit" && !editingUserId) currentView = can("manageUsers") ? "users" : "home";
   ensureProjectSector();
   renderProjectSectorPanel();
+  document.body.dataset.appView = currentView;
+  document.body.dataset.projectSector = currentView === "projects" ? currentProjectSector : "";
+  document.body.dataset.warehouseSubView =
+    currentView === "projects" ? normalizeWarehouseSubView(warehouseSubView) : "";
 
   const groups = {
     workday: [workdayPanel],
-    home: [homePanel],
-    sync: [syncPanel],
-    users: [usersPanel],
-    admin: [adminPanel],
+    home: [workspaceShellPanel, homePanel],
+    sync: [workspaceShellPanel, syncPanel],
+    users: [workspaceShellPanel, usersPanel],
+    admin: [workspaceShellPanel, adminPanel],
     userEdit: [userEditPanel],
-    clients: [masterDataPanel],
-    manufacture: [containerPanel],
+    clients: [workspaceShellPanel, masterDataPanel],
+    manufacture: [workspaceShellPanel, containerPanel],
     ocrImporter: [ocrImporterPanel],
     projects: [
+      workspaceShellPanel,
       masterDataPanel,
       projectSectorPanel,
       containerPanel,
@@ -7273,6 +7702,7 @@ function applyViewMode() {
     adminPanel,
     userEditPanel,
     ocrImporterPanel,
+    workspaceShellPanel,
     masterDataPanel,
     projectSectorPanel,
     containerPanel,
@@ -7288,9 +7718,10 @@ function applyViewMode() {
   applyMasterSubpanelMode();
   applyProjectSectorLayout();
 
-  const showStats = currentView === "projects" && currentProjectSector === "warehouse";
+  const showStats = currentView === "projects" && ["warehouse", "delivery"].includes(currentProjectSector);
   statsPanel.classList.toggle("hidden-view", !showStats);
   quickNavPanel?.classList.toggle("hidden-view", false);
+  updateQuickNavState();
 }
 
 function setView(view, { updateHash = true } = {}) {
@@ -7737,39 +8168,44 @@ function handleQuickNavAction(action) {
 }
 
 function renderStats() {
-  const total = units.length;
-  const completed = units.filter((unit) => unit.installationStatus === "completed").length;
-  const pending = units.filter((unit) => stageDoneCount(unit) < STAGES.length).length;
-  const blocked = units.filter((unit) => unit.installationStatus === "blocked").length;
-  const qualityIssues = units.filter((unit) => unit.deliveryQuality === "rejected").length;
-
-  const arriving7 = containers.filter((container) => {
-    if (!container.etaDate || container.arrivalStatus === "arrived") return false;
-    const d = daysUntil(container.etaDate);
-    return d !== null && d >= 0 && d <= 7;
-  }).length;
-
-  const delayed = containers.filter((container) => {
-    if (container.arrivalStatus === "delayed") return true;
-    if (!container.etaDate || container.arrivalStatus === "arrived") return false;
-    const d = daysUntil(container.etaDate);
-    return d !== null && d < 0;
-  }).length;
-
+  if (!statsPanel) return;
+  const snapshot = projectSnapshot(activeWorkspaceProject());
+  const titleProject = snapshot.project?.name || "All tracked projects";
   const cards = [
-    ["Total units", total],
-    ["Pending", pending],
-    ["Installation completed", completed],
-    ["Installation blocked", blocked],
-    ["Quality rejected", qualityIssues],
-    ["Containers", containers.length],
-    ["Chegam em 7 dias", arriving7],
-    ["Containers atrasados", delayed],
+    { label: "Units in scope", value: snapshot.units.length, note: titleProject },
+    { label: "Pending workflow", value: snapshot.pendingUnits, note: "Still moving through stages" },
+    { label: "Installation completed", value: snapshot.completedUnits, note: "Finalized units", tone: snapshot.completedUnits ? "ok" : "" },
+    { label: "Installation blocked", value: snapshot.blockedUnits, note: "Requires action", tone: snapshot.blockedUnits ? "warn" : "" },
+    { label: "Quality rejected", value: snapshot.qualityIssues, note: "Rejected or missing items", tone: snapshot.qualityIssues ? "warn" : "" },
+    { label: "Containers linked", value: snapshot.containers.length, note: "Supply on this scope" },
+    { label: "Arriving in 7 days", value: snapshot.arrivingSoon, note: "Inbound planning" },
+    { label: "Delayed containers", value: snapshot.delayedContainers, note: "Needs follow-up", tone: snapshot.delayedContainers ? "warn" : "" },
   ];
 
-  statsPanel.innerHTML = cards
-    .map(([label, value]) => `<div class="stat-item"><span>${label}</span><strong>${value}</strong></div>`)
-    .join("");
+  statsPanel.innerHTML = `
+    <div class="stats-shell-head">
+      <div>
+        <p class="eyebrow">Warehouse Metrics</p>
+        <h3>Operational snapshot</h3>
+        <p class="hint">${escapeHtml(
+          snapshot.project
+            ? `Focused on ${snapshot.project.name}.`
+            : "Select a project to turn this summary into a cleaner project-level dashboard."
+        )}</p>
+      </div>
+    </div>
+    <div class="stats-grid">
+      ${cards
+        .map(
+          (card) => `<article class="stat-item ${card.tone ? `metric-${escapeHtml(card.tone)}` : ""}">
+            <span>${escapeHtml(card.label)}</span>
+            <strong>${escapeHtml(formatMetricValue(card.value))}</strong>
+            <small>${escapeHtml(card.note)}</small>
+          </article>`
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 function populateSelect(
@@ -12609,6 +13045,102 @@ function renderHomePanel() {
   renderCoiReminderPanel();
 }
 
+function renderWorkspaceShell() {
+  if (!workspaceShellPanel) return;
+  const state = buildWorkspaceShellState();
+  const hidden = !state;
+  workspaceShellPanel.classList.toggle("hidden-view", hidden);
+  if (hidden) {
+    if (workspaceShellActions) workspaceShellActions.innerHTML = "";
+    if (workspaceShellMetrics) workspaceShellMetrics.innerHTML = "";
+    if (workspaceShellFocus) workspaceShellFocus.innerHTML = "";
+    if (workspaceShellContext) workspaceShellContext.innerHTML = "";
+    return;
+  }
+
+  workspaceShellEyebrow.textContent = state.eyebrow || "Workspace";
+  workspaceShellTitle.textContent = state.title || "Workspace Overview";
+  workspaceShellSummary.textContent = state.summary || "";
+  workspaceShellPanel.dataset.workspaceTone = currentView === "projects" ? currentProjectSector : currentView;
+
+  if (workspaceShellActions) {
+    workspaceShellActions.innerHTML = ensureArray(state.actions).map(workspaceActionButtonHtml).join("");
+  }
+  if (workspaceShellMetrics) {
+    workspaceShellMetrics.innerHTML = ensureArray(state.metrics).map(workspaceMetricCardHtml).join("");
+  }
+  if (workspaceShellFocus) {
+    workspaceShellFocus.innerHTML = `
+      <p class="eyebrow">Focus</p>
+      <h3>${escapeHtml(state.focusTitle || "Focus")}</h3>
+      <p class="hint">${escapeHtml(state.focusCopy || "")}</p>
+      ${workspaceDetailRowsHtml(state.focusRows)}
+    `;
+  }
+  if (workspaceShellContext) {
+    workspaceShellContext.innerHTML = `
+      <p class="eyebrow">Context</p>
+      <h3>${escapeHtml(state.contextTitle || "Context")}</h3>
+      <p class="hint">${escapeHtml(state.contextCopy || "")}</p>
+      ${workspaceContextListHtml(state.contextItems)}
+    `;
+  }
+}
+
+function updateQuickNavState() {
+  const activeActions = new Set();
+
+  if (currentView === "workday") activeActions.add("workday");
+  if (currentView === "sync") activeActions.add("developer");
+  if (currentView === "admin") activeActions.add("admin");
+
+  if (currentView === "users") {
+    activeActions.add("users");
+    if (usersSubView === "registration") activeActions.add("usersRegistration");
+    if (usersSubView === "directory") activeActions.add("usersPeople");
+    if (usersSubView === "checkin") activeActions.add("usersCheckIn");
+  }
+
+  if (currentView === "clients") {
+    activeActions.add("clients");
+    if (clientsWorkspaceMode === "newClients" || clientsWorkspaceMode === "hub") activeActions.add("clientsNew");
+    if (clientsWorkspaceMode === "projects") activeActions.add("clientsProjects");
+    if (clientsWorkspaceMode === "contracts") activeActions.add("clientsContracts");
+  }
+
+  if (currentView === "manufacture") {
+    activeActions.add("manufacture");
+    if (manufactureSubView === "catalog") activeActions.add("manufactureCatalog");
+    else if (manufactureSubView === "solicitation") activeActions.add("manufactureSolicitation");
+    else activeActions.add("manufactureSchedule");
+  }
+
+  if (currentView === "projects") {
+    if (currentProjectSector === "warehouse" || currentProjectSector === "delivery") {
+      activeActions.add("warehouse");
+      if (currentProjectSector === "warehouse") {
+        activeActions.add("warehouseOperations");
+      } else if (warehouseSubView === "schedule") {
+        activeActions.add("warehouseDeliverySchedule");
+      } else if (warehouseSubView === "inventory") {
+        activeActions.add("warehouseDeliveryInventory");
+      } else if (warehouseSubView === "qr") {
+        activeActions.add("warehouseQrScan");
+      } else {
+        activeActions.add("warehouseOperations");
+      }
+    }
+    if (currentProjectSector === "distribuicao") activeActions.add("distribution");
+    if (currentProjectSector === "instalacao") activeActions.add("installation");
+    if (currentProjectSector === "punchlist") activeActions.add("changeOrders");
+    if (currentProjectSector === "fabrica") activeActions.add("manufacture");
+  }
+
+  document.querySelectorAll("#quickNavPanel [data-nav-action]").forEach((button) => {
+    button.classList.toggle("is-current", activeActions.has(button.dataset.navAction || ""));
+  });
+}
+
 function renderRoleStrip() {
   const accessProfile = userAccessProfile(currentUser);
   const systemRole = userSystemRole(currentUser);
@@ -12929,6 +13461,7 @@ function render() {
   renderHomePanel();
   renderWorkdayPanel();
   renderRoleStrip();
+  renderWorkspaceShell();
   renderMasterData();
   renderContainers();
   renderStats();

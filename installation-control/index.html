@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260325-checkinsync1" />
+    <link rel="stylesheet" href="styles.css?v=20260325-shell1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -133,6 +133,22 @@
       <section class="panel role-strip">
         <strong id="roleLine"></strong>
         <small id="permissionLine"></small>
+      </section>
+
+      <section id="workspaceShellPanel" class="panel workspace-shell hidden-view">
+        <div class="workspace-shell-head">
+          <div class="workspace-shell-copy">
+            <p id="workspaceShellEyebrow" class="eyebrow">Workspace</p>
+            <h2 id="workspaceShellTitle">Workspace Overview</h2>
+            <p id="workspaceShellSummary" class="hint"></p>
+          </div>
+          <div id="workspaceShellActions" class="workspace-shell-actions"></div>
+        </div>
+        <div class="workspace-shell-grid">
+          <div id="workspaceShellMetrics" class="workspace-shell-metrics"></div>
+          <article id="workspaceShellFocus" class="subpanel workspace-shell-focus"></article>
+          <article id="workspaceShellContext" class="subpanel workspace-shell-context"></article>
+        </div>
       </section>
 
       <section id="workdayPanel" class="panel hidden-view">
@@ -1284,6 +1300,41 @@
         </form>
       </section>
 
+      <section id="projectSectorPanel" class="panel project-sector-tabs hidden-view">
+        <div class="project-sector-shell-head">
+          <div>
+            <p class="eyebrow">Operations Segments</p>
+            <h2>Projects Workspace</h2>
+            <p class="hint">Choose the operational lane first, then open the focused page for that segment.</p>
+          </div>
+          <div class="project-subview-cluster">
+            <button class="secondary workspace-action-btn" type="button" data-nav-action="warehouseOperations" data-warehouse-subview="operations">
+              Operations
+            </button>
+            <button class="secondary workspace-action-btn" type="button" data-nav-action="warehouseDeliverySchedule" data-warehouse-subview="schedule">
+              Delivery Schedule
+            </button>
+            <button class="secondary workspace-action-btn" type="button" data-nav-action="warehouseDeliveryInventory" data-warehouse-subview="inventory">
+              Inventory
+            </button>
+            <button class="secondary workspace-action-btn" type="button" data-nav-action="warehouseQrScan" data-warehouse-subview="qr">
+              QR Flow
+            </button>
+            <button class="secondary workspace-action-btn" type="button" data-nav-action="projectReports" data-workspace-report>
+              Reports
+            </button>
+          </div>
+        </div>
+        <div class="row">
+          <button class="secondary" type="button" data-project-sector="fabrica">Factory</button>
+          <button class="secondary" type="button" data-project-sector="warehouse">Warehouse</button>
+          <button class="secondary" type="button" data-project-sector="delivery">Delivery</button>
+          <button class="secondary" type="button" data-project-sector="distribuicao">Distribution</button>
+          <button class="secondary" type="button" data-project-sector="instalacao">Installation</button>
+          <button class="secondary" type="button" data-project-sector="punchlist">Punch List</button>
+        </div>
+      </section>
+
       <section class="panel" id="unitEntryPanel">
         <h2>New unit record</h2>
         <p id="warehouseProjectSummary" class="hint"></p>
@@ -1770,6 +1821,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260325-checkinsync1" defer></script>
+    <script src="app.js?v=20260325-shell1" defer></script>
   </body>
 </html>

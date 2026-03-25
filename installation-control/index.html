@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260324-userscheckin1" />
+    <link rel="stylesheet" href="styles.css?v=20260325-layout1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -328,7 +328,7 @@
 
       <section id="masterDataPanel" class="panel">
         <div class="master-grid">
-          <article id="clientsSubpanel" class="subpanel">
+          <article id="clientsSubpanel" class="subpanel table-page-section">
             <h3>Clients</h3>
             <div id="clientsHubView" class="clients-hub-view hidden">
               <h4>Registered Clients</h4>
@@ -385,20 +385,20 @@
               </div>
               <div class="client-details-scroll-area">
                 <div id="clientDetailsPanel" class="client-details-panel"></div>
-                <article class="subpanel client-project-subpanel">
+                <article class="subpanel client-project-subpanel table-page-section">
                   <h4>Projects for this client</h4>
-                  <div id="clientProjectsList" class="table-wrap"></div>
+                  <div id="clientProjectsList" class="table-wrap page-table-wrap"></div>
                 </article>
-                <article class="subpanel client-project-subpanel">
+                <article class="subpanel client-project-subpanel table-page-section">
                   <h4>Selected project details</h4>
-                  <div id="clientProjectDetailsTable" class="table-wrap"></div>
+                  <div id="clientProjectDetailsTable" class="table-wrap page-table-wrap"></div>
                 </article>
               </div>
             </div>
           </article>
 
           <div class="master-right-column">
-            <article id="projectsSubpanel" class="subpanel">
+            <article id="projectsSubpanel" class="subpanel table-page-section">
               <h3>Projects by client</h3>
               <p id="projectAdminTarget" class="hint">Creating a new project.</p>
               <form id="projectForm" class="grid-form compact">
@@ -466,10 +466,10 @@
                   <button id="projectFormDeleteBtn" class="danger" type="button">Delete selected</button>
                 </div>
               </form>
-              <div id="projectsTable" class="table-wrap"></div>
+              <div id="projectsTable" class="table-wrap page-table-wrap"></div>
             </article>
 
-            <article id="contactsSubpanel" class="subpanel">
+            <article id="contactsSubpanel" class="subpanel table-page-section">
               <h3>People in project</h3>
               <p class="hint">Client-linked list. Select a client above to manage only that client scope.</p>
               <form id="contactForm" class="grid-form compact">
@@ -494,10 +494,10 @@
                 <label>Email<input type="email" name="email" /></label>
                 <button class="primary" type="submit">Add person</button>
               </form>
-              <div id="contactsTable" class="table-wrap"></div>
+              <div id="contactsTable" class="table-wrap page-table-wrap"></div>
             </article>
 
-            <article id="contractsSubpanel" class="subpanel hidden-view">
+            <article id="contractsSubpanel" class="subpanel hidden-view table-page-section">
               <h3>Contracts</h3>
               <p id="contractAdminTarget" class="hint">Creating a new contract.</p>
               <form id="contractForm" class="grid-form compact">
@@ -530,7 +530,7 @@
                   <button id="contractFormDeleteBtn" class="danger" type="button">Delete selected</button>
                 </div>
               </form>
-              <div id="contractsTable" class="table-wrap"></div>
+              <div id="contractsTable" class="table-wrap page-table-wrap"></div>
             </article>
           </div>
 
@@ -1003,7 +1003,7 @@
         <div id="adminSummaryCards" class="admin-summary-grid"></div>
 
         <div class="admin-primary-grid">
-          <article id="adminEmployeeListSection" class="subpanel admin-directory-card">
+          <article id="adminEmployeeListSection" class="subpanel admin-directory-card table-page-section">
             <div class="row admin-section-head">
               <div>
                 <h3>Complete Employee List</h3>
@@ -1011,10 +1011,10 @@
               </div>
               <button id="adminOpenUserRegistrationBtn" class="secondary" type="button">Add employee</button>
             </div>
-            <div id="adminEmployeesTable" class="table-wrap"></div>
+            <div id="adminEmployeesTable" class="table-wrap page-table-wrap"></div>
           </article>
 
-          <article id="adminEmployeeControlsSection" class="subpanel admin-editor-card">
+          <article id="adminEmployeeControlsSection" class="subpanel admin-editor-card table-page-section">
             <h3>Employee Controls</h3>
             <p id="adminEmployeeEditorStatus" class="hint">Select an employee to edit role, rates, and payment details.</p>
             <form id="adminEmployeeForm" class="grid-form compact">
@@ -1083,7 +1083,7 @@
         </div>
 
         <div class="admin-secondary-grid">
-          <article id="adminWeeklyPaymentSection" class="subpanel">
+          <article id="adminWeeklyPaymentSection" class="subpanel table-page-section">
             <h3>
               Weekly Payment Control
               <button
@@ -1094,10 +1094,10 @@
               >?</button>
             </h3>
             <p class="hint">Calculated hours, worked days, base pay, reimbursements, tolls, extra expenses, and approval status.</p>
-            <div id="adminPaymentsTable" class="table-wrap"></div>
+            <div id="adminPaymentsTable" class="table-wrap page-table-wrap"></div>
           </article>
 
-          <article id="adminReceiptSection" class="subpanel">
+          <article id="adminReceiptSection" class="subpanel table-page-section">
             <div class="row admin-section-head">
               <div>
                 <h3>Receipt Upload & Expense Management</h3>
@@ -1151,19 +1151,19 @@
                 <button id="receiptFormCancelBtn" class="secondary" type="button">Cancel</button>
               </div>
             </form>
-            <div id="adminReceiptsTable" class="table-wrap"></div>
+            <div id="adminReceiptsTable" class="table-wrap page-table-wrap"></div>
           </article>
         </div>
 
         <div class="admin-tertiary-grid">
-          <article id="adminSubcontractorSection" class="subpanel">
+          <article id="adminSubcontractorSection" class="subpanel table-page-section">
             <h3>Sub Contractor Presence</h3>
             <p class="hint">Weekly list by project for Sub Contractors who worked with the company.</p>
-            <div id="adminSubcontractorTable" class="table-wrap"></div>
+            <div id="adminSubcontractorTable" class="table-wrap page-table-wrap"></div>
           </article>
         </div>
 
-        <article id="workforceAdminPanel" class="subpanel workforce-admin-panel">
+        <article id="workforceAdminPanel" class="subpanel workforce-admin-panel table-page-section">
           <div class="row workforce-admin-head">
             <div>
               <h3>
@@ -1202,17 +1202,17 @@
           <p id="workforceAdminStatus" class="hint"></p>
           <div id="workforceSummaryCards" class="workforce-summary-grid"></div>
           <div class="workforce-admin-sections">
-            <article id="adminCheckedInSection" class="subpanel">
+            <article id="adminCheckedInSection" class="subpanel table-page-section">
               <h4>People currently checked in</h4>
-              <div id="workforceActiveTable" class="table-wrap"></div>
+              <div id="workforceActiveTable" class="table-wrap page-table-wrap"></div>
             </article>
-            <article id="adminPayrollHoursSection" class="subpanel">
+            <article id="adminPayrollHoursSection" class="subpanel table-page-section">
               <h4>Weekly payroll hours</h4>
-              <div id="workforceWeeklyTable" class="table-wrap"></div>
+              <div id="workforceWeeklyTable" class="table-wrap page-table-wrap"></div>
             </article>
-            <article id="adminSubcontractorPresenceSection" class="subpanel">
+            <article id="adminSubcontractorPresenceSection" class="subpanel table-page-section">
               <h4>Sub Contractor list by project / location</h4>
-              <div id="workforceSubcontractorTable" class="table-wrap"></div>
+              <div id="workforceSubcontractorTable" class="table-wrap page-table-wrap"></div>
             </article>
           </div>
         </article>
@@ -1770,6 +1770,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260324-userscheckin1" defer></script>
+    <script src="app.js?v=20260325-layout1" defer></script>
   </body>
 </html>

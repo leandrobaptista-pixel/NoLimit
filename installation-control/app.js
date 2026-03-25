@@ -90,6 +90,12 @@ const SECTION_SHORTCUTS = {
     { id: "workdayRulesSection", label: "How this works" },
     { id: "timeClockPanel", label: "Check-in controls" },
   ],
+  clients: [
+    { id: "clientsSubpanel", label: "Clients", requiresVisible: true },
+    { id: "projectsSubpanel", label: "Projects", requiresVisible: true },
+    { id: "contactsSubpanel", label: "People in project", requiresVisible: true },
+    { id: "contractsSubpanel", label: "Contracts", requiresVisible: true },
+  ],
   sync: [
     { id: "syncSettingsSection", label: "Cloud Sync" },
     { id: "developerAuditPanel", label: "Audit Log" },
@@ -10997,7 +11003,10 @@ function renderSectionShortcutPanel() {
     if (item.requiresManager && !manageUsers) return false;
     if (item.requiresSelfService && manageUsers) return false;
     if (ensureArray(item.usersSubViews).length && !ensureArray(item.usersSubViews).includes(usersSubView)) return false;
-    return Boolean(document.getElementById(item.id));
+    const section = document.getElementById(item.id);
+    if (!section) return false;
+    if (item.requiresVisible && section.classList.contains("hidden-view")) return false;
+    return true;
   });
 
   sectionShortcutPanel.classList.toggle("hidden-view", !items.length);

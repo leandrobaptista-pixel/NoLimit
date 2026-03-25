@@ -230,7 +230,7 @@ main {
 .master-grid {
   margin-top: 0.8rem;
   display: grid;
-  grid-template-columns: minmax(330px, 0.95fr) minmax(0, 1.25fr);
+  grid-template-columns: 1fr;
   gap: 0.62rem;
 }
 
@@ -843,6 +843,16 @@ form.row > :is(button, .file-label) {
   background: #fff;
 }
 
+.table-page-section {
+  display: grid;
+  gap: 0.58rem;
+  scroll-margin-top: 0.85rem;
+}
+
+.page-table-wrap {
+  max-height: none;
+}
+
 .table-print-toolbar {
   margin: 0.1rem 0 0.28rem;
   display: flex;
@@ -879,8 +889,8 @@ form.row > :is(button, .file-label) {
 
 .clients-entry-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 0.6rem;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
   align-items: start;
 }
 
@@ -962,11 +972,11 @@ form.row > :is(button, .file-label) {
 }
 
 #clientProjectsList.table-wrap {
-  max-height: 240px;
+  max-height: none;
 }
 
 #clientProjectDetailsTable.table-wrap {
-  max-height: 320px;
+  max-height: none;
 }
 
 .client-search-label {
@@ -1927,8 +1937,8 @@ table.data-table th {
 .admin-secondary-grid,
 .admin-tertiary-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
-  gap: 0.7rem;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
   align-items: start;
 }
 
@@ -1946,7 +1956,7 @@ table.data-table th {
 .admin-receipt-form + .table-wrap,
 #adminPaymentsTable,
 #adminSubcontractorTable {
-  max-height: 420px;
+  max-height: none;
 }
 
 .admin-filters-form {

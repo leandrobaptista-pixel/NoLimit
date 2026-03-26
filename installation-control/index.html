@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260325-schedule1" />
+    <link rel="stylesheet" href="styles.css?v=20260326-planner1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -1283,6 +1283,15 @@
           </form>
           <p id="workforceAdminStatus" class="hint"></p>
           <div id="workforceSummaryCards" class="workforce-summary-grid"></div>
+          <article id="workforceWeeklyPlannerSection" class="subpanel table-page-section workforce-planner-section">
+            <div class="row admin-section-head">
+              <div>
+                <h4>Weekly team planning board</h4>
+                <p class="hint">All scheduled crews organized by day and project, including foreman, workers, Sub Contractors, and the work description.</p>
+              </div>
+            </div>
+            <div id="workforceWeeklyPlannerBoard" class="workforce-week-board"></div>
+          </article>
           <div class="workforce-admin-sections">
             <article id="adminCheckedInSection" class="subpanel table-page-section">
               <h4>People currently checked in</h4>
@@ -1887,6 +1896,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260325-schedule1" defer></script>
+    <script src="app.js?v=20260326-planner1" defer></script>
   </body>
 </html>

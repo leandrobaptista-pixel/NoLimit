@@ -144,6 +144,7 @@ const SECTION_SHORTCUTS = {
     { id: "adminReceiptSection", label: "Receipt Upload & Expense Management" },
     { id: "adminSubcontractorSection", label: "Sub Contractor Presence" },
     { id: "workforceAdminPanel", label: "Workforce Control" },
+    { id: "workforceWeeklyPlannerSection", label: "Weekly team planning board" },
     { id: "adminCheckedInSection", label: "People currently checked in" },
     { id: "adminPayrollHoursSection", label: "Weekly payroll hours" },
   ],
@@ -1494,6 +1495,8 @@ const workforceProjectFilterSelect = document.getElementById("workforceProjectFi
 const workforceEmploymentFilterSelect = document.getElementById("workforceEmploymentFilterSelect");
 const workforceAdminStatus = document.getElementById("workforceAdminStatus");
 const workforceSummaryCards = document.getElementById("workforceSummaryCards");
+const workforceWeeklyPlannerSection = document.getElementById("workforceWeeklyPlannerSection");
+const workforceWeeklyPlannerBoard = document.getElementById("workforceWeeklyPlannerBoard");
 const workforceActiveTable = document.getElementById("workforceActiveTable");
 const workforceWeeklyTable = document.getElementById("workforceWeeklyTable");
 const workforceSubcontractorTable = document.getElementById("workforceSubcontractorTable");
@@ -3320,6 +3323,173 @@ function scheduleEntryPeopleSummary(entry) {
     workers: workerNames,
     subcontractors: subcontractorNames,
   };
+}
+
+function scheduleForemanUser(entry) {
+  if (!entry || entry.foremanKind !== "user") return null;
+  return users.find((user) => user.id === entry.foremanId) || null;
+}
+
+function workforcePlannerDayLabel(iso, { weekday = "short" } = {}) {
+  const date = new Date(`${iso}T12:00:00`);
+  if (!Number.isFinite(date.getTime())) return iso || "-";
+  return date.toLocaleDateString("en-US", { weekday, month: "short", day: "numeric" });
+}
+
+function schedulePlannerParticipantGroups(entry, employment = "all") {
+  const filter = String(employment || "all").trim().toLowerCase();
+  const workers = scheduleAssigneeUsers(entry, "tag");
+  const subcontractors = scheduleAssigneeUsers(entry, "subcontractor");
+  const foremanUser = scheduleForemanUser(entry);
+  const foremanLabel = scheduleForemanLabel(entry);
+  const foremanEmployment = String(foremanUser?.employmentType || "").toLowerCase();
+  const foremanIsTag = Boolean(foremanUser) && foremanEmployment !== "subcontractor" && foremanEmployment !== "supplier";
+  const foremanIsSubcontractor = foremanEmployment === "subcontractor";
+  const showWorkers = filter === "all" || filter === "tag";
+  const showSubcontractors = filter === "all" || filter === "subcontractor";
+  const visibleWorkers = showWorkers ? workers : [];
+  const visibleSubcontractors = showSubcontractors ? subcontractors : [];
+
+  let include = false;
+  if (filter === "supplier") include = false;
+  else if (filter === "tag") include = visibleWorkers.length > 0 || foremanIsTag;
+  else if (filter === "subcontractor") include = visibleSubcontractors.length > 0 || foremanIsSubcontractor;
+  else include = visibleWorkers.length > 0 || visibleSubcontractors.length > 0 || foremanIsTag || foremanIsSubcontractor;
+
+  const participantKeys = new Set();
+  visibleWorkers.forEach((user) => participantKeys.add(`user:${user.id}`));
+  visibleSubcontractors.forEach((user) => participantKeys.add(`user:${user.id}`));
+
+  if ((filter === "all" && (foremanIsTag || foremanIsSubcontractor)) || (filter === "tag" && foremanIsTag) || (filter === "subcontractor" && foremanIsSubcontractor)) {
+    participantKeys.add(`user:${foremanUser.id}`);
+  }
+
+  return {
+    include,
+    foremanLabel,
+    visibleWorkers,
+    visibleSubcontractors,
+    showWorkers,
+    showSubcontractors,
+    participantKeys: [...participantKeys],
+  };
+}
+
+function workforceWeeklyPlannerState(range = weekRangeFromAnchor(workforceWeekAnchor || new Date())) {
+  const items = [];
+
+  allProjectScheduleEntries().forEach((entry) => {
+    const dateMs = scheduleEntryDateMs(entry);
+    if (dateMs < range.startMs || dateMs >= range.endMs) return;
+    if (workforceProjectFilter && entry.projectId !== workforceProjectFilter) return;
+
+    const groups = schedulePlannerParticipantGroups(entry, workforceEmploymentFilter);
+    if (!groups.include) return;
+
+    items.push({
+      ...entry,
+      plannerGroups: groups,
+      project: scheduleEntryProject(entry),
+      locationLabel: scheduleEntryLocationLabel(entry),
+    });
+  });
+
+  const uniquePeople = new Set();
+  items.forEach((entry) => entry.plannerGroups.participantKeys.forEach((key) => uniquePeople.add(key)));
+
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(range.startMs);
+    date.setDate(date.getDate() + index);
+    const iso = isoDateFromValue(date);
+    return {
+      iso,
+      title: date.toLocaleDateString("en-US", { weekday: "short" }),
+      subtitle: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      entries: items.filter((entry) => entry.date === iso),
+    };
+  });
+
+  return {
+    range,
+    items,
+    days,
+    scheduledPeopleCount: uniquePeople.size,
+  };
+}
+
+function workforcePlannerCardHtml(entry) {
+  const groups = entry.plannerGroups || schedulePlannerParticipantGroups(entry, workforceEmploymentFilter);
+  const peopleCount = groups.participantKeys.length;
+  const detailBlocks = [];
+
+  if (groups.showWorkers) {
+    detailBlocks.push(`
+      <div class="workforce-planner-group">
+        <span>Workers</span>
+        <strong>${escapeHtml(schedulePeopleLabel(groups.visibleWorkers.map((user) => user.name || user.username || "Worker")))}</strong>
+      </div>
+    `);
+  }
+
+  if (groups.showSubcontractors) {
+    detailBlocks.push(`
+      <div class="workforce-planner-group">
+        <span>Sub Contractors</span>
+        <strong>${escapeHtml(schedulePeopleLabel(groups.visibleSubcontractors.map((user) => user.name || user.username || "Sub Contractor")))}</strong>
+      </div>
+    `);
+  }
+
+  return `<article class="workforce-planner-card">
+    <div class="workforce-planner-card-head">
+      <div>
+        <h5>${escapeHtml(entry.project?.name || entry.projectName || "Project not linked")}</h5>
+        <p class="hint">${escapeHtml(entry.locationLabel)}</p>
+      </div>
+      <span class="schedule-entry-pill">${escapeHtml(`${peopleCount || 0} ${peopleCount === 1 ? "person" : "people"}`)}</span>
+    </div>
+    <div class="workforce-planner-meta">
+      <div class="workforce-planner-meta-row">
+        <span>Foreman</span>
+        <strong>${escapeHtml(groups.foremanLabel)}</strong>
+      </div>
+      <div class="workforce-planner-meta-row">
+        <span>Date</span>
+        <strong>${escapeHtml(fmtDateOnly(entry.date))}</strong>
+      </div>
+    </div>
+    <div class="workforce-planner-groups">${detailBlocks.join("")}</div>
+    <p class="hint workforce-planner-copy">${escapeHtml(entry.description || "No work description defined yet.")}</p>
+  </article>`;
+}
+
+function renderWorkforceWeeklyPlanner(plannerState) {
+  if (!workforceWeeklyPlannerSection || !workforceWeeklyPlannerBoard) return;
+  workforceWeeklyPlannerSection.classList.toggle("hidden", false);
+
+  if (!plannerState.items.length) {
+    workforceWeeklyPlannerBoard.innerHTML = `<p class="hint schedule-empty-state workforce-planner-empty-board">No scheduled crews matched the selected week and filter.</p>`;
+    return;
+  }
+
+  workforceWeeklyPlannerBoard.innerHTML = plannerState.days
+    .map((day) => {
+      const entriesHtml = day.entries.length
+        ? day.entries.map((entry) => workforcePlannerCardHtml(entry)).join("")
+        : `<p class="hint schedule-empty-state workforce-planner-empty">No crew scheduled for ${escapeHtml(day.title)}.</p>`;
+
+      return `<section class="workforce-day-column">
+        <header class="workforce-day-head">
+          <div>
+            <h5>${escapeHtml(day.title)}</h5>
+            <span>${escapeHtml(day.subtitle)}</span>
+          </div>
+          <span class="workforce-day-count">${day.entries.length}</span>
+        </header>
+        <div class="workforce-day-list">${entriesHtml}</div>
+      </section>`;
+    })
+    .join("");
 }
 
 function normalizeAttachment(file) {
@@ -12282,15 +12452,17 @@ function renderWorkforceAdminPanel() {
 
   const activeRows = activeTimeEntries().filter((entry) => workforceMatchesEntry(entry));
   const { range, employees, subcontractors, entries } = workforceAdminAggregates();
+  const plannerState = workforceWeeklyPlannerState(range);
 
   if (workforceAdminStatus) {
-    workforceAdminStatus.textContent = `Week starting ${fmtDateOnly(range.startIso)} | ${entries.length} time record(s) matched the current filter.`;
+    workforceAdminStatus.textContent = `Week starting ${fmtDateOnly(range.startIso)} | ${entries.length} time record(s) and ${plannerState.items.length} schedule entr${plannerState.items.length === 1 ? "y" : "ies"} matched the current filter.`;
   }
 
   if (workforceSummaryCards) {
     const uniqueProjects = new Set(entries.map((entry) => timeEntryAssignmentLabel(entry)).filter(Boolean));
     const uniqueSubcontractors = new Set(subcontractors.map((entry) => `${entry.projectName}::${entry.userName}`));
     const totalEmployeeMinutes = employees.reduce((sum, entry) => sum + entry.minutes, 0);
+    const scheduledProjects = new Set(plannerState.items.map((entry) => entry.project?.name || entry.projectName || "-"));
     workforceSummaryCards.innerHTML = `
       <article class="workforce-summary-card">
         <span>Checked in now</span>
@@ -12308,8 +12480,18 @@ function renderWorkforceAdminPanel() {
         <span>Sub Contractors listed</span>
         <strong>${uniqueSubcontractors.size}</strong>
       </article>
+      <article class="workforce-summary-card">
+        <span>Scheduled jobs</span>
+        <strong>${scheduledProjects.size}</strong>
+      </article>
+      <article class="workforce-summary-card">
+        <span>People in weekly plan</span>
+        <strong>${plannerState.scheduledPeopleCount}</strong>
+      </article>
     `;
   }
+
+  renderWorkforceWeeklyPlanner(plannerState);
 
   const activeTableRows = activeRows
     .map(
@@ -12408,6 +12590,7 @@ function renderWorkforceAdminPanel() {
 
 function generateWorkforceWeeklyReport() {
   const { range, employees, subcontractors, entries } = workforceAdminAggregates();
+  const plannerState = workforceWeeklyPlannerState(range);
   const filteredProject = workforceProjectFilter ? projectById(workforceProjectFilter)?.name || "-" : "All projects / locations";
   const filteredTeam = workforceEmploymentFilter === "all" ? "All" : workforceEmploymentFilter;
 
@@ -12441,6 +12624,38 @@ function generateWorkforceWeeklyReport() {
     )
     .join("");
 
+  const plannerSections = plannerState.days
+    .map((day) => {
+      const dayRows = day.entries
+        .map((entry) => {
+          const groups = entry.plannerGroups || schedulePlannerParticipantGroups(entry, workforceEmploymentFilter);
+          const workerNames = groups.showWorkers
+            ? schedulePeopleLabel(groups.visibleWorkers.map((user) => user.name || user.username || "Worker"))
+            : "-";
+          const subcontractorNames = groups.showSubcontractors
+            ? schedulePeopleLabel(groups.visibleSubcontractors.map((user) => user.name || user.username || "Sub Contractor"))
+            : "-";
+          return `<tr>
+            <td>${escapeHtml(entry.project?.name || entry.projectName || "-")}</td>
+            <td>${escapeHtml(entry.locationLabel || scheduleEntryLocationLabel(entry))}</td>
+            <td>${escapeHtml(groups.foremanLabel)}</td>
+            <td>${escapeHtml(workerNames)}</td>
+            <td>${escapeHtml(subcontractorNames)}</td>
+            <td>${escapeHtml(entry.description || "-")}</td>
+          </tr>`;
+        })
+        .join("");
+
+      return `
+        <h3>${escapeHtml(workforcePlannerDayLabel(day.iso, { weekday: "long" }))}</h3>
+        <table>
+          <thead><tr><th>Project</th><th>Location</th><th>Foreman</th><th>Workers</th><th>Sub Contractors</th><th>Description</th></tr></thead>
+          <tbody>${dayRows || '<tr><td colspan="6">No crew scheduled for this day.</td></tr>'}</tbody>
+        </table>
+      `;
+    })
+    .join("");
+
   const html = reportShell(
     `Workforce weekly report ${range.startIso}`,
     `
@@ -12464,6 +12679,9 @@ function generateWorkforceWeeklyReport() {
         <thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th></tr></thead>
         <tbody>${subcontractorRows || '<tr><td colspan="7">No Sub Contractor presence found for this report.</td></tr>'}</tbody>
       </table>
+
+      <h2>Weekly team planning board</h2>
+      ${plannerSections}
     `
   );
 

@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260325-shell4" />
+    <link rel="stylesheet" href="styles.css?v=20260325-schedule1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -206,6 +206,16 @@
             </ul>
           </article>
         </div>
+        <div class="workday-schedule-grid">
+          <article id="workdayTodayScheduleSection" class="subpanel">
+            <h3>Today's assignment</h3>
+            <div id="workdayTodayScheduleCard" class="schedule-card-list"></div>
+          </article>
+          <article id="workdayWeekScheduleSection" class="subpanel">
+            <h3>This week</h3>
+            <div id="workdayWeekScheduleCard" class="schedule-card-list"></div>
+          </article>
+        </div>
       </section>
 
       <section id="timeClockPanel" class="panel time-clock-entry-panel hidden">
@@ -345,6 +355,16 @@
         <h2>Dashboard</h2>
         <p class="hint">Use the top menu to navigate between system sections. The workday check-in/check-out control stays available above for faster access.</p>
         <div id="coiReminderPanel" class="subpanel reminder-panel hidden"></div>
+        <div class="dashboard-schedule-grid">
+          <article id="homeScheduleTodaySection" class="subpanel">
+            <h3>My next assignment</h3>
+            <div id="homeScheduleTodayCard" class="schedule-card-list"></div>
+          </article>
+          <article id="homeScheduleWeekSection" class="subpanel">
+            <h3>My week schedule</h3>
+            <div id="homeScheduleWeekCard" class="schedule-card-list"></div>
+          </article>
+        </div>
       </section>
 
       <section id="masterDataPanel" class="panel">
@@ -516,6 +536,47 @@
                 <button class="primary" type="submit">Add person</button>
               </form>
               <div id="contactsTable" class="table-wrap page-table-wrap"></div>
+            </article>
+
+            <article id="projectScheduleSection" class="subpanel table-page-section">
+              <div class="row admin-section-head">
+                <div>
+                  <h3>Project workforce schedule</h3>
+                  <p id="projectScheduleStatus" class="hint">
+                    Select one project, then build the daily schedule with date, location, foreman, workers, Sub Contractors, and work description.
+                  </p>
+                </div>
+                <button id="projectScheduleResetBtn" class="secondary" type="button">New schedule</button>
+              </div>
+              <form id="projectScheduleForm" class="grid-form compact">
+                <input type="hidden" name="scheduleId" />
+                <label>Project
+                  <select id="projectScheduleProjectSelect" name="projectId" required></select>
+                </label>
+                <label>Date
+                  <input name="date" type="date" required />
+                </label>
+                <label>Location / area
+                  <input name="location" placeholder="Ex: Tower B / 12th floor / loading dock" />
+                </label>
+                <label>Foreman responsible
+                  <select id="projectScheduleForemanSelect" name="foremanRef">
+                    <option value="">Select a foreman</option>
+                  </select>
+                </label>
+                <label class="full">Description of the work
+                  <textarea name="description" rows="3" placeholder="Describe what this crew should do on this date"></textarea>
+                </label>
+                <label class="full">TAG workers assigned</label>
+                <div id="projectScheduleWorkersList" class="checkbox-group full schedule-checkbox-grid"></div>
+                <label class="full">Sub Contractors assigned</label>
+                <div id="projectScheduleSubcontractorsList" class="checkbox-group full schedule-checkbox-grid"></div>
+                <div class="row full">
+                  <button class="primary" type="submit">Save schedule</button>
+                  <button id="projectScheduleDeleteBtn" class="danger" type="button">Delete selected</button>
+                </div>
+              </form>
+              <div id="projectScheduleTable" class="table-wrap page-table-wrap"></div>
             </article>
 
             <article id="contractsSubpanel" class="subpanel hidden-view table-page-section">
@@ -1826,6 +1887,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260325-shell6" defer></script>
+    <script src="app.js?v=20260325-schedule1" defer></script>
   </body>
 </html>

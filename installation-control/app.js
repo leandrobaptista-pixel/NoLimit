@@ -104,12 +104,15 @@ const SECTION_SHORTCUTS = {
   workday: [
     { id: "workdayLocationSection", label: "Location and distance" },
     { id: "workdayRulesSection", label: "How this works" },
+    { id: "workdayTodayScheduleSection", label: "Today's assignment" },
+    { id: "workdayWeekScheduleSection", label: "This week" },
     { id: "timeClockPanel", label: "Check-in controls" },
   ],
   clients: [
     { id: "clientsSubpanel", label: "Clients", requiresVisible: true },
     { id: "projectsSubpanel", label: "Projects", requiresVisible: true },
     { id: "contactsSubpanel", label: "People in project", requiresVisible: true },
+    { id: "projectScheduleSection", label: "Project workforce schedule", requiresVisible: true },
     { id: "contractsSubpanel", label: "Contracts", requiresVisible: true },
   ],
   projects: [
@@ -1236,6 +1239,7 @@ let pendingPostLoginLanding = false;
 let workforceWeekAnchor = "";
 let workforceProjectFilter = "";
 let workforceEmploymentFilter = "all";
+let selectedProjectScheduleId = "";
 
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
@@ -1271,7 +1275,11 @@ const workspaceShellActions = document.getElementById("workspaceShellActions");
 const workdayPanel = document.getElementById("workdayPanel");
 const workdayContinueBtn = document.getElementById("workdayContinueBtn");
 const workdayGeoStatus = document.getElementById("workdayGeoStatus");
+const workdayTodayScheduleCard = document.getElementById("workdayTodayScheduleCard");
+const workdayWeekScheduleCard = document.getElementById("workdayWeekScheduleCard");
 const homePanel = document.getElementById("homePanel");
+const homeScheduleTodayCard = document.getElementById("homeScheduleTodayCard");
+const homeScheduleWeekCard = document.getElementById("homeScheduleWeekCard");
 const timeClockPanel = document.getElementById("timeClockPanel");
 const timeClockForm = document.getElementById("timeClockForm");
 const timeClockSiteTypeSelect = document.getElementById("timeClockSiteTypeSelect");
@@ -1338,6 +1346,16 @@ const projectChecklistExtraInput = document.getElementById("projectChecklistExtr
 const projectChecklistExtraAddBtn = document.getElementById("projectChecklistExtraAddBtn");
 const projectChecklistExtraList = document.getElementById("projectChecklistExtraList");
 const projectChecklistExtrasJson = document.getElementById("projectChecklistExtrasJson");
+const projectScheduleSection = document.getElementById("projectScheduleSection");
+const projectScheduleStatus = document.getElementById("projectScheduleStatus");
+const projectScheduleForm = document.getElementById("projectScheduleForm");
+const projectScheduleProjectSelect = document.getElementById("projectScheduleProjectSelect");
+const projectScheduleForemanSelect = document.getElementById("projectScheduleForemanSelect");
+const projectScheduleWorkersList = document.getElementById("projectScheduleWorkersList");
+const projectScheduleSubcontractorsList = document.getElementById("projectScheduleSubcontractorsList");
+const projectScheduleResetBtn = document.getElementById("projectScheduleResetBtn");
+const projectScheduleDeleteBtn = document.getElementById("projectScheduleDeleteBtn");
+const projectScheduleTable = document.getElementById("projectScheduleTable");
 const contactClientSelect = document.getElementById("contactClientSelect");
 const contactProjectSelect = document.getElementById("contactProjectSelect");
 const contractClientSelect = document.getElementById("contractClientSelect");
@@ -1914,6 +1932,8 @@ function buildWorkspaceShellState() {
   const pendingPayments = weeklyPayments.filter((entry) => entry.approvalStatus === "pending").length;
 
   if (currentView === "home") {
+    const myWeekSchedule = currentUserWeekScheduleEntries();
+    const nextSchedule = currentUserNextScheduleEntry();
     return {
       eyebrow: "Operations",
       title: "Daily command center",
@@ -1929,6 +1949,7 @@ function buildWorkspaceShellState() {
         { label: "Projects", value: projects.length, note: "Registered job sites" },
         { label: "Units", value: units.length, note: "Tracked production and installation" },
         { label: "Containers", value: containers.length, note: "Factory and arrival flow" },
+        { label: "My week schedule", value: myWeekSchedule.length, note: nextSchedule ? `Next: ${fmtDateOnly(nextSchedule.date)}` : "No assignment yet" },
       ],
       focusTitle: "Start here",
       focusCopy:
@@ -1944,6 +1965,9 @@ function buildWorkspaceShellState() {
         `${activeTimeEntries().length} people currently active in workday.`,
         `${containers.filter((entry) => entry.arrivalStatus === "delayed").length} delayed container(s) need follow-up.`,
         `${pendingReceipts} receipt(s) and ${pendingPayments} payment review(s) are waiting in Admin.`,
+        nextSchedule
+          ? `Next assignment: ${nextSchedule.projectName || "Project"} on ${fmtDateOnly(nextSchedule.date)} at ${scheduleEntryLocationLabel(nextSchedule)}.`
+          : "No personal assignment has been scheduled yet.",
       ],
     };
   }
@@ -2733,7 +2757,7 @@ function normalizeClient(client) {
 }
 
 function normalizeProject(project) {
-  return {
+  const normalizedProject = {
     id: project.id,
     clientId: project.clientId || "",
     name: project.name || "",
@@ -2751,6 +2775,15 @@ function normalizeProject(project) {
     createdAt: project.createdAt || new Date().toISOString(),
     updatedAt: project.updatedAt || project.createdAt || new Date().toISOString(),
   };
+  normalizedProject.scheduleEntries = ensureArray(project.scheduleEntries)
+    .map((entry) => normalizeProjectScheduleEntry(entry, normalizedProject))
+    .filter((entry) => entry.date)
+    .sort((a, b) => {
+      const byDate = String(a.date || "").localeCompare(String(b.date || ""));
+      if (byDate !== 0) return byDate;
+      return String(a.location || "").localeCompare(String(b.location || ""));
+    });
+  return normalizedProject;
 }
 
 function normalizeContact(contact) {
@@ -2796,6 +2829,42 @@ function normalizeGender(value) {
 function normalizeDateField(value) {
   const raw = String(value || "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
+}
+
+function normalizeScheduleAssigneeIds(value) {
+  return Array.from(
+    new Set(
+      ensureArray(value)
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeScheduleForemanKind(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return raw === "user" || raw === "contact" ? raw : "";
+}
+
+function normalizeProjectScheduleEntry(entry, project = null) {
+  const date = normalizeDateField(entry?.date);
+  const foremanKind = normalizeScheduleForemanKind(entry?.foremanKind);
+  const foremanId = String(entry?.foremanId || "").trim();
+  return {
+    id: entry?.id || uid(),
+    date,
+    location: String(entry?.location || "").trim(),
+    description: String(entry?.description || "").trim(),
+    workerUserIds: normalizeScheduleAssigneeIds(entry?.workerUserIds),
+    subcontractorUserIds: normalizeScheduleAssigneeIds(entry?.subcontractorUserIds),
+    foremanKind,
+    foremanId,
+    foremanName: String(entry?.foremanName || "").trim(),
+    projectId: String(entry?.projectId || project?.id || "").trim(),
+    projectName: String(entry?.projectName || project?.name || "").trim(),
+    createdAt: entry?.createdAt || new Date().toISOString(),
+    updatedAt: entry?.updatedAt || entry?.createdAt || new Date().toISOString(),
+  };
 }
 
 function defaultAvatarForGender(gender) {
@@ -3172,6 +3241,84 @@ function normalizeTimeEntry(entry) {
     checkOutLocation: normalizeGeoSnapshot(entry.checkOutLocation),
     createdAt: entry.createdAt || entry.checkInAt || new Date().toISOString(),
     updatedAt: entry.updatedAt || entry.checkOutAt || entry.checkInAt || entry.createdAt || new Date().toISOString(),
+  };
+}
+
+function scheduleEntryDateMs(entry) {
+  const iso = normalizeDateField(entry?.date);
+  if (!iso) return 0;
+  return new Date(`${iso}T12:00:00`).getTime();
+}
+
+function projectScheduleEntries(project) {
+  return ensureArray(project?.scheduleEntries)
+    .map((entry) => normalizeProjectScheduleEntry(entry, project))
+    .filter((entry) => entry.date);
+}
+
+function allProjectScheduleEntries() {
+  return projects
+    .flatMap((project) =>
+      projectScheduleEntries(project).map((entry) => ({
+        ...entry,
+        projectId: entry.projectId || project.id,
+        projectName: entry.projectName || project.name,
+      }))
+    )
+    .sort((a, b) => scheduleEntryDateMs(a) - scheduleEntryDateMs(b) || String(a.projectName || "").localeCompare(String(b.projectName || "")));
+}
+
+function scheduleEntryProject(entry) {
+  return projectById(entry?.projectId || "");
+}
+
+function scheduleEntryLocationLabel(entry) {
+  const project = scheduleEntryProject(entry);
+  return String(entry?.location || "").trim() || project?.address || project?.name || "No location defined";
+}
+
+function scheduleAssigneeUsers(entry, employmentType = "tag") {
+  const ids = employmentType === "subcontractor" ? ensureArray(entry?.subcontractorUserIds) : ensureArray(entry?.workerUserIds);
+  return ids
+    .map((id) => users.find((user) => user.id === id))
+    .filter(Boolean)
+    .sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
+}
+
+function scheduleForemanLabel(entry) {
+  if (!entry) return "No foreman assigned";
+  if (entry.foremanKind === "user") {
+    const user = users.find((item) => item.id === entry.foremanId);
+    if (user) return user.name || user.username || entry.foremanName || "No foreman assigned";
+  }
+  if (entry.foremanKind === "contact") {
+    const contact = contacts.find((item) => item.id === entry.foremanId);
+    if (contact) return contact.name || entry.foremanName || "No foreman assigned";
+  }
+  return entry.foremanName || "No foreman assigned";
+}
+
+function scheduleEntryAppliesToUser(entry, user) {
+  if (!entry || !user) return false;
+  if (ensureArray(entry.workerUserIds).includes(user.id)) return true;
+  if (ensureArray(entry.subcontractorUserIds).includes(user.id)) return true;
+  return entry.foremanKind === "user" && entry.foremanId === user.id;
+}
+
+function scheduleEntriesForUser(user, { startMs = 0, endMs = Number.POSITIVE_INFINITY } = {}) {
+  if (!user) return [];
+  return allProjectScheduleEntries().filter((entry) => {
+    const dateMs = scheduleEntryDateMs(entry);
+    return dateMs >= startMs && dateMs < endMs && scheduleEntryAppliesToUser(entry, user);
+  });
+}
+
+function scheduleEntryPeopleSummary(entry) {
+  const workerNames = scheduleAssigneeUsers(entry, "tag").map((user) => user.name || user.username || "Worker");
+  const subcontractorNames = scheduleAssigneeUsers(entry, "subcontractor").map((user) => user.name || user.username || "Sub Contractor");
+  return {
+    workers: workerNames,
+    subcontractors: subcontractorNames,
   };
 }
 
@@ -7644,7 +7791,7 @@ function setWarehouseSubView(view = "operations") {
 }
 
 function applyMasterSubpanelMode() {
-  if (!clientsSubpanel || !projectsSubpanel || !contactsSubpanel) return;
+  if (!clientsSubpanel || !projectsSubpanel || !contactsSubpanel || !projectScheduleSection) return;
   const showClients = currentView === "clients";
   const showProjects = currentView === "projects";
   masterDataPanel?.classList.toggle("clients-mode", showClients);
@@ -7657,6 +7804,7 @@ function applyMasterSubpanelMode() {
     clientsSubpanel.classList.toggle("hidden-view", !(showHub || showNewClients));
     projectsSubpanel.classList.toggle("hidden-view", !showProjectsCatalog);
     contactsSubpanel.classList.toggle("hidden-view", !showProjectsCatalog);
+    projectScheduleSection.classList.toggle("hidden-view", !showProjectsCatalog);
     contractsSubpanel?.classList.toggle("hidden-view", !showContracts);
     return;
   }
@@ -7667,12 +7815,14 @@ function applyMasterSubpanelMode() {
     const showProjectCatalog = projectsViewMode === "overview";
     projectsSubpanel.classList.toggle("hidden-view", !showProjectCatalog);
     contactsSubpanel.classList.toggle("hidden-view", !showProjectCatalog);
+    projectScheduleSection.classList.toggle("hidden-view", !showProjectCatalog);
     return;
   }
 
   clientsSubpanel.classList.remove("hidden-view");
   projectsSubpanel.classList.remove("hidden-view");
   contactsSubpanel.classList.remove("hidden-view");
+  projectScheduleSection.classList.remove("hidden-view");
   contractsSubpanel?.classList.remove("hidden-view");
 }
 
@@ -8586,6 +8736,7 @@ function openClientDetails(clientId) {
   renderClientsTable();
   renderProjectsTable();
   renderContactsTable();
+  renderProjectScheduleSection();
   renderContractsTable();
 }
 
@@ -8914,6 +9065,238 @@ function populateProjectForm(project) {
   if (projectAdminTarget) projectAdminTarget.textContent = `Editing project: ${project.name || "-"}`;
 }
 
+function currentProjectScheduleProjectId() {
+  const currentValue = projectScheduleProjectSelect?.value || "";
+  if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return selectedProjectId;
+  if (currentValue && projects.some((project) => project.id === currentValue)) return currentValue;
+  return "";
+}
+
+function scheduleAssignableUsers(employmentType = "tag") {
+  return users
+    .filter((user) => {
+      if (!canAccessEmployeeRecord(user)) return false;
+      const type = String(user.employmentType || "").toLowerCase();
+      if (type === "supplier") return false;
+      if (employmentType === "subcontractor") return type === "subcontractor";
+      return type !== "subcontractor";
+    })
+    .sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
+}
+
+function scheduleForemanOptions(projectId = "") {
+  const foremanUsers = users
+    .filter((user) => {
+      if (!canAccessEmployeeRecord(user)) return false;
+      const access = userAccessProfile(user);
+      return access === "foreman" || access === "project-manager" || access === "admin" || access === "developer";
+    })
+    .map((user) => ({
+      value: `user:${user.id}`,
+      label: `${user.name || user.username || "User"}${user.jobTitle ? ` • ${user.jobTitle}` : ""}`,
+    }));
+
+  const foremanContacts = contacts
+    .filter((contact) => (!projectId || contact.projectId === projectId) && ["foreman", "project-manager"].includes(contact.role))
+    .map((contact) => ({
+      value: `contact:${contact.id}`,
+      label: `${contact.name || "Contact"}${contact.company ? ` • ${contact.company}` : ""}`,
+    }));
+
+  const seen = new Set();
+  return [...foremanUsers, ...foremanContacts].filter((option) => {
+    const key = `${option.value}::${option.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function parseScheduleForemanRef(value, projectId = "") {
+  const raw = String(value || "").trim();
+  if (!raw) return { foremanKind: "", foremanId: "", foremanName: "" };
+  const [kind, id] = raw.split(":");
+  if (kind === "user") {
+    const user = users.find((entry) => entry.id === id);
+    return {
+      foremanKind: "user",
+      foremanId: id || "",
+      foremanName: user?.name || user?.username || "",
+    };
+  }
+  if (kind === "contact") {
+    const contact = contacts.find((entry) => entry.id === id && (!projectId || entry.projectId === projectId || !entry.projectId));
+    return {
+      foremanKind: "contact",
+      foremanId: id || "",
+      foremanName: contact?.name || "",
+    };
+  }
+  return { foremanKind: "", foremanId: "", foremanName: "" };
+}
+
+function scheduleForemanRefValue(entry) {
+  if (!entry?.foremanKind || !entry?.foremanId) return "";
+  return `${entry.foremanKind}:${entry.foremanId}`;
+}
+
+function renderScheduleAssigneeCheckboxes(container, usersList, fieldName, selectedIds = []) {
+  if (!container) return;
+  const selected = new Set(normalizeScheduleAssigneeIds(selectedIds));
+  container.innerHTML = usersList.length
+    ? usersList
+        .map(
+          (user) => `<label>
+            <input type="checkbox" name="${escapeHtml(fieldName)}" value="${escapeHtml(user.id)}" ${selected.has(user.id) ? "checked" : ""} />
+            ${escapeHtml(user.name || user.username || "User")}${user.jobTitle ? ` • ${escapeHtml(user.jobTitle)}` : ""}
+          </label>`
+        )
+        .join("")
+    : '<p class="hint">No people available for this list yet.</p>';
+}
+
+function renderProjectScheduleSection() {
+  if (!projectScheduleSection) return;
+  const canManage = can("manageCatalog");
+  projectScheduleSection.classList.toggle("hidden", !canManage);
+  if (!canManage) return;
+
+  populateProjectSelect(projectScheduleProjectSelect, {
+    allowBlankLabel: "Select a project",
+    currentValue: currentProjectScheduleProjectId(),
+  });
+
+  const activeProjectId = currentProjectScheduleProjectId();
+  const activeProject = projectById(activeProjectId);
+  const scheduleEntries = activeProject ? projectScheduleEntries(activeProject) : [];
+  if (selectedProjectScheduleId && !scheduleEntries.some((entry) => entry.id === selectedProjectScheduleId)) {
+    selectedProjectScheduleId = "";
+  }
+  const selectedScheduleEntry = selectedProjectScheduleId ? scheduleEntries.find((entry) => entry.id === selectedProjectScheduleId) || null : null;
+  if (projectScheduleDeleteBtn) projectScheduleDeleteBtn.disabled = !selectedScheduleEntry;
+  const draftWorkerIds = selectedScheduleEntry ? selectedScheduleEntry.workerUserIds || [] : collectCheckedValues(projectScheduleForm, "scheduleWorkers");
+  const draftSubcontractorIds = selectedScheduleEntry
+    ? selectedScheduleEntry.subcontractorUserIds || []
+    : collectCheckedValues(projectScheduleForm, "scheduleSubcontractors");
+  const currentForemanValue = selectedScheduleEntry ? scheduleForemanRefValue(selectedScheduleEntry) : projectScheduleForemanSelect?.value || "";
+  const foremanOptions = scheduleForemanOptions(activeProjectId);
+  if (projectScheduleForemanSelect) {
+    projectScheduleForemanSelect.innerHTML = `<option value="">Select a foreman</option>${foremanOptions
+      .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+      .join("")}`;
+    if (currentForemanValue && foremanOptions.some((option) => option.value === currentForemanValue)) {
+      projectScheduleForemanSelect.value = currentForemanValue;
+    }
+  }
+
+  renderScheduleAssigneeCheckboxes(projectScheduleWorkersList, scheduleAssignableUsers("tag"), "scheduleWorkers", draftWorkerIds);
+  renderScheduleAssigneeCheckboxes(
+    projectScheduleSubcontractorsList,
+    scheduleAssignableUsers("subcontractor"),
+    "scheduleSubcontractors",
+    draftSubcontractorIds
+  );
+
+  if (projectScheduleStatus) {
+    projectScheduleStatus.textContent = activeProject
+      ? `${activeProject.name} • ${activeProject.address || "No location saved"} • ${scheduleEntries.length} schedule entr${scheduleEntries.length === 1 ? "y" : "ies"}`
+      : "Select one project to plan date, location, workers, Sub Contractors, foreman, and daily work description.";
+  }
+
+  const rows = scheduleEntries
+    .map((entry) => {
+      const people = scheduleEntryPeopleSummary(entry);
+      return `<tr class="${entry.id === selectedProjectScheduleId ? "selected-row" : ""}" data-project-schedule-row="${escapeHtml(entry.id)}">
+        <td>${escapeHtml(fmtDateOnly(entry.date))}</td>
+        <td>${escapeHtml(scheduleEntryLocationLabel(entry))}</td>
+        <td>${escapeHtml(scheduleForemanLabel(entry))}</td>
+        <td>${escapeHtml(people.workers.join(", ") || "-")}</td>
+        <td>${escapeHtml(people.subcontractors.join(", ") || "-")}</td>
+        <td>${escapeHtml(entry.description || "-")}</td>
+      </tr>`;
+    })
+    .join("");
+
+  if (projectScheduleTable) {
+    mountDataTable(projectScheduleTable, {
+      columns: ["Date", "Location", "Foreman", "Workers", "Sub Contractors", "Description"],
+      rowsHtml: rows,
+      emptyMessage: activeProject ? "No schedule entries created for this project yet." : "Select a project to view schedule entries.",
+      emptyColspan: 6,
+    });
+
+    renderTableContextBar(projectScheduleTable, {
+      title: "Schedule actions",
+      selected: Boolean(selectedScheduleEntry),
+      name: selectedScheduleEntry ? `${fmtDateOnly(selectedScheduleEntry.date)} • ${activeProject?.name || "Schedule entry"}` : "No schedule selected",
+      detail: selectedScheduleEntry
+        ? `${scheduleEntryLocationLabel(selectedScheduleEntry)} • ${scheduleForemanLabel(selectedScheduleEntry)}`
+        : "Select one schedule row to edit or delete it outside the table.",
+      actions: selectedScheduleEntry ? [{ label: "Delete", tone: "danger", attrs: { "data-project-schedule-delete": selectedScheduleEntry.id } }] : [],
+    });
+
+    bindSelectableRows(projectScheduleTable, "[data-project-schedule-row]", (row) => {
+      if (!activeProject) return;
+      const entry = scheduleEntries.find((item) => item.id === row.dataset.projectScheduleRow);
+      if (!entry) return;
+      populateProjectScheduleForm(activeProject, entry);
+      renderProjectScheduleSection();
+    });
+  }
+
+  if (!selectedScheduleEntry && projectScheduleForm?.elements?.scheduleId?.value) {
+    resetProjectScheduleForm({ projectId: activeProjectId });
+  }
+}
+
+function resetProjectScheduleForm({ projectId = "" } = {}) {
+  if (!projectScheduleForm) return;
+  selectedProjectScheduleId = "";
+  projectScheduleForm.reset();
+  if (projectScheduleForm.elements.scheduleId) projectScheduleForm.elements.scheduleId.value = "";
+  if (projectScheduleProjectSelect) {
+    populateProjectSelect(projectScheduleProjectSelect, {
+      allowBlankLabel: "Select a project",
+      currentValue: projectId || currentProjectScheduleProjectId(),
+    });
+  }
+  if (projectScheduleForm.elements.date) projectScheduleForm.elements.date.value = isoDateFromValue(new Date());
+  if (projectScheduleForemanSelect) projectScheduleForemanSelect.value = "";
+  renderScheduleAssigneeCheckboxes(projectScheduleWorkersList, scheduleAssignableUsers("tag"), "scheduleWorkers", []);
+  renderScheduleAssigneeCheckboxes(projectScheduleSubcontractorsList, scheduleAssignableUsers("subcontractor"), "scheduleSubcontractors", []);
+  if (projectScheduleDeleteBtn) projectScheduleDeleteBtn.disabled = true;
+}
+
+function populateProjectScheduleForm(project, entry) {
+  if (!projectScheduleForm || !project || !entry) return;
+  selectedProjectId = project.id;
+  selectedProjectScheduleId = entry.id;
+  if (projectScheduleForm.elements.scheduleId) projectScheduleForm.elements.scheduleId.value = entry.id;
+  populateProjectSelect(projectScheduleProjectSelect, {
+    allowBlankLabel: "Select a project",
+    currentValue: project.id,
+  });
+  projectScheduleForm.elements.date.value = entry.date || "";
+  projectScheduleForm.elements.location.value = entry.location || "";
+  projectScheduleForm.elements.description.value = entry.description || "";
+  const foremanValue = scheduleForemanRefValue(entry);
+  const foremanOptions = scheduleForemanOptions(project.id);
+  if (projectScheduleForemanSelect) {
+    projectScheduleForemanSelect.innerHTML = `<option value="">Select a foreman</option>${foremanOptions
+      .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+      .join("")}`;
+    projectScheduleForemanSelect.value = foremanValue;
+  }
+  renderScheduleAssigneeCheckboxes(projectScheduleWorkersList, scheduleAssignableUsers("tag"), "scheduleWorkers", entry.workerUserIds || []);
+  renderScheduleAssigneeCheckboxes(
+    projectScheduleSubcontractorsList,
+    scheduleAssignableUsers("subcontractor"),
+    "scheduleSubcontractors",
+    entry.subcontractorUserIds || []
+  );
+  if (projectScheduleDeleteBtn) projectScheduleDeleteBtn.disabled = false;
+}
+
 function openClientRegistrationShortcut(target = "projects") {
   if (!can("manageCatalog")) {
     setView("home");
@@ -9142,6 +9525,38 @@ async function deleteProjectRecord(projectId) {
   queueAutoSync();
 }
 
+async function deleteProjectScheduleRecord(scheduleId) {
+  if (!can("manageCatalog") || !scheduleId) return false;
+  const targetProject = projects.find((project) => projectScheduleEntries(project).some((entry) => entry.id === scheduleId));
+  if (!targetProject) return false;
+  const targetEntry = projectScheduleEntries(targetProject).find((entry) => entry.id === scheduleId);
+  if (!targetEntry) return false;
+
+  const confirmed = confirmDeleteAction(`schedule "${targetProject.name} / ${fmtDateOnly(targetEntry.date)} / ${scheduleEntryLocationLabel(targetEntry)}"`);
+  if (!confirmed) return false;
+
+  const savedProject = normalizeProject({
+    ...targetProject,
+    scheduleEntries: projectScheduleEntries(targetProject).filter((entry) => entry.id !== scheduleId),
+    updatedAt: new Date().toISOString(),
+  });
+
+  await put(PROJECT_STORE, savedProject);
+  pushEntityAudit(
+    "Projects",
+    "deleted",
+    `Schedule deleted | ${savedProject.name} | ${fmtDateOnly(targetEntry.date)} | ${scheduleEntryLocationLabel(targetEntry)}`,
+    "projects"
+  );
+  await loadAll();
+  selectedProjectId = savedProject.id;
+  selectedProjectScheduleId = "";
+  resetProjectScheduleForm({ projectId: savedProject.id });
+  render();
+  queueAutoSync();
+  return true;
+}
+
 async function editContactRecord(contactId) {
   const contact = contacts.find((entry) => entry.id === contactId);
   if (!contact) return;
@@ -9321,6 +9736,7 @@ function renderProjectsTable() {
       : "Select one project row to keep actions outside the grid.",
     actions: selectedProject
       ? [
+          { label: "Schedule", attrs: { "data-open-project-schedule": selectedProject.id } },
           { label: "Warehouse", attrs: { "data-open-project-warehouse": selectedProject.id } },
           ...(canManage ? [{ label: "Delete", tone: "danger", attrs: { "data-del-project": selectedProject.id } }] : []),
         ]
@@ -9333,6 +9749,7 @@ function renderProjectsTable() {
     selectedProjectId = project.id;
     selectedClientId = project.clientId || selectedClientId;
     populateProjectForm(project);
+    resetProjectScheduleForm({ projectId: project.id });
     render();
     projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
@@ -11816,6 +12233,7 @@ function renderWorkdayPanel() {
   const allowed = canUseTimeClock();
   workdayPanel.classList.toggle("hidden", !allowed);
   if (!allowed) return;
+  renderCurrentUserScheduleBoards();
   if (currentView === "workday") {
     void refreshWorkdayGeoStatus();
   }
@@ -13066,6 +13484,96 @@ function generateAdminWeeklyReport() {
   setTimeout(() => win.print(), 300);
 }
 
+function currentUserNextScheduleEntry() {
+  if (!currentUser) return null;
+  const todayMs = scheduleEntryDateMs({ date: isoDateFromValue(new Date()) });
+  return (
+    scheduleEntriesForUser(currentUser, {
+      startMs: todayMs,
+      endMs: todayMs + 1000 * 60 * 60 * 24 * 14,
+    })[0] || null
+  );
+}
+
+function currentUserWeekScheduleEntries() {
+  if (!currentUser) return [];
+  const startMs = scheduleEntryDateMs({ date: isoDateFromValue(new Date()) });
+  return scheduleEntriesForUser(currentUser, {
+    startMs,
+    endMs: startMs + 1000 * 60 * 60 * 24 * 7,
+  });
+}
+
+function schedulePeopleLabel(names = [], emptyLabel = "None assigned") {
+  return names.length ? names.join(", ") : emptyLabel;
+}
+
+function scheduleEntryCardHtml(entry) {
+  const people = scheduleEntryPeopleSummary(entry);
+  const project = scheduleEntryProject(entry);
+  const isForeman = entry.foremanKind === "user" && entry.foremanId === currentUser?.id;
+  return `<article class="schedule-entry-card">
+    <div class="schedule-entry-head">
+      <div>
+        <p class="eyebrow">${escapeHtml(fmtDateOnly(entry.date))}</p>
+        <h4>${escapeHtml(project?.name || entry.projectName || "Project not linked")}</h4>
+      </div>
+      <span class="schedule-entry-pill">${escapeHtml(isForeman ? "Foreman" : "Assigned")}</span>
+    </div>
+    <div class="schedule-entry-body">
+      <div class="workspace-detail-list">
+        <div class="workspace-detail-row">
+          <span>Date</span>
+          <strong>${escapeHtml(fmtDateOnly(entry.date))}</strong>
+        </div>
+        <div class="workspace-detail-row">
+          <span>Location</span>
+          <strong>${escapeHtml(scheduleEntryLocationLabel(entry))}</strong>
+        </div>
+        <div class="workspace-detail-row">
+          <span>Foreman</span>
+          <strong>${escapeHtml(scheduleForemanLabel(entry))}</strong>
+        </div>
+      </div>
+      <p class="hint schedule-entry-copy">${escapeHtml(entry.description || "No work description defined yet.")}</p>
+      <div class="schedule-entry-people">
+        <div>
+          <span>Workers</span>
+          <strong>${escapeHtml(schedulePeopleLabel(people.workers))}</strong>
+        </div>
+        <div>
+          <span>Sub Contractors</span>
+          <strong>${escapeHtml(schedulePeopleLabel(people.subcontractors))}</strong>
+        </div>
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderScheduleCardList(container, entries, emptyMessage) {
+  if (!container) return;
+  container.innerHTML = entries.length
+    ? entries.map((entry) => scheduleEntryCardHtml(entry)).join("")
+    : `<p class="hint schedule-empty-state">${escapeHtml(emptyMessage)}</p>`;
+}
+
+function renderCurrentUserScheduleBoards() {
+  const todayIso = isoDateFromValue(new Date());
+  const weekEntries = currentUserWeekScheduleEntries();
+  const todayEntries = weekEntries.filter((entry) => entry.date === todayIso);
+  const nextEntry = currentUserNextScheduleEntry();
+  const dailyEntries = todayEntries.length ? todayEntries : nextEntry ? [nextEntry] : [];
+  const dailyEmpty = todayEntries.length
+    ? "No assignment was attached for today yet."
+    : "No next assignment is scheduled for you yet.";
+  const weekEmpty = "No assignments are scheduled for your current week yet.";
+
+  renderScheduleCardList(homeScheduleTodayCard, dailyEntries, dailyEmpty);
+  renderScheduleCardList(homeScheduleWeekCard, weekEntries, weekEmpty);
+  renderScheduleCardList(workdayTodayScheduleCard, dailyEntries, dailyEmpty);
+  renderScheduleCardList(workdayWeekScheduleCard, weekEntries, weekEmpty);
+}
+
 function renderUsersSelfService() {
   if (!usersPanel || !currentUser) return;
   usersPanel.classList.remove("hidden");
@@ -13412,6 +13920,7 @@ function renderHomePanel() {
   toggleNav("ocrImporter", can("manageCatalog") || can("manageContainerManifest") || isAdmin() || isDeveloper());
   renderTimeClockPanel();
   renderCoiReminderPanel();
+  renderCurrentUserScheduleBoards();
 }
 
 function renderWorkspaceShell() {
@@ -15795,6 +16304,26 @@ projectFormNewBtn?.addEventListener("click", () => {
   if (!can("manageCatalog")) return;
   selectedProjectId = "";
   resetProjectForm({ clientId: selectedClientId || projectClientSelect?.value || "" });
+  resetProjectScheduleForm({ projectId: "" });
+  render();
+});
+
+projectScheduleResetBtn?.addEventListener("click", () => {
+  if (!can("manageCatalog")) return;
+  resetProjectScheduleForm({ projectId: currentProjectScheduleProjectId() });
+  renderProjectScheduleSection();
+});
+
+projectScheduleProjectSelect?.addEventListener("change", () => {
+  if (!can("manageCatalog")) return;
+  selectedProjectId = projectScheduleProjectSelect.value || "";
+  const targetProject = projectById(selectedProjectId);
+  if (targetProject) {
+    selectedClientId = targetProject.clientId || selectedClientId;
+    populateProjectForm(targetProject);
+  }
+  selectedProjectScheduleId = "";
+  resetProjectScheduleForm({ projectId: selectedProjectId });
   render();
 });
 
@@ -15829,6 +16358,7 @@ projectFormDeleteBtn?.addEventListener("click", async () => {
   });
   if (selectedProjectId === targetId) selectedProjectId = "";
   resetProjectForm({ clientId: selectedClientId || targetProject.clientId || "" });
+  resetProjectScheduleForm({ projectId: "" });
   await loadAll();
   render();
   queueAutoSync();
@@ -15934,8 +16464,88 @@ projectForm.addEventListener("submit", async (event) => {
   selectedProjectId = "";
   await loadAll();
   resetProjectForm({ clientId: selectedClientId });
+  resetProjectScheduleForm({ projectId: "" });
   render();
   queueAutoSync();
+});
+
+projectScheduleForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!can("manageCatalog")) return;
+
+  const data = new FormData(projectScheduleForm);
+  const projectId = String(data.get("projectId") || "").trim();
+  const targetProject = projectById(projectId);
+  if (!targetProject) {
+    alert("Select a valid project before saving the schedule.");
+    return;
+  }
+
+  const date = normalizeDateField(data.get("date"));
+  if (!date) {
+    alert("Select a valid schedule date.");
+    return;
+  }
+
+  const workerUserIds = collectCheckedValues(projectScheduleForm, "scheduleWorkers");
+  const subcontractorUserIds = collectCheckedValues(projectScheduleForm, "scheduleSubcontractors");
+  if (!workerUserIds.length && !subcontractorUserIds.length) {
+    alert("Select at least one worker or Sub Contractor for this schedule.");
+    return;
+  }
+
+  const scheduleId = String(data.get("scheduleId") || "").trim();
+  const existingEntry = projectScheduleEntries(targetProject).find((entry) => entry.id === scheduleId) || null;
+  const foremanData = parseScheduleForemanRef(data.get("foremanRef"), targetProject.id);
+  const savedEntry = normalizeProjectScheduleEntry(
+    {
+      ...(existingEntry || {}),
+      id: existingEntry?.id || uid(),
+      date,
+      location: String(data.get("location") || "").trim(),
+      description: String(data.get("description") || "").trim(),
+      workerUserIds,
+      subcontractorUserIds,
+      ...foremanData,
+      projectId: targetProject.id,
+      projectName: targetProject.name,
+      createdAt: existingEntry?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    targetProject
+  );
+
+  const nextScheduleEntries = existingEntry
+    ? projectScheduleEntries(targetProject).map((entry) => (entry.id === savedEntry.id ? savedEntry : entry))
+    : [...projectScheduleEntries(targetProject), savedEntry];
+
+  const savedProject = normalizeProject({
+    ...targetProject,
+    scheduleEntries: nextScheduleEntries,
+    updatedAt: new Date().toISOString(),
+  });
+
+  await put(PROJECT_STORE, savedProject);
+  pushEntityAudit(
+    "Projects",
+    existingEntry ? "updated" : "created",
+    `Schedule ${existingEntry ? "updated" : "created"} | ${savedProject.name} | ${fmtDateOnly(savedEntry.date)} | ${scheduleEntryLocationLabel(savedEntry)}`,
+    "projects"
+  );
+  await loadAll();
+  selectedClientId = savedProject.clientId || selectedClientId;
+  selectedProjectId = savedProject.id;
+  selectedProjectScheduleId = savedEntry.id;
+  const refreshedProject = projectById(savedProject.id);
+  const refreshedEntry = projectScheduleEntries(refreshedProject).find((entry) => entry.id === savedEntry.id) || null;
+  if (refreshedProject && refreshedEntry) populateProjectScheduleForm(refreshedProject, refreshedEntry);
+  render();
+  queueAutoSync();
+});
+
+projectScheduleDeleteBtn?.addEventListener("click", () => {
+  if (!selectedProjectScheduleId) return;
+  void deleteProjectScheduleRecord(selectedProjectScheduleId);
 });
 
 contactForm.addEventListener("submit", async (event) => {
@@ -17025,6 +17635,22 @@ appMain?.addEventListener("click", (event) => {
     return;
   }
 
+  const projectScheduleBtn = event.target.closest("[data-open-project-schedule]");
+  if (projectScheduleBtn) {
+    event.preventDefault();
+    const project = projects.find((entry) => entry.id === (projectScheduleBtn.dataset.openProjectSchedule || ""));
+    if (!project) return;
+    setView("clients");
+    setClientsWorkspaceMode("projects");
+    selectedClientId = project.clientId || selectedClientId;
+    selectedProjectId = project.id;
+    populateProjectForm(project);
+    resetProjectScheduleForm({ projectId: project.id });
+    render();
+    projectScheduleSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
   const deleteProjectBtn = event.target.closest("[data-del-project]");
   if (deleteProjectBtn) {
     event.preventDefault();
@@ -17064,6 +17690,13 @@ appMain?.addEventListener("click", (event) => {
   if (deleteMaterialBtn) {
     event.preventDefault();
     void deleteMaterialRecord(deleteMaterialBtn.dataset.delMaterial || "");
+    return;
+  }
+
+  const deleteProjectScheduleBtn = event.target.closest("[data-project-schedule-delete]");
+  if (deleteProjectScheduleBtn) {
+    event.preventDefault();
+    void deleteProjectScheduleRecord(deleteProjectScheduleBtn.dataset.projectScheduleDelete || "");
     return;
   }
 

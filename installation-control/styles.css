@@ -427,6 +427,14 @@ main {
   gap: 0.62rem;
 }
 
+.workday-schedule-grid,
+.dashboard-schedule-grid {
+  margin-top: 0.68rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.62rem;
+}
+
 .plain-list {
   margin: 0.18rem 0 0;
   padding-left: 1rem;
@@ -601,6 +609,102 @@ label {
   width: 16px;
   height: 16px;
   margin: 0;
+}
+
+.schedule-checkbox-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  max-height: 220px;
+  overflow: auto;
+}
+
+.schedule-card-list {
+  display: grid;
+  gap: 0.52rem;
+}
+
+.schedule-entry-card {
+  display: grid;
+  gap: 0.48rem;
+  padding: 0.82rem 0.9rem;
+  border-radius: 18px;
+  border: 1px solid #dce6f1;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 255, 0.96));
+  box-shadow: 0 10px 24px rgba(28, 53, 82, 0.07);
+}
+
+.schedule-entry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.schedule-entry-head h4 {
+  margin: 0.05rem 0 0;
+  font-size: 0.98rem;
+  color: #17384a;
+}
+
+.schedule-entry-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28rem 0.56rem;
+  border-radius: 999px;
+  background: #eef5ff;
+  border: 1px solid #d3e1f7;
+  color: #2a5b88;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.schedule-entry-body {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.schedule-entry-copy {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.schedule-entry-people {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.schedule-entry-people > div {
+  display: grid;
+  gap: 0.14rem;
+  padding: 0.52rem 0.58rem;
+  border-radius: 14px;
+  background: rgba(241, 247, 253, 0.78);
+}
+
+.schedule-entry-people span {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #607e94;
+}
+
+.schedule-entry-people strong {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #17384a;
+}
+
+.schedule-empty-state {
+  margin: 0;
+  padding: 0.9rem;
+  border-radius: 16px;
+  border: 1px dashed #d9e5f2;
+  background: #fbfdff;
 }
 
 .reminder-panel {
@@ -1473,6 +1577,10 @@ form.row > :is(button, .file-label) {
 
 #projectsSubpanel .inline-entry input {
   min-height: 29px;
+}
+
+#projectScheduleSection .grid-form.compact {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 #projectsSubpanel .scope-base-add-row {
@@ -3123,6 +3231,7 @@ body[data-app-view="projects"] .container-card > .subpanel {
     flex-direction: column;
   }
 
+  .workday-schedule-grid,
   .workday-status-grid,
   .workspace-shell-grid,
   .admin-primary-grid,
@@ -3175,6 +3284,11 @@ body[data-app-view="projects"] .container-card > .subpanel {
 
   .stats-grid,
   .workspace-shell-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-schedule-grid,
+  .schedule-entry-people {
     grid-template-columns: 1fr;
   }
 

@@ -1154,6 +1154,7 @@ let currentUser = null;
 let deferredPrompt = null;
 let autoSyncTimer = null;
 let autoPullTimer = null;
+let tablePrintRenderScheduled = false;
 let autoPullInFlight = false;
 let autoPullBlockedUntil = 0;
 let clientsNavHoverTimer = null;
@@ -9335,7 +9336,7 @@ function renderProjectsTable() {
     render();
     projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
   });
-  renderTablePrintButtons();
+  scheduleTablePrintButtons();
 }
 
 function renderContactsTable() {
@@ -9386,7 +9387,7 @@ function renderContactsTable() {
     selectedContactId = row.dataset.contactRow || "";
     renderContactsTable();
   });
-  renderTablePrintButtons();
+  scheduleTablePrintButtons();
 }
 
 function resetContractForm({ clientId = "", projectId = "" } = {}) {
@@ -9490,7 +9491,7 @@ function renderContractsTable() {
     populateContractForm(contract);
     renderContractsTable();
   });
-  renderTablePrintButtons();
+  scheduleTablePrintButtons();
 }
 
 function renderMaterialsTable() {
@@ -9536,7 +9537,7 @@ function renderMaterialsTable() {
     selectedMaterialId = row.dataset.materialRow || "";
     renderMaterialsTable();
   });
-  renderTablePrintButtons();
+  scheduleTablePrintButtons();
 }
 
 function renderMasterData() {
@@ -11984,7 +11985,7 @@ function renderWorkforceAdminPanel() {
       emptyColspan: 8,
     });
   }
-  renderTablePrintButtons();
+  scheduleTablePrintButtons();
 }
 
 function generateWorkforceWeeklyReport() {
@@ -12703,7 +12704,7 @@ function renderAdminPanel() {
   else resetReceiptForm();
 
   renderWorkforceAdminPanel();
-  renderTablePrintButtons();
+  scheduleTablePrintButtons();
 }
 
 async function saveAdminEmployeeSettings() {
@@ -13810,24 +13811,38 @@ function renderAccessControl() {
 function render() {
   if (!currentUser) return;
   renderHomePanel();
-  renderWorkdayPanel();
   renderRoleStrip();
   renderWorkspaceShell();
-  renderMasterData();
-  renderContainers();
-  renderStats();
-  renderSyncPanel();
-  renderQrLookupPanel();
-  renderDeliveryInventoryPanel();
-  renderOcrImporterPanel();
-  renderAdminPanel();
-  renderUsers();
-  renderUserEditPanel();
-  renderAccessControl();
-  renderUnits();
   applyViewMode();
+
+  if (currentView === "workday") {
+    renderWorkdayPanel();
+  } else if (currentView === "sync") {
+    renderSyncPanel();
+  } else if (currentView === "users") {
+    renderUsers();
+  } else if (currentView === "admin") {
+    renderAdminPanel();
+  } else if (currentView === "userEdit") {
+    renderUserEditPanel();
+  } else if (currentView === "clients") {
+    renderMasterData();
+  } else if (currentView === "manufacture") {
+    renderContainers();
+  } else if (currentView === "ocrImporter") {
+    renderOcrImporterPanel();
+  } else if (currentView === "projects") {
+    renderMasterData();
+    renderContainers();
+    renderStats();
+    renderQrLookupPanel();
+    renderDeliveryInventoryPanel();
+    renderAccessControl();
+    renderUnits();
+  }
+
   renderSectionShortcutPanel();
-  renderTablePrintButtons();
+  scheduleTablePrintButtons();
   applyLanguageToUi();
 }
 
@@ -14256,6 +14271,7 @@ async function runAutoPullCycle() {
   if (autoPullInFlight) return;
   if (!currentUser) return;
   if (!navigator.onLine) return;
+  if (document.visibilityState !== "visible") return;
   if (!syncEndpoint()) return;
   if (isAutoPullTemporarilyBlocked()) return;
   if (hasPendingFormChanges()) return;
@@ -14277,6 +14293,7 @@ function startAutoPullLoop() {
   stopAutoPullLoop();
   if (!currentUser) return;
   if (!navigator.onLine) return;
+  if (document.visibilityState !== "visible") return;
   if (!syncEndpoint()) return;
 
   autoPullTimer = setInterval(() => {
@@ -14374,10 +14391,20 @@ function openPrintableTableReport(targetId) {
   openPrintWindow(html, { autoPrint: true });
 }
 
+function scheduleTablePrintButtons() {
+  if (tablePrintRenderScheduled) return;
+  tablePrintRenderScheduled = true;
+  window.requestAnimationFrame(() => {
+    tablePrintRenderScheduled = false;
+    renderTablePrintButtons();
+  });
+}
+
 function renderTablePrintButtons() {
   if (!appMain) return;
   const seenTargets = new Set();
   appMain.querySelectorAll("table.data-table").forEach((table) => {
+    if (table.closest(".hidden-view") || table.closest(".hidden")) return;
     if (!table.id) table.id = `print-table-${uid()}`;
     const targetId = table.id;
     seenTargets.add(targetId);
@@ -17189,7 +17216,16 @@ window.addEventListener("focus", () => {
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible" || currentUser) return;
+  if (currentUser) {
+    if (document.visibilityState === "visible") {
+      startAutoPullLoop();
+      void runAutoPullCycle();
+    } else {
+      stopAutoPullLoop();
+    }
+    return;
+  }
+  if (document.visibilityState !== "visible") return;
   ensureAuthUiInteractive();
 });
 
@@ -17211,6 +17247,22 @@ async function registerServiceWorker() {
   }
 }
 
+async function runBackgroundCloudRefresh() {
+  if (!navigator.onLine) return;
+  if (!syncEndpoint()) return;
+  try {
+    await pullCloud({ silent: true, force: true });
+    await migrateLegacyUserRoleKey();
+    await ensureDeveloperRolePresence();
+    if (currentUser) {
+      currentUser = users.find((user) => user.id === currentUser.id) || currentUser;
+    }
+    renderAuth();
+  } catch (error) {
+    console.error("Background cloud refresh failed", error);
+  }
+}
+
 ensureAuthUiInteractive();
 
 (async function init() {
@@ -17220,13 +17272,11 @@ ensureAuthUiInteractive();
     await loadAll();
     await migrateLegacyUserRoleKey();
     await ensureDeveloperRolePresence();
-    await pullCloud({ silent: true, force: true });
-    await migrateLegacyUserRoleKey();
-    await ensureDeveloperRolePresence();
     await tryRestoreSession();
     updateConnectivity();
     renderAuth();
     await registerServiceWorker();
+    void runBackgroundCloudRefresh();
   } catch (error) {
     console.error("Failed to start app", error);
     showBootError(t("Nao foi possivel iniciar o banco local. Feche outras abas deste app e recarregue a pagina."));

@@ -1260,6 +1260,7 @@ let workforceWeekAnchor = "";
 let workforceProjectFilter = "";
 let workforceEmploymentFilter = "all";
 let selectedProjectScheduleId = "";
+let uiHealthMessage = "";
 
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
@@ -2575,6 +2576,11 @@ function withTimeout(promise, timeoutMs, fallbackValue = false) {
     promise,
     new Promise((resolve) => window.setTimeout(() => resolve(fallbackValue), timeoutMs)),
   ]);
+}
+
+function setUiHealthMessage(message = "") {
+  uiHealthMessage = String(message || "").trim();
+  updateConnectivity();
 }
 
 function deleteDatabaseByName(name) {
@@ -7665,10 +7671,24 @@ function userPasswordMatches(user, plainPassword, sha256Hash) {
 
 function resolveLoginMatch(username, plainPassword, passwordHash) {
   const normalizedUsername = String(username || "").trim().toLowerCase();
-  const userByUsername = users.find((entry) => entry.username === normalizedUsername);
-  const user = users.find(
-    (entry) => entry.username === normalizedUsername && userPasswordMatches(entry, plainPassword, passwordHash)
-  );
+  const authPriority = (entry) => {
+    if (isPrimaryDeveloperUser(entry)) return 5;
+    const role = userSystemRole(entry);
+    if (role === "developer") return 4;
+    if (role === "owner") return 3;
+    if (role === "admin") return 2;
+    if (role === "supervisor") return 1;
+    return 0;
+  };
+  const candidates = users
+    .filter((entry) => entry.username === normalizedUsername)
+    .sort((a, b) => {
+      const priorityScore = authPriority(b) - authPriority(a);
+      if (priorityScore) return priorityScore;
+      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+    });
+  const userByUsername = candidates[0] || null;
+  const user = candidates.find((entry) => userPasswordMatches(entry, plainPassword, passwordHash)) || null;
   return { userByUsername, user };
 }
 
@@ -7863,8 +7883,16 @@ function renderAuth() {
     logoutBtn.classList.remove("hidden");
     userBadge.textContent = `${currentUser.name} (${systemRoleLabel(userSystemRole(currentUser))} / ${roleLabel(userAccessProfile(currentUser))})`;
     const route = pendingPostLoginLanding ? { view: "workday" } : routeStateFromHash();
-    applyRouteState(route, { updateHash: false });
-    render();
+    try {
+      applyRouteState(route, { updateHash: false });
+      render();
+    } catch (error) {
+      console.error("Failed to render authenticated workspace", error);
+      setUiHealthMessage("Safe mode active. The workspace had to recover from a render error.");
+      currentView = "workday";
+      applyViewMode();
+      renderWorkdayPanel();
+    }
     if (pendingPostLoginLanding) syncRouteHash();
     if (pendingTimeClockFocus && canUseTimeClock()) {
       window.setTimeout(() => {
@@ -14898,40 +14926,57 @@ function renderAccessControl() {
 
 function render() {
   if (!currentUser) return;
-  renderHomePanel();
-  renderRoleStrip();
-  renderWorkspaceShell();
-  applyViewMode();
+  const failures = [];
+  const safeStep = (label, fn) => {
+    try {
+      fn();
+    } catch (error) {
+      console.error(`Render step failed: ${label}`, error);
+      failures.push({ label, error });
+    }
+  };
+
+  safeStep("home panel", () => renderHomePanel());
+  safeStep("role strip", () => renderRoleStrip());
+  safeStep("workspace shell", () => renderWorkspaceShell());
+  safeStep("view mode", () => applyViewMode());
 
   if (currentView === "workday") {
-    renderWorkdayPanel();
+    safeStep("workday", () => renderWorkdayPanel());
   } else if (currentView === "sync") {
-    renderSyncPanel();
+    safeStep("sync", () => renderSyncPanel());
   } else if (currentView === "users") {
-    renderUsers();
+    safeStep("users", () => renderUsers());
   } else if (currentView === "admin") {
-    renderAdminPanel();
+    safeStep("admin", () => renderAdminPanel());
   } else if (currentView === "userEdit") {
-    renderUserEditPanel();
+    safeStep("user edit", () => renderUserEditPanel());
   } else if (currentView === "clients") {
-    renderMasterData();
+    safeStep("clients", () => renderMasterData());
   } else if (currentView === "manufacture") {
-    renderContainers();
+    safeStep("manufacture", () => renderContainers());
   } else if (currentView === "ocrImporter") {
-    renderOcrImporterPanel();
+    safeStep("ocr importer", () => renderOcrImporterPanel());
   } else if (currentView === "projects") {
-    renderMasterData();
-    renderContainers();
-    renderStats();
-    renderQrLookupPanel();
-    renderDeliveryInventoryPanel();
-    renderAccessControl();
-    renderUnits();
+    safeStep("projects master data", () => renderMasterData());
+    safeStep("projects containers", () => renderContainers());
+    safeStep("projects stats", () => renderStats());
+    safeStep("projects qr lookup", () => renderQrLookupPanel());
+    safeStep("projects delivery inventory", () => renderDeliveryInventoryPanel());
+    safeStep("projects access control", () => renderAccessControl());
+    safeStep("projects units", () => renderUnits());
   }
 
-  renderSectionShortcutPanel();
-  scheduleTablePrintButtons();
-  applyLanguageToUi();
+  safeStep("section shortcuts", () => renderSectionShortcutPanel());
+  safeStep("table print buttons", () => scheduleTablePrintButtons());
+  safeStep("language", () => applyLanguageToUi());
+
+  if (failures.length) {
+    const labels = failures.map((entry) => entry.label).join(", ");
+    setUiHealthMessage(`Safe mode active. Some panels could not load: ${labels}.`);
+  } else {
+    setUiHealthMessage("");
+  }
 }
 
 function toUnit(formData) {
@@ -18193,9 +18238,10 @@ pullSyncBtn.addEventListener("click", () => pullCloud());
 
 function updateConnectivity() {
   const online = navigator.onLine;
-  connectionBadge.textContent = online ? t("Online") : t("Offline");
+  connectionBadge.textContent = uiHealthMessage ? `${online ? t("Online") : t("Offline")} • Safe mode` : online ? t("Online") : t("Offline");
   connectionBadge.style.borderColor = online ? "#94c5a8" : "#e7b6b6";
   connectionBadge.style.background = online ? "#f4fcf7" : "#fff5f5";
+  connectionBadge.title = uiHealthMessage;
 
   if (online) {
     queueAutoSync();

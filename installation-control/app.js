@@ -1260,6 +1260,7 @@ const loginForm = document.getElementById("loginForm");
 const signupForm = document.getElementById("signupForm");
 const loginUsernameInput = document.getElementById("loginUsername");
 const loginPasswordInput = document.getElementById("loginPassword");
+const loginStatusMessage = document.getElementById("loginStatusMessage");
 const signupGenderSelect = document.getElementById("signupGender");
 const openSignupBtn = document.getElementById("openSignupBtn");
 const backToLoginBtn = document.getElementById("backToLoginBtn");
@@ -2540,6 +2541,12 @@ function ensureAuthUiInteractive() {
 function focusAuthPrimaryField() {
   const target = signupPanel && !signupPanel.classList.contains("hidden") ? signupForm?.querySelector('input[name="firstName"]') : loginUsernameInput;
   window.setTimeout(() => target?.focus(), 90);
+}
+
+function setLoginStatus(message = "", isError = false) {
+  if (!loginStatusMessage) return;
+  loginStatusMessage.textContent = message;
+  loginStatusMessage.style.color = isError ? "#b83232" : "";
 }
 
 function deleteDatabaseByName(name) {
@@ -7637,10 +7644,13 @@ function resolveLoginMatch(username, plainPassword, passwordHash) {
   return { userByUsername, user };
 }
 
-async function refreshUsersForLogin() {
+async function refreshUsersForLogin({ timeoutMs = 6000 } = {}) {
   if (!syncEndpoint()) return false;
   if (!navigator.onLine) return false;
-  return pullCloud({ silent: true, force: true, kinds: ["user"] });
+  return Promise.race([
+    pullCloud({ silent: true, force: true, kinds: ["user"] }),
+    new Promise((resolve) => window.setTimeout(() => resolve(false), timeoutMs)),
+  ]);
 }
 
 async function finalizeLoginInBackground(userId) {
@@ -7809,6 +7819,7 @@ function showSignupMode(show) {
   ensureAuthUiInteractive();
   loginPanel.classList.toggle("hidden", show);
   signupPanel.classList.toggle("hidden", !show);
+  if (!show) setLoginStatus("");
   unlockAuthForm(show ? signupForm : loginForm);
   focusAuthPrimaryField();
 }
@@ -7850,6 +7861,7 @@ function renderAuth() {
   editProfileBtn?.classList.add("hidden");
   logoutBtn.classList.add("hidden");
   setupPanel?.classList.add("hidden");
+  setLoginStatus("");
   showSignupMode(false);
   applyLanguageToUi();
   focusAuthPrimaryField();
@@ -15929,11 +15941,13 @@ signupForm?.addEventListener("submit", async (event) => {
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
+    setLoginStatus("Checking device access...");
     const data = new FormData(loginForm);
     const username = data.get("username")?.toString().trim().toLowerCase();
     const plainPassword = data.get("password")?.toString() || "";
     const passwordHash = await hashPassword(plainPassword);
     if (!username || !plainPassword) {
+      setLoginStatus("Enter username and password to continue.", true);
       alert("Enter username and password to continue.");
       return;
     }
@@ -15941,6 +15955,7 @@ loginForm.addEventListener("submit", async (event) => {
     let { userByUsername, user } = resolveLoginMatch(username, plainPassword, passwordHash);
 
     if ((!userByUsername || !user) && syncEndpoint() && navigator.onLine) {
+      setLoginStatus("Syncing access with cloud...");
       await refreshUsersForLogin();
       ({ userByUsername, user } = resolveLoginMatch(username, plainPassword, passwordHash));
     }
@@ -15948,16 +15963,20 @@ loginForm.addEventListener("submit", async (event) => {
     if (!user) {
       if (!userByUsername) {
         if (!syncEndpoint()) {
+          setLoginStatus("This device has no cloud user cache yet.", true);
           alert("This device is offline from the system database and does not have this user cached yet.");
           return;
         }
         if (!navigator.onLine) {
+          setLoginStatus("Connect to the internet once to load this user on this device.", true);
           alert("This user is not cached on this device right now. Connect to the internet and try again.");
           return;
         }
+        setLoginStatus("User is not registered in the system.", true);
         alert("User is not registered. Click 'Create Account' to register.");
         return;
       }
+      setLoginStatus("Invalid username or password.", true);
       alert(t("Usuario ou senha invalidos."));
       return;
     }
@@ -15990,13 +16009,16 @@ loginForm.addEventListener("submit", async (event) => {
     pushAppAudit("Session login", "session", "auth");
     window.history.replaceState(null, "", "#workday");
     loginForm.reset();
+    setLoginStatus("Opening workspace...");
     pendingTimeClockFocus = true;
     pendingPostLoginLanding = true;
     await setUserSessionState(currentUser.id, true, { bumpLoginAt: true });
     renderAuth();
+    setLoginStatus("");
     void finalizeLoginInBackground(currentUser.id);
   } catch (error) {
     console.error("Login failed", error);
+    setLoginStatus("Could not complete sign in on this device.", true);
     alert("Could not complete sign in on this device. Try again, or use 'Reset this device' if the app cache is stuck.");
     ensureAuthUiInteractive();
   }

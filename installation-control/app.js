@@ -4423,7 +4423,11 @@ function renderDeliveryImportPreview() {
 
   const previewRows = ensureArray(deliveryImportDraft.rows).slice(0, 12);
   if (!previewRows.length) {
-    deliveryImportPreview.innerHTML = `<table class="data-table"><tbody><tr><td>No recognized material rows found in this file.</td></tr></tbody></table>`;
+    mountDataTable(deliveryImportPreview, {
+      columns: ["SKU", "Description", "Finish", "Qty", "Client", "Project", "Unit"],
+      emptyMessage: "No recognized material rows found in this file.",
+      emptyColspan: 7,
+    });
     return;
   }
 
@@ -4443,9 +4447,13 @@ function renderDeliveryImportPreview() {
 
   const totalRows = ensureArray(deliveryImportDraft.rows).length;
   const hasMore = totalRows > previewRows.length;
-  deliveryImportPreview.innerHTML = `<table class="data-table"><thead><tr><th>SKU</th><th>Description</th><th>Finish</th><th>Qty</th><th>Client</th><th>Project</th><th>Unit</th></tr></thead><tbody>${htmlRows}</tbody></table>${
-    hasMore ? `<p class="hint">Showing ${previewRows.length} of ${totalRows} rows.</p>` : ""
-  }`;
+  mountDataTable(deliveryImportPreview, {
+    columns: ["SKU", "Description", "Finish", "Qty", "Client", "Project", "Unit"],
+    rowsHtml: htmlRows,
+    emptyMessage: "No recognized material rows found in this file.",
+    emptyColspan: 7,
+    afterHtml: hasMore ? `<p class="hint">Showing ${previewRows.length} of ${totalRows} rows.</p>` : "",
+  });
 }
 
 function findImportMatchByName(list, nameGetter, lookup) {
@@ -4758,7 +4766,11 @@ function renderOcrImportRowsPreview() {
   }
   const previewRows = ensureArray(ocrImportDraft.rows).slice(0, 12);
   if (!previewRows.length) {
-    ocrImportRowsPreview.innerHTML = `<table class="data-table"><tbody><tr><td>No recognized material rows found in extracted text.</td></tr></tbody></table>`;
+    mountDataTable(ocrImportRowsPreview, {
+      columns: ["SKU", "Description", "Finish", "Qty"],
+      emptyMessage: "No recognized material rows found in extracted text.",
+      emptyColspan: 4,
+    });
     return;
   }
 
@@ -4775,7 +4787,13 @@ function renderOcrImportRowsPreview() {
 
   const totalRows = ensureArray(ocrImportDraft.rows).length;
   const moreText = totalRows > previewRows.length ? `<p class="hint">Showing ${previewRows.length} of ${totalRows} rows.</p>` : "";
-  ocrImportRowsPreview.innerHTML = `<table class="data-table"><thead><tr><th>SKU</th><th>Description</th><th>Finish</th><th>Qty</th></tr></thead><tbody>${body}</tbody></table>${moreText}`;
+  mountDataTable(ocrImportRowsPreview, {
+    columns: ["SKU", "Description", "Finish", "Qty"],
+    rowsHtml: body,
+    emptyMessage: "No recognized material rows found in extracted text.",
+    emptyColspan: 4,
+    afterHtml: moreText,
+  });
 }
 
 async function analyzeOcrImportFile() {
@@ -4957,9 +4975,12 @@ function renderDeliveryInventoryTable() {
     })
     .join("");
 
-  deliveryInventoryTable.innerHTML = `<table class="data-table"><thead><tr><th>QR</th><th>SKU</th><th>Finish</th><th>Description</th><th>Total</th><th>Scanned</th><th>Available</th><th>Destination</th><th>Source</th><th>Updated</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="11">No delivery inventory items yet.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(deliveryInventoryTable, {
+    columns: ["QR", "SKU", "Finish", "Description", "Total", "Scanned", "Available", "Destination", "Source", "Updated", "Actions"],
+    rowsHtml: rows,
+    emptyMessage: "No delivery inventory items yet.",
+    emptyColspan: 11,
+  });
 
   deliveryInventoryTable.querySelectorAll("[data-delivery-copy-qr]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -6893,9 +6914,12 @@ function renderQrTrackTable(wrapper, container) {
     </tr>`
     )
     .join("");
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>QR</th><th>SKU</th><th>Item</th><th>Stage</th><th>Status</th><th>Unit</th><th>Kitchen Type</th><th>Updated</th><th>Label</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="9">No QR items generated.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    columns: ["QR", "SKU", "Item", "Stage", "Status", "Unit", "Kitchen Type", "Updated", "Label"],
+    rowsHtml: rows,
+    emptyMessage: "No QR items generated.",
+    emptyColspan: 9,
+  });
 }
 
 function renderQueueTable(wrapper, list) {
@@ -6915,9 +6939,12 @@ function renderQueueTable(wrapper, list) {
     </tr>`
     )
     .join("");
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>QR</th><th>SKU</th><th>Description</th><th>Unit</th><th>Issue</th><th>Detail</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="7">No records.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    columns: ["Date", "QR", "SKU", "Description", "Unit", "Issue", "Detail"],
+    rowsHtml: rows,
+    emptyMessage: "No records.",
+    emptyColspan: 7,
+  });
 }
 
 function materialQueueSummaryRows(listKey) {
@@ -6962,9 +6989,12 @@ function renderMaterialQueueSummaryTable(wrapper, rows) {
     </tr>`
     )
     .join("");
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>Container</th><th>Client</th><th>Project</th><th>QR</th><th>SKU</th><th>Description</th><th>Unit</th><th>Issue</th><th>Detail</th></tr></thead><tbody>${
-    body || '<tr><td colspan="10">No records.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    columns: ["Date", "Container", "Client", "Project", "QR", "SKU", "Description", "Unit", "Issue", "Detail"],
+    rowsHtml: body,
+    emptyMessage: "No records.",
+    emptyColspan: 10,
+  });
 }
 
 function renderManufactureCatalogSummaries() {
@@ -8402,7 +8432,12 @@ function renderContainerManifestDraft() {
     )
     .join("");
 
-  containerManifestDraftTable.innerHTML = `<table class="data-table"><thead><tr><th>Code</th><th>Description</th><th>Category</th><th>Qty</th><th>Unit</th><th>ADA/Normal</th><th>Specs</th><th>Mfr/Dist Code</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`;
+  mountDataTable(containerManifestDraftTable, {
+    columns: ["Code", "Description", "Category", "Qty", "Unit", "ADA/Normal", "Specs", "Mfr/Dist Code", "Action"],
+    rowsHtml: rows,
+    emptyMessage: "Add the planned items for this container. QR codes will be generated automatically when the container is created.",
+    emptyColspan: 9,
+  });
 
   containerManifestDraftTable.querySelectorAll("[data-container-draft-del]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -8604,20 +8639,26 @@ function renderClientSelectedProjectDetails(project) {
     ? checklistTemplate.map((entry) => `<tr><td>${escapeHtml(entry)}</td></tr>`).join("")
     : '<tr><td>No checklist template items registered.</td></tr>';
 
-  clientProjectDetailsTable.innerHTML = `
-    <table class="data-table">
-      <thead><tr><th>Field</th><th>Value</th></tr></thead>
-      <tbody>${detailRows}</tbody>
-    </table>
-    <table class="data-table">
-      <thead><tr><th>Scope of Work (all items)</th></tr></thead>
-      <tbody>${scopeRows}</tbody>
-    </table>
-    <table class="data-table">
-      <thead><tr><th>Unit checklist template</th></tr></thead>
-      <tbody>${checklistRows}</tbody>
-    </table>
-  `;
+  clientProjectDetailsTable.innerHTML = [
+    dataTableMarkup({
+      columns: ["Field", "Value"],
+      rowsHtml: detailRows,
+      emptyMessage: "No project detail fields available.",
+      emptyColspan: 2,
+    }),
+    dataTableMarkup({
+      columns: ["Scope of Work (all items)"],
+      rowsHtml: scopeRows,
+      emptyMessage: "No scope items registered.",
+      emptyColspan: 1,
+    }),
+    dataTableMarkup({
+      columns: ["Unit checklist template"],
+      rowsHtml: checklistRows,
+      emptyMessage: "No checklist template items registered.",
+      emptyColspan: 1,
+    }),
+  ].join("");
 }
 
 function renderClientProjectsList(client) {
@@ -8656,9 +8697,12 @@ function renderClientProjectsList(client) {
     })
     .join("");
 
-  clientProjectsList.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Address</th><th>Code</th><th>PM</th><th>PM Phone</th><th>Action</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="6">No projects registered for this client.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(clientProjectsList, {
+    columns: ["Project", "Address", "Code", "PM", "PM Phone", "Action"],
+    rowsHtml: rows,
+    emptyMessage: "No projects registered for this client.",
+    emptyColspan: 6,
+  });
 
   clientProjectsList.querySelectorAll("[data-client-detail-project]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -8962,6 +9006,53 @@ function htmlDataAttributes(attributes = {}) {
     .join("");
 }
 
+function dataTableHeaderRowHtml(columns = []) {
+  return `<tr>${ensureArray(columns)
+    .map((column) => {
+      if (typeof column === "string") return `<th>${column}</th>`;
+      if (!column) return "<th></th>";
+      return `<th${htmlDataAttributes(column.attrs || {})}>${column.html || escapeHtml(column.label || "")}</th>`;
+    })
+    .join("")}</tr>`;
+}
+
+function dataTableTableMarkup(config = {}) {
+  const columns = ensureArray(config.columns);
+  const headHtml = String(config.headHtml || "").trim() || dataTableHeaderRowHtml(columns);
+  const rowsHtml = String(config.rowsHtml || "");
+  const emptyMessage = String(config.emptyMessage || "No records found.");
+  const emptyColspan = Number(config.emptyColspan || columns.length || 1);
+  const tableClass = ["data-table", config.tableClass].filter(Boolean).join(" ");
+  const tbodyAttrs = htmlDataAttributes(config.tbodyAttrs || {});
+  return `<table class="${escapeHtml(tableClass)}"${htmlDataAttributes({
+    "data-table-renderer": "standard",
+    id: config.tableId || "",
+    ...config.tableAttrs,
+  })}>
+    ${headHtml ? `<thead>${headHtml}</thead>` : ""}
+    <tbody${tbodyAttrs}>${rowsHtml || `<tr><td colspan="${emptyColspan}">${escapeHtml(emptyMessage)}</td></tr>`}</tbody>
+  </table>`;
+}
+
+function dataTableMarkup(config = {}) {
+  const wrapClass = ["table-wrap", config.wrapClass].filter(Boolean).join(" ");
+  return `${config.beforeHtml || ""}<div class="${escapeHtml(wrapClass)}"${htmlDataAttributes(config.wrapAttrs || {})}>${dataTableTableMarkup(
+    config
+  )}</div>${config.afterHtml || ""}`;
+}
+
+function mountDataTable(target, config = {}) {
+  const anchor = typeof target === "string" ? document.getElementById(target) : target;
+  if (!anchor) return;
+  const beforeHtml = String(config.beforeHtml || "");
+  const afterHtml = String(config.afterHtml || "");
+  if (anchor.classList?.contains("table-wrap")) {
+    anchor.innerHTML = `${beforeHtml}${dataTableTableMarkup(config)}${afterHtml}`;
+    return;
+  }
+  anchor.innerHTML = dataTableMarkup(config);
+}
+
 function tableContextActionButtonHtml(action) {
   if (!action?.label) return "";
   const tone = action.tone === "danger" ? "danger" : action.tone === "primary" ? "primary" : "secondary";
@@ -9213,9 +9304,12 @@ function renderProjectsTable() {
     })
     .join("");
 
-  projectsTable.innerHTML = `<table class="data-table"><thead><tr><th>Project</th><th>Client</th><th>Code</th><th>Address</th><th>Floors</th><th>Apartments</th><th>Geofence</th><th>Scope</th><th>Unit checklist</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="9">No projects for the selected client.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(projectsTable, {
+    columns: ["Project", "Client", "Code", "Address", "Floors", "Apartments", "Geofence", "Scope", "Unit checklist"],
+    rowsHtml: rows,
+    emptyMessage: "No projects for the selected client.",
+    emptyColspan: 9,
+  });
 
   renderTableContextBar(projectsTable, {
     title: "Project actions",
@@ -9266,9 +9360,12 @@ function renderContactsTable() {
     })
     .join("");
 
-  contactsTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Job Title Project</th><th>Company</th><th>Client</th><th>Project</th><th>Phone</th><th>Email</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="7">No people registered for the selected client.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(contactsTable, {
+    columns: ["Name", "Job Title Project", "Company", "Client", "Project", "Phone", "Email"],
+    rowsHtml: rows,
+    emptyMessage: "No people registered for the selected client.",
+    emptyColspan: 7,
+  });
 
   renderTableContextBar(contactsTable, {
     title: "Contact actions",
@@ -9368,9 +9465,12 @@ function renderContractsTable() {
     })
     .join("");
 
-  contractsTable.innerHTML = `<table class="data-table"><thead><tr><th>Title</th><th>Code</th><th>Client</th><th>Project</th><th>Status</th><th>Signed</th><th>End</th><th>Value (USD)</th><th>Updated</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="9">No contracts registered for the selected client.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(contractsTable, {
+    columns: ["Title", "Code", "Client", "Project", "Status", "Signed", "End", "Value (USD)", "Updated"],
+    rowsHtml: rows,
+    emptyMessage: "No contracts registered for the selected client.",
+    emptyColspan: 9,
+  });
 
   renderTableContextBar(contractsTable, {
     title: "Contract actions",
@@ -9410,9 +9510,12 @@ function renderMaterialsTable() {
     )
     .join("");
 
-  materialsTable.innerHTML = `<table class="data-table"><thead><tr><th>SKU</th><th>Description</th><th>Category</th><th>Unit</th><th>Kitchen Type</th><th>Updated</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="6">No materials registered.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(materialsTable, {
+    columns: ["SKU", "Description", "Category", "Unit", "Kitchen Type", "Updated"],
+    rowsHtml: rows,
+    emptyMessage: "No materials registered.",
+    emptyColspan: 6,
+  });
 
   renderTableContextBar(materialsTable, {
     title: "Material actions",
@@ -9633,11 +9736,14 @@ function renderManifestTable(wrapper, container, editable, filters = {}, selecti
     )
     .join("");
 
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th class="manifest-select-col"><input type="checkbox" data-manifest-select-all ${
-    allVisibleSelected ? "checked" : ""
-  } ${filteredItems.length ? "" : "disabled"} aria-label="Select all visible manifest lines" /></th><th>Line</th><th>Code</th><th>Description</th><th>Category</th><th>Qty</th><th>Unit</th><th>ADA/Normal</th><th>Specs</th><th>Mfr/Dist Code</th><th>Issue</th><th>Route To</th><th>Detail</th><th>QR Count</th><th>Actions</th></tr></thead><tbody>${
-    rows || `<tr><td colspan="15">${hasActiveFilters ? "No manifest items for the selected filters." : "No manifest items."}</td></tr>`
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    headHtml: `<tr><th class="manifest-select-col"><input type="checkbox" data-manifest-select-all ${
+      allVisibleSelected ? "checked" : ""
+    } ${filteredItems.length ? "" : "disabled"} aria-label="Select all visible manifest lines" /></th><th>Line</th><th>Code</th><th>Description</th><th>Category</th><th>Qty</th><th>Unit</th><th>ADA/Normal</th><th>Specs</th><th>Mfr/Dist Code</th><th>Issue</th><th>Route To</th><th>Detail</th><th>QR Count</th><th>Actions</th></tr>`,
+    rowsHtml: rows,
+    emptyMessage: hasActiveFilters ? "No manifest items for the selected filters." : "No manifest items.",
+    emptyColspan: 15,
+  });
 }
 
 function renderReleaseTable(wrapper, container) {
@@ -9657,9 +9763,12 @@ function renderReleaseTable(wrapper, container) {
     })
     .join("");
 
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>Movement</th><th>Unit</th><th>Destination</th><th>Qty</th><th>Operator</th><th>Note</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="7">No movement records.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    columns: ["Date", "Movement", "Unit", "Destination", "Qty", "Operator", "Note"],
+    rowsHtml: rows,
+    emptyMessage: "No movement records.",
+    emptyColspan: 7,
+  });
 }
 
 function renderContainers() {
@@ -10363,70 +10472,63 @@ function checklistSummary(checkItems) {
 function renderChecklistTable(wrapper, unit) {
   const editable = can("checklist");
   if (!unit.checkItems.length) {
-    wrapper.innerHTML = `<p class="hint">No items registered.</p>`;
+    mountDataTable(wrapper, {
+      columns: ["Code", "Description", "QR codes", "Expected", "Checked", "Status", "Notes", ""],
+      emptyMessage: "No items registered.",
+      emptyColspan: 8,
+    });
     return;
   }
 
-  wrapper.innerHTML = `
-    <table class="data-table">
-      <thead>
+  const rowsHtml = unit.checkItems
+    .map((item) => {
+      const qrCodes = unitChecklistQrCodesText(item);
+      const firstQr = qrCodes[0] || "";
+      const extraQrCount = qrCodes.length > 1 ? qrCodes.length - 1 : 0;
+      const qrPreview = firstQr
+        ? `<img class="qr-thumb" src="${qrImageUrl(firstQr, 120)}" alt="QR for ${escapeHtml(item.description || item.code || "item")}" loading="lazy" />`
+        : `<span class="hint">No QR</span>`;
+      return `
         <tr>
-          <th>Code</th>
-          <th>Description</th>
-          <th>QR codes</th>
-          <th>Expected</th>
-          <th>Checked</th>
-          <th>Status</th>
-          <th>Notes</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        ${unit.checkItems
-          .map((item) => {
-            const qrCodes = unitChecklistQrCodesText(item);
-            const firstQr = qrCodes[0] || "";
-            const extraQrCount = qrCodes.length > 1 ? qrCodes.length - 1 : 0;
-            const qrPreview = firstQr
-              ? `<img class="qr-thumb" src="${qrImageUrl(firstQr, 120)}" alt="QR for ${escapeHtml(item.description || item.code || "item")}" loading="lazy" />`
-              : `<span class="hint">No QR</span>`;
-            return `
-            <tr>
-              <td>${escapeHtml(item.code)}</td>
-              <td>${escapeHtml(item.description)}</td>
-              <td>
-                <div class="qr-item-cell">
-                  ${qrPreview}
-                  ${qrCodes.length ? `<small>${qrCodes.length} label(s)${extraQrCount ? ` (+${extraQrCount} extra)` : ""}</small>` : ""}
-                  <div class="actions-inline">
-                    <button type="button" class="secondary xs-btn" data-item-qr-copy="${item.id}">Copy</button>
-                    <button type="button" class="secondary xs-btn" data-item-qr-print="${item.id}">Print</button>
-                    <button type="button" class="secondary xs-btn" data-item-qr-png="${item.id}">PNG</button>
-                  </div>
-                </div>
-              </td>
-              <td>${escapeHtml(item.expectedQty)}</td>
-              <td><input data-item-action="got" data-item-id="${item.id}" type="number" min="0" value="${Number(item.checkedQty || 0)}" ${
-                editable ? "" : "disabled"
-              } /></td>
-              <td>
-                <select data-item-action="status" data-item-id="${item.id}" ${editable ? "" : "disabled"}>
-                  <option value="ok" ${item.status === "ok" ? "selected" : ""}>OK</option>
-                  <option value="missing" ${item.status === "missing" ? "selected" : ""}>Missing</option>
-                  <option value="damaged" ${item.status === "damaged" ? "selected" : ""}>Damaged</option>
-                  <option value="adjustment" ${item.status === "adjustment" ? "selected" : ""}>Adjustment</option>
-                </select>
-              </td>
-              <td><input data-item-action="note" data-item-id="${item.id}" value="${escapeHtml(item.note || "")}" ${
-                editable ? "" : "disabled"
-              } /></td>
-              <td><button data-item-remove="${item.id}" class="danger xs-btn" ${editable ? "" : "disabled"}>x</button></td>
-            </tr>`
-          })
-          .join("")}
-      </tbody>
-    </table>
-  `;
+          <td>${escapeHtml(item.code)}</td>
+          <td>${escapeHtml(item.description)}</td>
+          <td>
+            <div class="qr-item-cell">
+              ${qrPreview}
+              ${qrCodes.length ? `<small>${qrCodes.length} label(s)${extraQrCount ? ` (+${extraQrCount} extra)` : ""}</small>` : ""}
+              <div class="actions-inline">
+                <button type="button" class="secondary xs-btn" data-item-qr-copy="${item.id}">Copy</button>
+                <button type="button" class="secondary xs-btn" data-item-qr-print="${item.id}">Print</button>
+                <button type="button" class="secondary xs-btn" data-item-qr-png="${item.id}">PNG</button>
+              </div>
+            </div>
+          </td>
+          <td>${escapeHtml(item.expectedQty)}</td>
+          <td><input data-item-action="got" data-item-id="${item.id}" type="number" min="0" value="${Number(item.checkedQty || 0)}" ${
+            editable ? "" : "disabled"
+          } /></td>
+          <td>
+            <select data-item-action="status" data-item-id="${item.id}" ${editable ? "" : "disabled"}>
+              <option value="ok" ${item.status === "ok" ? "selected" : ""}>OK</option>
+              <option value="missing" ${item.status === "missing" ? "selected" : ""}>Missing</option>
+              <option value="damaged" ${item.status === "damaged" ? "selected" : ""}>Damaged</option>
+              <option value="adjustment" ${item.status === "adjustment" ? "selected" : ""}>Adjustment</option>
+            </select>
+          </td>
+          <td><input data-item-action="note" data-item-id="${item.id}" value="${escapeHtml(item.note || "")}" ${
+            editable ? "" : "disabled"
+          } /></td>
+          <td><button data-item-remove="${item.id}" class="danger xs-btn" ${editable ? "" : "disabled"}>x</button></td>
+        </tr>`;
+    })
+    .join("");
+
+  mountDataTable(wrapper, {
+    columns: ["Code", "Description", "QR codes", "Expected", "Checked", "Status", "Notes", ""],
+    rowsHtml,
+    emptyMessage: "No items registered.",
+    emptyColspan: 8,
+  });
 }
 
 function bindChecklistEvents(node, unit) {
@@ -10545,9 +10647,13 @@ function renderDispatchTable(wrapper, unit, editable) {
     ? `Signed by ${escapeHtml(unit.dispatchSignature.byName)} at ${escapeHtml(fmtDate(unit.dispatchSignature.at))}`
     : "No dispatch signature";
 
-  wrapper.innerHTML = `<p class="hint">${signatureLine}</p><table class="data-table"><thead><tr><th>Item</th><th>Qty</th><th>Logged by</th><th>Date</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="5">No dispatch tasks.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    beforeHtml: `<p class="hint">${signatureLine}</p>`,
+    columns: ["Item", "Qty", "Logged by", "Date", "Actions"],
+    rowsHtml: rows,
+    emptyMessage: "No dispatch tasks.",
+    emptyColspan: 5,
+  });
 }
 
 function renderSiteReceiveTable(wrapper, unit, editable) {
@@ -10572,9 +10678,12 @@ function renderSiteReceiveTable(wrapper, unit, editable) {
     )
     .join("");
 
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>QR</th><th>Item</th><th>Qty</th><th>Issue</th><th>Detail</th><th>Received by</th><th>Date</th><th>Actions</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="8">No receipts recorded.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    columns: ["QR", "Item", "Qty", "Issue", "Detail", "Received by", "Date", "Actions"],
+    rowsHtml: rows,
+    emptyMessage: "No receipts recorded.",
+    emptyColspan: 8,
+  });
 }
 
 function renderAuditTable(wrapper, unit) {
@@ -10591,9 +10700,12 @@ function renderAuditTable(wrapper, unit) {
     )
     .join("");
 
-  wrapper.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>User</th><th>Action</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="3">No audited changes.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(wrapper, {
+    columns: ["Date", "User", "Action"],
+    rowsHtml: rows,
+    emptyMessage: "No audited changes.",
+    emptyColspan: 3,
+  });
 }
 
 function renderUnits() {
@@ -11802,9 +11914,12 @@ function renderWorkforceAdminPanel() {
       ? activeRows.find((entry) => entry.id === selectedWorkforceActiveEntryId) || null
       : null;
 
-    workforceActiveTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Assignment</th><th>Type</th><th>Mode</th><th>Check in</th><th>Elapsed</th></tr></thead><tbody>${
-      activeTableRows || '<tr><td colspan="8">No people currently checked in.</td></tr>'
-    }</tbody></table>`;
+    mountDataTable(workforceActiveTable, {
+      columns: ["Name", "Company", "Function", "Assignment", "Type", "Mode", "Check in", "Elapsed"],
+      rowsHtml: activeTableRows,
+      emptyMessage: "No people currently checked in.",
+      emptyColspan: 8,
+    });
 
     renderTableContextBar(workforceActiveTable, {
       title: "Check-in actions",
@@ -11838,9 +11953,12 @@ function renderWorkforceAdminPanel() {
     )
     .join("");
   if (workforceWeeklyTable) {
-    workforceWeeklyTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Function</th><th>Type</th><th>Projects / locations</th><th>Days</th><th>Total hours</th></tr></thead><tbody>${
-      weeklyRows || '<tr><td colspan="7">No employee hours found for this week/filter.</td></tr>'
-    }</tbody></table>`;
+    mountDataTable(workforceWeeklyTable, {
+      columns: ["Name", "Company", "Function", "Type", "Projects / locations", "Days", "Total hours"],
+      rowsHtml: weeklyRows,
+      emptyMessage: "No employee hours found for this week/filter.",
+      emptyColspan: 7,
+    });
   }
 
   const subcontractorRows = subcontractors
@@ -11859,9 +11977,12 @@ function renderWorkforceAdminPanel() {
     )
     .join("");
   if (workforceSubcontractorTable) {
-    workforceSubcontractorTable.innerHTML = `<table class="data-table"><thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th><th>Last checkout</th></tr></thead><tbody>${
-      subcontractorRows || '<tr><td colspan="8">No Sub Contractor presence found for this week/filter.</td></tr>'
-    }</tbody></table>`;
+    mountDataTable(workforceSubcontractorTable, {
+      columns: ["Project / location", "Company", "Person", "Function", "Work areas", "Days", "Tracked hours", "Last checkout"],
+      rowsHtml: subcontractorRows,
+      emptyMessage: "No Sub Contractor presence found for this week/filter.",
+      emptyColspan: 8,
+    });
   }
   renderTablePrintButtons();
 }
@@ -12395,9 +12516,23 @@ function renderAdminPanel() {
       })
       .join("");
     const selectedAdminEmployee = adminSelectedEmployeeId ? users.find((user) => user.id === adminSelectedEmployeeId) || null : null;
-    adminEmployeesTable.innerHTML = `<table class="data-table"><thead><tr><th>Name</th><th>Company</th><th>Job Title</th><th>System Role</th><th>Operational Access</th><th>Current status</th><th>Pay setup</th><th>Days</th><th>Hours</th><th>Total payment</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="10">No employees matched the current filters.</td></tr>'
-    }</tbody></table>`;
+    mountDataTable(adminEmployeesTable, {
+      columns: [
+        "Name",
+        "Company",
+        "Job Title",
+        "System Role",
+        "Operational Access",
+        "Current status",
+        "Pay setup",
+        "Days",
+        "Hours",
+        "Total payment",
+      ],
+      rowsHtml: rows,
+      emptyMessage: "No employees matched the current filters.",
+      emptyColspan: 10,
+    });
     renderTableContextBar(adminEmployeesTable, {
       title: "Employee actions",
       selected: Boolean(selectedAdminEmployee),
@@ -12443,9 +12578,24 @@ function renderAdminPanel() {
         </tr>`;
       })
       .join("");
-    adminPaymentsTable.innerHTML = `<table class="data-table"><thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Payment profile</th><th>Status</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="11">No payroll rows matched the current filters.</td></tr>'
-    }</tbody></table>`;
+    mountDataTable(adminPaymentsTable, {
+      columns: [
+        "Employee",
+        "Role",
+        "Worked days",
+        "Worked hours",
+        "Base pay",
+        "Reimbursements",
+        "Toll",
+        "Extra",
+        "Total payment",
+        "Payment profile",
+        "Status",
+      ],
+      rowsHtml: rows,
+      emptyMessage: "No payroll rows matched the current filters.",
+      emptyColspan: 11,
+    });
     renderTableContextBar(adminPaymentsTable, {
       title: "Weekly payment actions",
       selected: Boolean(selectedPaymentSnapshot),
@@ -12493,9 +12643,12 @@ function renderAdminPanel() {
         </tr>`
       )
       .join("");
-    adminReceiptsTable.innerHTML = `<table class="data-table"><thead><tr><th>Date</th><th>Employee</th><th>Category</th><th>Project</th><th>Amount</th><th>Status</th><th>Description</th><th>Attachment</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="8">No receipts matched the current filters.</td></tr>'
-    }</tbody></table>`;
+    mountDataTable(adminReceiptsTable, {
+      columns: ["Date", "Employee", "Category", "Project", "Amount", "Status", "Description", "Attachment"],
+      rowsHtml: rows,
+      emptyMessage: "No receipts matched the current filters.",
+      emptyColspan: 8,
+    });
     renderTableContextBar(adminReceiptsTable, {
       title: "Receipt actions",
       selected: Boolean(selectedReceiptRow),
@@ -12533,9 +12686,12 @@ function renderAdminPanel() {
         </tr>`
       )
       .join("");
-    adminSubcontractorTable.innerHTML = `<table class="data-table"><thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Work areas</th><th>Days</th><th>Tracked hours</th><th>Last checkout</th></tr></thead><tbody>${
-      rows || '<tr><td colspan="8">No Sub Contractor entries matched the current filters.</td></tr>'
-    }</tbody></table>`;
+    mountDataTable(adminSubcontractorTable, {
+      columns: ["Project / location", "Company", "Person", "Function", "Work areas", "Days", "Tracked hours", "Last checkout"],
+      rowsHtml: rows,
+      emptyMessage: "No Sub Contractor entries matched the current filters.",
+      emptyColspan: 8,
+    });
   }
 
   const selectedUser = adminSelectedEmployeeId ? users.find((user) => user.id === adminSelectedEmployeeId) || null : null;
@@ -13034,9 +13190,12 @@ function renderUsers() {
     })
     .join("");
 
-  usersTable.innerHTML = `<table class="data-table"><thead><tr><th>Photo</th><th>Name</th><th>Company</th><th>Job Title</th><th>Work status</th><th>Type</th><th>Email</th><th>User</th><th>System Role</th><th>Operational Access</th><th>Updated</th></tr></thead><tbody>${
-    rows || '<tr><td colspan="11">No visible users.</td></tr>'
-  }</tbody></table>`;
+  mountDataTable(usersTable, {
+    columns: ["Photo", "Name", "Company", "Job Title", "Work status", "Type", "Email", "User", "System Role", "Operational Access", "Updated"],
+    rowsHtml: rows,
+    emptyMessage: "No visible users.",
+    emptyColspan: 11,
+  });
 
   usersTable.querySelectorAll("[data-user-row]").forEach((row) => {
     row.addEventListener("click", () => {
@@ -13176,22 +13335,12 @@ function renderCoiReminderPanel() {
   coiReminderPanel.innerHTML = `
     <h3>COI Renewals</h3>
     <p class="hint">When 30 days remain before expiration, the system prepares the renewal email reminder.</p>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Company</th>
-            <th>Email</th>
-            <th>COI Expiration</th>
-            <th>Deadline Status</th>
-            <th>Reminder</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
+    ${dataTableMarkup({
+      columns: ["Name", "Company", "Email", "COI Expiration", "Deadline Status", "Reminder", "Actions"],
+      rowsHtml: rows,
+      emptyMessage: "No COI expiring in the next 30 days.",
+      emptyColspan: 7,
+    })}
   `;
 }
 
@@ -13461,43 +13610,24 @@ function renderDeveloperAuditPanel() {
   developerAuditPanel.innerHTML = `
     <h3 id="developerAuditLogSection">Audit Log (Developer)</h3>
     <p class="hint">Tracks exact field changes and navigation history by user.</p>
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>User</th>
-            <th>Type</th>
-            <th>Scope</th>
-            <th>Location</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>${rows || '<tr><td colspan="6">No audited changes found.</td></tr>'}</tbody>
-      </table>
-    </div>
+    ${dataTableMarkup({
+      columns: ["Date", "User", "Type", "Scope", "Location", "Action"],
+      rowsHtml: rows,
+      emptyMessage: "No audited changes found.",
+      emptyColspan: 6,
+    })}
     <details id="developerDeletedRecoverySection" class="trash-recovery-box" open>
       <summary><strong>Deleted Records Recovery (${RESTORE_WINDOW_LABEL})</strong></summary>
       <p class="hint">Hidden recycle area for deletes. Restore window is ${RESTORE_WINDOW_LABEL}.</p>
       <div class="row">
         <button class="secondary xs-btn" type="button" data-trash-purge-expired>Purge expired now</button>
       </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Deleted at</th>
-              <th>Deleted by</th>
-              <th>Store</th>
-              <th>Scope</th>
-              <th>Item</th>
-              <th>Time left</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>${deletedRows || '<tr><td colspan="7">No deleted records available for restore.</td></tr>'}</tbody>
-        </table>
-      </div>
+      ${dataTableMarkup({
+        columns: ["Deleted at", "Deleted by", "Store", "Scope", "Item", "Time left", "Actions"],
+        rowsHtml: deletedRows,
+        emptyMessage: "No deleted records available for restore.",
+        emptyColspan: 7,
+      })}
     </details>
   `;
 
@@ -13637,10 +13767,12 @@ function renderQrLookupPanel() {
       <button class="secondary" type="button" data-lookup-print="${escapeHtml(item.id)}">Print label (PDF/Print)</button>
       <button class="secondary" type="button" data-lookup-png="${escapeHtml(item.id)}">Download label PNG</button>
     </div>
-    <table class="data-table">
-      <thead><tr><th>Date</th><th>Source</th><th>Action</th><th>Detail</th></tr></thead>
-      <tbody>${eventRows || '<tr><td colspan="4">No events.</td></tr>'}</tbody>
-    </table>
+    ${dataTableMarkup({
+      columns: ["Date", "Source", "Action", "Detail"],
+      rowsHtml: eventRows,
+      emptyMessage: "No events.",
+      emptyColspan: 4,
+    })}
   `;
 
   const printBtn = qrLookupResult.querySelector("[data-lookup-print]");

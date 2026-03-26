@@ -7695,7 +7695,7 @@ function resolveLoginMatch(username, plainPassword, passwordHash) {
 async function refreshUsersForLogin({ timeoutMs = 6000 } = {}) {
   if (!syncEndpoint()) return false;
   if (!navigator.onLine) return false;
-  return withTimeout(pullCloud({ silent: true, force: true, kinds: ["user"] }), timeoutMs, false);
+  return withTimeout(pullCloud({ silent: true, force: true, kinds: ["user"], full: true }), timeoutMs, false);
 }
 
 async function finalizeLoginInBackground(userId) {

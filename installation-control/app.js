@@ -15925,10 +15925,10 @@ userForm?.addEventListener("change", () => {
 
 signupForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  setSignupStatus("Checking central user directory...");
-  setFormEnabled(signupForm, false);
   try {
     const data = new FormData(signupForm);
+    setSignupStatus("Checking central user directory...");
+    setFormEnabled(signupForm, false);
     const username = data.get("username")?.toString().trim().toLowerCase();
     const firstName = data.get("firstName")?.toString().trim() || "";
     const lastName = data.get("lastName")?.toString().trim() || "";
@@ -16056,9 +16056,9 @@ signupForm?.addEventListener("submit", async (event) => {
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
+    const data = new FormData(loginForm);
     setFormEnabled(loginForm, false);
     setLoginStatus("Checking device access...");
-    const data = new FormData(loginForm);
     const username = data.get("username")?.toString().trim().toLowerCase();
     const plainPassword = data.get("password")?.toString() || "";
     const passwordHash = await hashPassword(plainPassword);

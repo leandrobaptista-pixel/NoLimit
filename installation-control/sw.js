@@ -1,12 +1,12 @@
-const CACHE_NAME = "cabinets-control-v133";
+const CACHE_NAME = "cabinets-control-v134";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
-  "./styles.css?v=20260325-shell3",
+  "./styles.css?v=20260325-shell4",
   "./cloud-sync-config.js?v=20260309-deliverysku3",
   "./delivery-sku-seed.js?v=20260309-deliverysku3",
-  "./app.js?v=20260325-shell3",
+  "./app.js?v=20260325-shell4",
   "./manifest.webmanifest",
   "./icon.svg",
   "./avatar-male.svg",

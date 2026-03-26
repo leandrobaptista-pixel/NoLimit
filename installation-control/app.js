@@ -1239,6 +1239,8 @@ let workforceEmploymentFilter = "all";
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
 const bootErrorMessage = document.getElementById("bootErrorMessage");
+const bootRetryBtn = document.getElementById("bootRetryBtn");
+const bootResetBtn = document.getElementById("bootResetBtn");
 const setupPanel = document.getElementById("setupPanel");
 const loginPanel = document.getElementById("loginPanel");
 const signupPanel = document.getElementById("signupPanel");
@@ -2442,8 +2444,7 @@ function openDB() {
 }
 
 function showBootError(message) {
-  document.body.classList.add("auth-mode");
-  authView.classList.remove("hidden");
+  ensureAuthUiInteractive();
   appMain.classList.add("hidden");
   userBadge.classList.add("hidden");
   editProfileBtn?.classList.add("hidden");
@@ -2464,9 +2465,69 @@ function unlockAuthForm(form) {
   });
 }
 
+function ensureAuthUiInteractive() {
+  if (!authView) return;
+  document.body.classList.add("auth-mode");
+  authView.classList.remove("hidden");
+  authView.style.pointerEvents = "auto";
+  loginPanel?.style.setProperty("pointer-events", "auto");
+  signupPanel?.style.setProperty("pointer-events", "auto");
+  bootErrorPanel?.style.setProperty("pointer-events", "auto");
+  unlockAuthForm(loginForm);
+  unlockAuthForm(signupForm);
+  [loginUsernameInput, loginPasswordInput].forEach((field) => {
+    if (!field) return;
+    field.disabled = false;
+    field.readOnly = false;
+    field.removeAttribute("inert");
+    field.removeAttribute("aria-hidden");
+    field.style.pointerEvents = "auto";
+    field.style.userSelect = "text";
+  });
+}
+
 function focusAuthPrimaryField() {
   const target = signupPanel && !signupPanel.classList.contains("hidden") ? signupForm?.querySelector('input[name="firstName"]') : loginUsernameInput;
   window.setTimeout(() => target?.focus(), 90);
+}
+
+function deleteDatabaseByName(name) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error || new Error("Could not delete local database."));
+    request.onblocked = () => reject(new Error("Close other tabs with this app before resetting the device."));
+  });
+}
+
+async function resetLocalDeviceState() {
+  const confirmed = window.confirm(
+    "This will clear the local app cache and database on this device only. Cloud data will remain preserved. Continue?"
+  );
+  if (!confirmed) return;
+
+  try {
+    stopAutoPullLoop();
+    stopAutoTimeClock({ clearStatus: true });
+    clearSession();
+    currentUser = null;
+    if (db?.close) db.close();
+    db = null;
+
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+    if ("caches" in window) {
+      const cacheKeys = await caches.keys();
+      await Promise.all(cacheKeys.filter((key) => key.startsWith("cabinets-control-")).map((key) => caches.delete(key)));
+    }
+    await deleteDatabaseByName(DB_NAME);
+    window.location.reload();
+  } catch (error) {
+    console.error("Failed to reset local device state", error);
+    alert(error?.message || "Could not reset this device right now.");
+  }
 }
 
 function tx(storeName, mode = "readonly") {
@@ -7294,6 +7355,7 @@ async function tryRestoreSession() {
 
 function showSignupMode(show) {
   if (!loginPanel || !signupPanel) return;
+  ensureAuthUiInteractive();
   loginPanel.classList.toggle("hidden", show);
   signupPanel.classList.toggle("hidden", !show);
   unlockAuthForm(show ? signupForm : loginForm);
@@ -7331,16 +7393,13 @@ function renderAuth() {
   stopAutoTimeClock({ clearStatus: true });
   pendingTimeClockFocus = false;
   pendingPostLoginLanding = false;
-  document.body.classList.add("auth-mode");
+  ensureAuthUiInteractive();
   appMain.classList.add("hidden");
-  authView.classList.remove("hidden");
   userBadge.classList.add("hidden");
   editProfileBtn?.classList.add("hidden");
   logoutBtn.classList.add("hidden");
   setupPanel?.classList.add("hidden");
   showSignupMode(false);
-  unlockAuthForm(loginForm);
-  unlockAuthForm(signupForm);
   applyLanguageToUi();
   focusAuthPrimaryField();
 }
@@ -16988,11 +17047,26 @@ window.addEventListener("hashchange", () => {
 
 window.addEventListener("pageshow", () => {
   if (currentUser) return;
-  document.body.classList.add("auth-mode");
-  unlockAuthForm(loginForm);
-  unlockAuthForm(signupForm);
-  if (loginPasswordInput) loginPasswordInput.disabled = false;
+  ensureAuthUiInteractive();
   focusAuthPrimaryField();
+});
+
+window.addEventListener("focus", () => {
+  if (currentUser) return;
+  ensureAuthUiInteractive();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || currentUser) return;
+  ensureAuthUiInteractive();
+});
+
+bootRetryBtn?.addEventListener("click", () => {
+  window.location.reload();
+});
+
+bootResetBtn?.addEventListener("click", () => {
+  void resetLocalDeviceState();
 });
 
 async function registerServiceWorker() {
@@ -17004,6 +17078,8 @@ async function registerServiceWorker() {
     }
   }
 }
+
+ensureAuthUiInteractive();
 
 (async function init() {
   try {

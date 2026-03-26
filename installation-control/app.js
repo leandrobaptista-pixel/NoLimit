@@ -7628,6 +7628,39 @@ function userPasswordMatches(user, plainPassword, sha256Hash) {
   return legacy === plainPassword || legacy.toLowerCase() === inputHash;
 }
 
+function resolveLoginMatch(username, plainPassword, passwordHash) {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  const userByUsername = users.find((entry) => entry.username === normalizedUsername);
+  const user = users.find(
+    (entry) => entry.username === normalizedUsername && userPasswordMatches(entry, plainPassword, passwordHash)
+  );
+  return { userByUsername, user };
+}
+
+async function refreshUsersForLogin() {
+  if (!syncEndpoint()) return false;
+  if (!navigator.onLine) return false;
+  return pullCloud({ silent: true, force: true, kinds: ["user"] });
+}
+
+async function finalizeLoginInBackground(userId) {
+  try {
+    if (syncEndpoint() && navigator.onLine) {
+      await pullCloud({ silent: true, force: true });
+    }
+  } catch (error) {
+    console.error("Post-login pull failed", error);
+  }
+
+  try {
+    await setUserSessionState(userId, true, { bumpLoginAt: true });
+    if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
+    renderAuth();
+  } catch (error) {
+    console.error("Post-login session sync failed", error);
+  }
+}
+
 function loadAppAuditLog() {
   try {
     const raw = localStorage.getItem(APP_AUDIT_KEY);
@@ -15895,62 +15928,78 @@ signupForm?.addEventListener("submit", async (event) => {
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const data = new FormData(loginForm);
-  const username = data.get("username")?.toString().trim().toLowerCase();
-  const plainPassword = data.get("password")?.toString() || "";
-  const passwordHash = await hashPassword(plainPassword);
-  if (!syncEndpoint()) {
-    alert("System database is not available on this device. Contact your administrator.");
-    return;
-  }
-  const syncedUsers = await pullCloud({ silent: true, force: true, kinds: ["user"] });
-  if (!syncedUsers) {
-    alert("Could not validate users in database right now. Check connection and try again.");
-    return;
-  }
-
-  const userByUsername = users.find((entry) => entry.username === username);
-  const user = users.find((entry) => entry.username === username && userPasswordMatches(entry, plainPassword, passwordHash));
-  if (!user) {
-    if (!userByUsername) {
-      alert("User is not registered. Click 'Create Account' to register.");
+  try {
+    const data = new FormData(loginForm);
+    const username = data.get("username")?.toString().trim().toLowerCase();
+    const plainPassword = data.get("password")?.toString() || "";
+    const passwordHash = await hashPassword(plainPassword);
+    if (!username || !plainPassword) {
+      alert("Enter username and password to continue.");
       return;
     }
-    alert(t("Usuario ou senha invalidos."));
-    return;
+
+    let { userByUsername, user } = resolveLoginMatch(username, plainPassword, passwordHash);
+
+    if ((!userByUsername || !user) && syncEndpoint() && navigator.onLine) {
+      await refreshUsersForLogin();
+      ({ userByUsername, user } = resolveLoginMatch(username, plainPassword, passwordHash));
+    }
+
+    if (!user) {
+      if (!userByUsername) {
+        if (!syncEndpoint()) {
+          alert("This device is offline from the system database and does not have this user cached yet.");
+          return;
+        }
+        if (!navigator.onLine) {
+          alert("This user is not cached on this device right now. Connect to the internet and try again.");
+          return;
+        }
+        alert("User is not registered. Click 'Create Account' to register.");
+        return;
+      }
+      alert(t("Usuario ou senha invalidos."));
+      return;
+    }
+
+    const shouldMigratePassword =
+      Boolean(userLegacyPassword(user)) ||
+      !isSha256Hash(user.passwordHash) ||
+      String(user.passwordHash || "").trim().toLowerCase() !== passwordHash.toLowerCase();
+
+    if (shouldMigratePassword) {
+      const migratedUser = normalizeUser({
+        ...user,
+        passwordHash,
+        legacyPassword: "",
+        password: "",
+        updatedAt: new Date().toISOString(),
+      });
+      await put(USER_STORE, migratedUser);
+      await loadAll();
+      currentUser = users.find((entry) => entry.id === migratedUser.id) || migratedUser;
+      if (syncEndpoint() && navigator.onLine) {
+        void pushCloud({ silent: true, force: true, kinds: ["user"] });
+      }
+    } else {
+      currentUser = user;
+    }
+
+    hasAutoDispatchedCoiReminder = false;
+    setSession(currentUser.id);
+    pushAppAudit("Session login", "session", "auth");
+    window.history.replaceState(null, "", "#workday");
+    loginForm.reset();
+    pendingTimeClockFocus = true;
+    pendingPostLoginLanding = true;
+    await setUserSessionState(currentUser.id, true, { bumpLoginAt: true });
+    renderAuth();
+    void finalizeLoginInBackground(currentUser.id);
+  } catch (error) {
+    console.error("Login failed", error);
+    alert("Could not complete sign in on this device. Try again, or use 'Reset this device' if the app cache is stuck.");
+    ensureAuthUiInteractive();
   }
-
-  const shouldMigratePassword =
-    Boolean(userLegacyPassword(user)) ||
-    !isSha256Hash(user.passwordHash) ||
-    String(user.passwordHash || "").trim().toLowerCase() !== passwordHash.toLowerCase();
-
-  if (shouldMigratePassword) {
-    const migratedUser = normalizeUser({
-      ...user,
-      passwordHash,
-      legacyPassword: "",
-      password: "",
-      updatedAt: new Date().toISOString(),
-    });
-    await put(USER_STORE, migratedUser);
-    await loadAll();
-    currentUser = users.find((entry) => entry.id === migratedUser.id) || migratedUser;
-    await pushCloud({ silent: true, force: true, kinds: ["user"] });
-  } else {
-    currentUser = user;
-  }
-
-  hasAutoDispatchedCoiReminder = false;
-  setSession(user.id);
-  pushAppAudit("Session login", "session", "auth");
-  window.history.replaceState(null, "", "#workday");
-  loginForm.reset();
-  pendingTimeClockFocus = true;
-  pendingPostLoginLanding = true;
-  await pullCloud({ silent: true, force: true });
-  await setUserSessionState(user.id, true, { bumpLoginAt: true });
-  renderAuth();
 });
 
 logoutBtn.addEventListener("click", async () => {

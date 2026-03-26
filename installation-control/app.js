@@ -197,28 +197,42 @@ const DEFAULT_SYNC = {
   lastPullCursor: null,
 };
 
-const PRESET_SYNC = (() => {
+const FALLBACK_PRESET_SYNC = {
+  supabaseUrl: "https://ecbhaeiwnygplawlbnio.supabase.co",
+  supabaseAnonKey: "sb_publishable_LDBZuLzFMUo0xsugiKRpZA_qKeqeXeW",
+  tenant: "nolimit",
+  autoSync: true,
+};
+
+function getPresetSyncConfig() {
   const runtime = window.CABINETS_SYNC || {};
   return {
-    supabaseUrl: String(runtime.supabaseUrl || "").trim(),
-    supabaseAnonKey: String(runtime.supabaseAnonKey || "").trim(),
-    tenant: String(runtime.tenant || "").trim(),
-    autoSync: typeof runtime.autoSync === "boolean" ? runtime.autoSync : true,
+    supabaseUrl: String(runtime.supabaseUrl || FALLBACK_PRESET_SYNC.supabaseUrl || "").trim(),
+    supabaseAnonKey: String(runtime.supabaseAnonKey || FALLBACK_PRESET_SYNC.supabaseAnonKey || "").trim(),
+    tenant: String(runtime.tenant || FALLBACK_PRESET_SYNC.tenant || "").trim(),
+    autoSync:
+      typeof runtime.autoSync === "boolean"
+        ? runtime.autoSync
+        : typeof FALLBACK_PRESET_SYNC.autoSync === "boolean"
+          ? FALLBACK_PRESET_SYNC.autoSync
+          : true,
   };
-})();
+}
 
 function hasPresetSyncConfig() {
-  return Boolean(PRESET_SYNC.supabaseUrl && PRESET_SYNC.supabaseAnonKey && PRESET_SYNC.tenant);
+  const preset = getPresetSyncConfig();
+  return Boolean(preset.supabaseUrl && preset.supabaseAnonKey && preset.tenant);
 }
 
 function applyPresetSyncConfig(config) {
-  if (!hasPresetSyncConfig()) return config;
+  const preset = getPresetSyncConfig();
+  if (!(preset.supabaseUrl && preset.supabaseAnonKey && preset.tenant)) return config;
   return {
     ...config,
-    supabaseUrl: PRESET_SYNC.supabaseUrl,
-    supabaseAnonKey: PRESET_SYNC.supabaseAnonKey,
-    tenant: PRESET_SYNC.tenant,
-    autoSync: PRESET_SYNC.autoSync,
+    supabaseUrl: preset.supabaseUrl,
+    supabaseAnonKey: preset.supabaseAnonKey,
+    tenant: preset.tenant,
+    autoSync: preset.autoSync,
   };
 }
 

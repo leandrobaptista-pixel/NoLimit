@@ -1275,6 +1275,7 @@ const signupForm = document.getElementById("signupForm");
 const loginUsernameInput = document.getElementById("loginUsername");
 const loginPasswordInput = document.getElementById("loginPassword");
 const loginStatusMessage = document.getElementById("loginStatusMessage");
+const signupStatusMessage = document.getElementById("signupStatusMessage");
 const signupGenderSelect = document.getElementById("signupGender");
 const openSignupBtn = document.getElementById("openSignupBtn");
 const backToLoginBtn = document.getElementById("backToLoginBtn");
@@ -2561,6 +2562,19 @@ function setLoginStatus(message = "", isError = false) {
   if (!loginStatusMessage) return;
   loginStatusMessage.textContent = message;
   loginStatusMessage.style.color = isError ? "#b83232" : "";
+}
+
+function setSignupStatus(message = "", isError = false) {
+  if (!signupStatusMessage) return;
+  signupStatusMessage.textContent = message;
+  signupStatusMessage.style.color = isError ? "#b83232" : "";
+}
+
+function withTimeout(promise, timeoutMs, fallbackValue = false) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => window.setTimeout(() => resolve(fallbackValue), timeoutMs)),
+  ]);
 }
 
 function deleteDatabaseByName(name) {
@@ -7661,10 +7675,7 @@ function resolveLoginMatch(username, plainPassword, passwordHash) {
 async function refreshUsersForLogin({ timeoutMs = 6000 } = {}) {
   if (!syncEndpoint()) return false;
   if (!navigator.onLine) return false;
-  return Promise.race([
-    pullCloud({ silent: true, force: true, kinds: ["user"] }),
-    new Promise((resolve) => window.setTimeout(() => resolve(false), timeoutMs)),
-  ]);
+  return withTimeout(pullCloud({ silent: true, force: true, kinds: ["user"] }), timeoutMs, false);
 }
 
 async function finalizeLoginInBackground(userId) {
@@ -7833,7 +7844,10 @@ function showSignupMode(show) {
   ensureAuthUiInteractive();
   loginPanel.classList.toggle("hidden", show);
   signupPanel.classList.toggle("hidden", !show);
-  if (!show) setLoginStatus("");
+  if (!show) {
+    setLoginStatus("");
+    setSignupStatus("");
+  }
   unlockAuthForm(show ? signupForm : loginForm);
   focusAuthPrimaryField();
 }
@@ -14977,6 +14991,12 @@ function toUnit(formData) {
 }
 
 function syncEndpoint() {
+  if ((!syncConfig.supabaseUrl || !syncConfig.supabaseAnonKey || !syncConfig.tenant) && hasPresetSyncConfig()) {
+    syncConfig = applyPresetSyncConfig({
+      ...DEFAULT_SYNC,
+      ...syncConfig,
+    });
+  }
   const url = syncConfig.supabaseUrl.trim().replace(/\/$/, "");
   if (!url || !syncConfig.supabaseAnonKey || !syncConfig.tenant) return null;
   return `${url}/rest/v1/app_records`;
@@ -15096,6 +15116,12 @@ async function pushCloud({ silent = false, force = false, kinds = null } = {}) {
     if (!silent) console.error(error);
     return false;
   }
+}
+
+async function pushCloudForAuth({ silent = true, force = true, kinds = ["user"], timeoutMs = 8000 } = {}) {
+  if (!syncEndpoint()) return false;
+  if (!navigator.onLine) return false;
+  return withTimeout(pushCloud({ silent, force, kinds }), timeoutMs, false);
 }
 
 function newerThan(remoteTs, localTs) {
@@ -15854,107 +15880,138 @@ userForm?.addEventListener("change", () => {
 
 signupForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const data = new FormData(signupForm);
-  const username = data.get("username")?.toString().trim().toLowerCase();
-  const firstName = data.get("firstName")?.toString().trim() || "";
-  const lastName = data.get("lastName")?.toString().trim() || "";
-  const birthDate = normalizeDateField(data.get("birthDate"));
-  const fullName = `${firstName} ${lastName}`.trim();
-  if (!username) return;
-  if (!syncEndpoint()) {
-    alert("System database is not available on this device. Contact your administrator.");
-    return;
-  }
-  const syncedUsers = await pullCloud({ silent: true, force: true, kinds: ["user"] });
-  if (!syncedUsers) {
-    alert("Could not validate users in database right now. Check connection and try again.");
-    return;
-  }
-  if (users.some((user) => user.username === username)) {
-    alert(t("Usuario ja existe."));
-    return;
-  }
-  const photoFile = signupForm.querySelector('input[name="photo"]')?.files?.[0];
-  const photoDataUrl = photoFile ? await fileToDataUrl(photoFile) : "";
-  const employmentType = data.get("employmentType")?.toString() || "";
-  const gender = normalizeGender(data.get("gender"));
-  const contractorAreas = employmentType === "subcontractor" ? collectCheckedValues(signupForm, "contractorAreas") : [];
-  const contractorCoiExpiry = employmentType === "subcontractor" ? data.get("contractorCoiExpiry")?.toString() || "" : "";
-  const contractorCoiFileRaw = signupForm.querySelector('input[name="contractorCoiFile"]')?.files?.[0] || null;
-  let contractorCoiFile = null;
+  setSignupStatus("Checking central user directory...");
+  setFormEnabled(signupForm, false);
+  try {
+    const data = new FormData(signupForm);
+    const username = data.get("username")?.toString().trim().toLowerCase();
+    const firstName = data.get("firstName")?.toString().trim() || "";
+    const lastName = data.get("lastName")?.toString().trim() || "";
+    const birthDate = normalizeDateField(data.get("birthDate"));
+    const fullName = `${firstName} ${lastName}`.trim();
+    if (!username) {
+      setSignupStatus("Enter a username to continue.", true);
+      return;
+    }
+    if (!syncEndpoint()) {
+      setSignupStatus("System database is not available on this device.", true);
+      alert("System database is not available on this device. Contact your administrator.");
+      return;
+    }
 
-  if (employmentType === "subcontractor") {
-    if (!contractorCoiExpiry) {
-      alert("Fill in the COI expiration date.");
+    const syncedUsers = await refreshUsersForLogin({ timeoutMs: 8000 });
+    if (!syncedUsers && !users.length) {
+      setSignupStatus("Could not reach the central user directory right now.", true);
+      alert("Could not validate users in database right now. Check connection and try again.");
       return;
     }
-    const validation = validateCoiFile(contractorCoiFileRaw);
-    if (!validation.ok) {
-      alert(validation.message);
+    if (users.some((user) => user.username === username)) {
+      setSignupStatus("This username is already registered.", true);
+      alert(t("Usuario ja existe."));
       return;
     }
-    contractorCoiFile = {
-      name: contractorCoiFileRaw.name || "coi",
-      type: contractorCoiFileRaw.type || "",
-      dataUrl: await fileToDataUrl(contractorCoiFileRaw),
-      uploadedAt: new Date().toISOString(),
+
+    setSignupStatus("Preparing registration...");
+    const photoFile = signupForm.querySelector('input[name="photo"]')?.files?.[0];
+    const photoDataUrl = photoFile ? await fileToDataUrl(photoFile) : "";
+    const employmentType = data.get("employmentType")?.toString() || "";
+    const gender = normalizeGender(data.get("gender"));
+    const contractorAreas = employmentType === "subcontractor" ? collectCheckedValues(signupForm, "contractorAreas") : [];
+    const contractorCoiExpiry = employmentType === "subcontractor" ? data.get("contractorCoiExpiry")?.toString() || "" : "";
+    const contractorCoiFileRaw = signupForm.querySelector('input[name="contractorCoiFile"]')?.files?.[0] || null;
+    let contractorCoiFile = null;
+
+    if (employmentType === "subcontractor") {
+      if (!contractorCoiExpiry) {
+        setSignupStatus("Fill in the COI expiration date.", true);
+        alert("Fill in the COI expiration date.");
+        return;
+      }
+      const validation = validateCoiFile(contractorCoiFileRaw);
+      if (!validation.ok) {
+        setSignupStatus(validation.message, true);
+        alert(validation.message);
+        return;
+      }
+      contractorCoiFile = {
+        name: contractorCoiFileRaw.name || "coi",
+        type: contractorCoiFileRaw.type || "",
+        dataUrl: await fileToDataUrl(contractorCoiFileRaw),
+        uploadedAt: new Date().toISOString(),
+      };
+    }
+
+    const user = {
+      id: uid(),
+      name: fullName,
+      firstName,
+      lastName,
+      birthDate,
+      companyName: data.get("companyName")?.toString().trim() || "",
+      jobTitle: data.get("jobTitle")?.toString().trim() || "",
+      employmentType,
+      contractorCoi: employmentType === "subcontractor" ? data.get("contractorCoi")?.toString().trim() || "" : "",
+      contractorCoiExpiry,
+      contractorCoiFile,
+      contractorW9: employmentType === "subcontractor" ? data.get("contractorW9")?.toString().trim() || "" : "",
+      contractorAreas,
+      contractorCoiReminderSentAt: "",
+      contractorCoiReminderForExpiry: "",
+      address: data.get("address")?.toString().trim() || "",
+      phone: data.get("phone")?.toString().trim() || "",
+      cellPhone: data.get("cellPhone")?.toString().trim() || "",
+      email: data.get("email")?.toString().trim().toLowerCase() || "",
+      gender,
+      photoDataUrl,
+      username,
+      passwordHash: await hashPassword(data.get("password")?.toString() || ""),
+      systemRole: "employee",
+      accessProfile: "visitor",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
-  }
 
-  const user = {
-    id: uid(),
-    name: fullName,
-    firstName,
-    lastName,
-    birthDate,
-    companyName: data.get("companyName")?.toString().trim() || "",
-    jobTitle: data.get("jobTitle")?.toString().trim() || "",
-    employmentType,
-    contractorCoi: employmentType === "subcontractor" ? data.get("contractorCoi")?.toString().trim() || "" : "",
-    contractorCoiExpiry,
-    contractorCoiFile,
-    contractorW9: employmentType === "subcontractor" ? data.get("contractorW9")?.toString().trim() || "" : "",
-    contractorAreas,
-    contractorCoiReminderSentAt: "",
-    contractorCoiReminderForExpiry: "",
-    address: data.get("address")?.toString().trim() || "",
-    phone: data.get("phone")?.toString().trim() || "",
-    cellPhone: data.get("cellPhone")?.toString().trim() || "",
-    email: data.get("email")?.toString().trim().toLowerCase() || "",
-    gender,
-    photoDataUrl,
-    username,
-    passwordHash: await hashPassword(data.get("password")?.toString() || ""),
-    systemRole: "employee",
-    accessProfile: "visitor",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  await put(USER_STORE, normalizeUser(user));
-  await loadAll();
-  signupForm.reset();
-  toggleSubcontractorExtras("signup", "tag");
-  showSignupMode(false);
-  const pushed = await pushCloud({ silent: true, force: true, kinds: ["user"] });
-  if (!pushed) {
-    await del(USER_STORE, user.id);
+    setSignupStatus("Saving registration...");
+    await put(USER_STORE, normalizeUser(user));
     await loadAll();
-    alert("Could not save registration in the central database. Try again.");
-    return;
+
+    setSignupStatus("Sending registration to cloud...");
+    const pushed = await pushCloudForAuth({ kinds: ["user"], timeoutMs: 10000 });
+    if (!pushed) {
+      await del(USER_STORE, user.id);
+      await loadAll();
+      setSignupStatus("Could not save registration in the central database.", true);
+      alert("Could not save registration in the central database. Try again.");
+      return;
+    }
+
+    signupForm.reset();
+    toggleSubcontractorExtras("signup", "tag");
+    showSignupMode(false);
+    pushEntityAudit(
+      "Users",
+      "created",
+      `${user.name} (${user.username}) self-registration submitted with access profile "${user.accessProfile}"`,
+      "users"
+    );
+    setSignupStatus("");
+    alert("Registration submitted. An admin or developer can adjust your access profile and permissions.");
+    queueAutoSync();
+  } catch (error) {
+    console.error("Signup failed", error);
+    setSignupStatus("Could not complete registration on this device.", true);
+    alert("Could not complete registration on this device. Try again, or use 'Reset this device' if this browser cache is stuck.");
+    ensureAuthUiInteractive();
+    showSignupMode(true);
+  } finally {
+    unlockAuthForm(signupForm);
   }
-  pushEntityAudit(
-    "Users",
-    "created",
-    `${user.name} (${user.username}) self-registration submitted with access profile "${user.accessProfile}"`,
-    "users"
-  );
-  alert("Registration submitted. An admin or developer can adjust your access profile and permissions.");
-  queueAutoSync();
 });
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
+    setFormEnabled(loginForm, false);
     setLoginStatus("Checking device access...");
     const data = new FormData(loginForm);
     const username = data.get("username")?.toString().trim().toLowerCase();
@@ -16035,6 +16092,8 @@ loginForm.addEventListener("submit", async (event) => {
     setLoginStatus("Could not complete sign in on this device.", true);
     alert("Could not complete sign in on this device. Try again, or use 'Reset this device' if the app cache is stuck.");
     ensureAuthUiInteractive();
+  } finally {
+    unlockAuthForm(loginForm);
   }
 });
 

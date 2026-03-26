@@ -677,7 +677,14 @@ label {
   gap: 0.45rem;
 }
 
-.schedule-entry-people > div {
+.schedule-entry-briefs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.schedule-entry-people > div,
+.schedule-entry-briefs > div {
   display: grid;
   gap: 0.14rem;
   padding: 0.52rem 0.58rem;
@@ -685,7 +692,8 @@ label {
   background: rgba(241, 247, 253, 0.78);
 }
 
-.schedule-entry-people span {
+.schedule-entry-people span,
+.schedule-entry-briefs span {
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -693,7 +701,8 @@ label {
   color: #607e94;
 }
 
-.schedule-entry-people strong {
+.schedule-entry-people strong,
+.schedule-entry-briefs strong {
   font-size: 0.78rem;
   line-height: 1.35;
   color: #17384a;

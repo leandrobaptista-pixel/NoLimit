@@ -7,7 +7,7 @@
     <title>Cabinets Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260326-planner1" />
+    <link rel="stylesheet" href="styles.css?v=20260326-taskplans1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -1283,6 +1283,52 @@
           </form>
           <p id="workforceAdminStatus" class="hint"></p>
           <div id="workforceSummaryCards" class="workforce-summary-grid"></div>
+          <article id="workforceTaskPlanSection" class="subpanel table-page-section workforce-planner-section">
+            <div class="row admin-section-head">
+              <div>
+                <h4>Worker task planner</h4>
+                <p class="hint">Assign tomorrow or weekly tasks per worker so they appear as soon as the worker opens Workday Quick Access.</p>
+              </div>
+            </div>
+            <p id="workforceTaskPlanStatus" class="hint"></p>
+            <form id="workforceTaskPlanForm" class="grid-form compact">
+              <input type="hidden" name="planId" />
+              <label>Date
+                <input name="date" type="date" required />
+              </label>
+              <label>Employee
+                <select id="workforceTaskPlanEmployeeSelect" name="userId" required>
+                  <option value="">Select employee</option>
+                </select>
+              </label>
+              <label>Project
+                <select id="workforceTaskPlanProjectSelect" name="projectId">
+                  <option value="">Support location / custom</option>
+                </select>
+              </label>
+              <label>Location
+                <input id="workforceTaskPlanLocationInput" name="location" type="text" placeholder="Project address, office, warehouse..." required />
+              </label>
+              <label>Foreman / responsible
+                <input id="workforceTaskPlanForemanInput" name="foremanName" type="text" placeholder="Responsible lead for the day" />
+              </label>
+              <label class="full">What to do
+                <textarea name="taskDescription" rows="3" placeholder="Describe the main task for this worker." required></textarea>
+              </label>
+              <label class="full">Daily needs
+                <textarea name="dailyNeeds" rows="3" placeholder="Material, access notes, tools, PPE, arrival time, or support needed."></textarea>
+              </label>
+              <label class="full">Week outlook
+                <textarea name="weekOutlook" rows="3" placeholder="Optional weekly projection or next steps if the rest of the week is already planned."></textarea>
+              </label>
+              <div class="row full">
+                <button class="primary" type="submit">Save</button>
+                <button id="workforceTaskPlanDeleteBtn" class="danger" type="button">Delete</button>
+                <button id="workforceTaskPlanResetBtn" class="secondary" type="button">Cancel</button>
+              </div>
+            </form>
+            <div id="workforceTaskPlanTable" class="table-wrap page-table-wrap"></div>
+          </article>
           <article id="workforceWeeklyPlannerSection" class="subpanel table-page-section workforce-planner-section">
             <div class="row admin-section-head">
               <div>
@@ -1896,6 +1942,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260326-planner1" defer></script>
+    <script src="app.js?v=20260326-taskplans1" defer></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 const DB_NAME = "cabinets-control-db";
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 const UNIT_STORE = "units";
 const PHOTO_STORE = "photos";
 const USER_STORE = "users";
@@ -14,6 +14,7 @@ const DELIVERY_SKU_STORE = "deliverySkuItems";
 const TIME_ENTRY_STORE = "timeEntries";
 const RECEIPT_STORE = "receipts";
 const PAYMENT_STORE = "weeklyPayments";
+const WORKFORCE_PLAN_STORE = "workforcePlans";
 const TRASH_STORE = "deletedRecords";
 const SESSION_KEY = "cc-session-user-id";
 const APP_AUDIT_KEY = "cc-app-audit-log";
@@ -144,6 +145,7 @@ const SECTION_SHORTCUTS = {
     { id: "adminReceiptSection", label: "Receipt Upload & Expense Management" },
     { id: "adminSubcontractorSection", label: "Sub Contractor Presence" },
     { id: "workforceAdminPanel", label: "Workforce Control" },
+    { id: "workforceTaskPlanSection", label: "Worker task planner" },
     { id: "workforceWeeklyPlannerSection", label: "Weekly team planning board" },
     { id: "adminCheckedInSection", label: "People currently checked in" },
     { id: "adminPayrollHoursSection", label: "Weekly payroll hours" },
@@ -1149,6 +1151,7 @@ let deliverySkuItems = [];
 let timeEntries = [];
 let receipts = [];
 let weeklyPayments = [];
+let workforcePlans = [];
 let trashRecords = [];
 let deliveryImportDraft = null;
 let ocrImportDraft = null;
@@ -1177,6 +1180,7 @@ const AUTO_PULL_KINDS = [
   "timeEntry",
   "receipt",
   "payment",
+  "workforcePlan",
   "trash",
 ];
 let currentView = "home";
@@ -1187,6 +1191,7 @@ let adminSelectedEmployeeId = "";
 let adminEditingReceiptId = "";
 let selectedAdminPaymentUserId = "";
 let selectedWorkforceActiveEntryId = "";
+let selectedWorkforceTaskPlanId = "";
 let userAdminFormOpen = false;
 let usersSubView = "directory";
 let lastQrLookupCode = "";
@@ -1495,6 +1500,16 @@ const workforceProjectFilterSelect = document.getElementById("workforceProjectFi
 const workforceEmploymentFilterSelect = document.getElementById("workforceEmploymentFilterSelect");
 const workforceAdminStatus = document.getElementById("workforceAdminStatus");
 const workforceSummaryCards = document.getElementById("workforceSummaryCards");
+const workforceTaskPlanSection = document.getElementById("workforceTaskPlanSection");
+const workforceTaskPlanStatus = document.getElementById("workforceTaskPlanStatus");
+const workforceTaskPlanForm = document.getElementById("workforceTaskPlanForm");
+const workforceTaskPlanEmployeeSelect = document.getElementById("workforceTaskPlanEmployeeSelect");
+const workforceTaskPlanProjectSelect = document.getElementById("workforceTaskPlanProjectSelect");
+const workforceTaskPlanLocationInput = document.getElementById("workforceTaskPlanLocationInput");
+const workforceTaskPlanForemanInput = document.getElementById("workforceTaskPlanForemanInput");
+const workforceTaskPlanDeleteBtn = document.getElementById("workforceTaskPlanDeleteBtn");
+const workforceTaskPlanResetBtn = document.getElementById("workforceTaskPlanResetBtn");
+const workforceTaskPlanTable = document.getElementById("workforceTaskPlanTable");
 const workforceWeeklyPlannerSection = document.getElementById("workforceWeeklyPlannerSection");
 const workforceWeeklyPlannerBoard = document.getElementById("workforceWeeklyPlannerBoard");
 const workforceActiveTable = document.getElementById("workforceActiveTable");
@@ -1969,7 +1984,7 @@ function buildWorkspaceShellState() {
         `${containers.filter((entry) => entry.arrivalStatus === "delayed").length} delayed container(s) need follow-up.`,
         `${pendingReceipts} receipt(s) and ${pendingPayments} payment review(s) are waiting in Admin.`,
         nextSchedule
-          ? `Next assignment: ${nextSchedule.projectName || "Project"} on ${fmtDateOnly(nextSchedule.date)} at ${scheduleEntryLocationLabel(nextSchedule)}.`
+          ? `Next assignment: ${nextSchedule.projectName || nextSchedule.location || "Assignment"} on ${fmtDateOnly(nextSchedule.date)} at ${scheduleEntryLocationLabel(nextSchedule)}.`
           : "No personal assignment has been scheduled yet.",
       ],
     };
@@ -2250,6 +2265,13 @@ function formatMinutesCompact(totalMinutes) {
   return `${hours}h ${String(minutes).padStart(2, "0")}m`;
 }
 
+function compactTextSummary(value, max = 88) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "-";
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
 function isoDateFromValue(value = new Date()) {
   const base = value instanceof Date ? new Date(value.getTime()) : new Date(value);
   if (!Number.isFinite(base.getTime())) return "";
@@ -2462,6 +2484,7 @@ function openDB() {
       if (!dbRef.objectStoreNames.contains(TIME_ENTRY_STORE)) dbRef.createObjectStore(TIME_ENTRY_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(RECEIPT_STORE)) dbRef.createObjectStore(RECEIPT_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(PAYMENT_STORE)) dbRef.createObjectStore(PAYMENT_STORE, { keyPath: "id" });
+      if (!dbRef.objectStoreNames.contains(WORKFORCE_PLAN_STORE)) dbRef.createObjectStore(WORKFORCE_PLAN_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(TRASH_STORE)) dbRef.createObjectStore(TRASH_STORE, { keyPath: "id" });
     };
 
@@ -2637,6 +2660,7 @@ function normalizeRecordForStore(storeName, payload) {
   if (storeName === DELIVERY_SKU_STORE) return normalizeDeliverySkuItem(payload);
   if (storeName === RECEIPT_STORE) return normalizeReceipt(payload);
   if (storeName === PAYMENT_STORE) return normalizeWeeklyPayment(payload);
+  if (storeName === WORKFORCE_PLAN_STORE) return normalizeWorkforcePlan(payload);
   if (storeName === TRASH_STORE) return normalizeTrashRecord(payload);
   return payload;
 }
@@ -3247,6 +3271,46 @@ function normalizeTimeEntry(entry) {
   };
 }
 
+function normalizeWorkforcePlan(plan) {
+  const date = normalizeDateField(plan?.date) || isoDateFromValue(new Date());
+  return {
+    id: plan?.id || uid(),
+    kind: "workforcePlan",
+    userId: String(plan?.userId || "").trim(),
+    userName: String(plan?.userName || "").trim(),
+    employmentType: String(plan?.employmentType || "").trim(),
+    companyName: String(plan?.companyName || "").trim(),
+    jobTitle: String(plan?.jobTitle || "").trim(),
+    projectId: String(plan?.projectId || "").trim(),
+    projectName: String(plan?.projectName || "").trim(),
+    location: String(plan?.location || "").trim(),
+    foremanName: String(plan?.foremanName || "").trim(),
+    foremanKind: String(plan?.foremanKind || "text").trim() || "text",
+    dailyNeeds: String(plan?.dailyNeeds || "").trim(),
+    taskDescription: String(plan?.taskDescription || "").trim(),
+    description: String(plan?.taskDescription || plan?.description || "").trim(),
+    weekOutlook: String(plan?.weekOutlook || "").trim(),
+    date,
+    createdByUserId: String(plan?.createdByUserId || "").trim(),
+    createdByName: String(plan?.createdByName || "").trim(),
+    auditLog: ensureArray(plan?.auditLog),
+    createdAt: String(plan?.createdAt || "").trim() || new Date().toISOString(),
+    updatedAt: String(plan?.updatedAt || "").trim() || String(plan?.createdAt || "").trim() || new Date().toISOString(),
+  };
+}
+
+function workforcePlanDateMs(plan) {
+  return scheduleEntryDateMs(plan);
+}
+
+function workforcePlansForUser(user, { startMs = 0, endMs = Number.POSITIVE_INFINITY } = {}) {
+  if (!user) return [];
+  return workforcePlans.filter((plan) => {
+    const dateMs = workforcePlanDateMs(plan);
+    return plan.userId === user.id && dateMs >= startMs && dateMs < endMs;
+  });
+}
+
 function scheduleEntryDateMs(entry) {
   const iso = normalizeDateField(entry?.date);
   if (!iso) return 0;
@@ -3786,6 +3850,7 @@ async function loadAll() {
     timeEntryRows,
     receiptRows,
     paymentRows,
+    workforcePlanRows,
     trashRows,
   ] =
     await Promise.all([
@@ -3803,6 +3868,7 @@ async function loadAll() {
       getAll(TIME_ENTRY_STORE),
       getAll(RECEIPT_STORE),
       getAll(PAYMENT_STORE),
+      getAll(WORKFORCE_PLAN_STORE),
       getAll(TRASH_STORE),
     ]);
 
@@ -3834,6 +3900,9 @@ async function loadAll() {
   weeklyPayments = paymentRows
     .map(normalizeWeeklyPayment)
     .sort((a, b) => new Date(b.weekStart || 0).getTime() - new Date(a.weekStart || 0).getTime() || a.userId.localeCompare(b.userId));
+  workforcePlans = workforcePlanRows
+    .map(normalizeWorkforcePlan)
+    .sort((a, b) => workforcePlanDateMs(a) - workforcePlanDateMs(b) || (a.userName || "").localeCompare(b.userName || ""));
   const normalizedTrash = trashRows.map(normalizeTrashRecord);
   const expiredTrashIds = normalizedTrash.filter((row) => isTrashRecordExpired(row)).map((row) => row.id);
   trashRecords = normalizedTrash
@@ -3992,6 +4061,7 @@ function trashStoreLabel(storeName) {
   if (storeName === DELIVERY_SKU_STORE) return "Delivery Inventory";
   if (storeName === RECEIPT_STORE) return "Receipts";
   if (storeName === PAYMENT_STORE) return "Weekly Payments";
+  if (storeName === WORKFORCE_PLAN_STORE) return "Worker Task Plans";
   return storeName || "Record";
 }
 
@@ -12308,6 +12378,159 @@ function workforceAdminAggregates() {
   };
 }
 
+function workforcePlannableUsers() {
+  return adminVisibleUsers()
+    .filter((user) => String(user.employmentType || "").toLowerCase() !== "supplier")
+    .sort((a, b) => (a.name || a.username || "").localeCompare(b.name || b.username || ""));
+}
+
+function workforceFilteredTaskPlans(range = weekRangeFromAnchor(workforceWeekAnchor || new Date())) {
+  return workforcePlans
+    .filter((plan) => {
+      const dateMs = workforcePlanDateMs(plan);
+      if (dateMs < range.startMs || dateMs >= range.endMs) return false;
+      if (workforceProjectFilter && plan.projectId !== workforceProjectFilter) return false;
+      if (workforceEmploymentFilter !== "all" && plan.employmentType !== workforceEmploymentFilter) return false;
+      return true;
+    })
+    .sort((a, b) => workforcePlanDateMs(a) - workforcePlanDateMs(b) || (a.userName || "").localeCompare(b.userName || ""));
+}
+
+function resetWorkforceTaskPlanForm() {
+  if (!workforceTaskPlanForm) return;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  workforceTaskPlanForm.reset();
+  if (workforceTaskPlanForm.elements.planId) workforceTaskPlanForm.elements.planId.value = "";
+  if (workforceTaskPlanEmployeeSelect) workforceTaskPlanEmployeeSelect.value = "";
+  populateProjectSelect(workforceTaskPlanProjectSelect, {
+    allowBlankLabel: "Support location / custom",
+    currentValue: "",
+  });
+  if (workforceTaskPlanLocationInput) workforceTaskPlanLocationInput.value = "";
+  if (workforceTaskPlanForemanInput) workforceTaskPlanForemanInput.value = "";
+  if (workforceTaskPlanForm.elements.date) workforceTaskPlanForm.elements.date.value = isoDateFromValue(tomorrow);
+  if (workforceTaskPlanDeleteBtn) workforceTaskPlanDeleteBtn.disabled = true;
+}
+
+function populateWorkforceTaskPlanForm(plan) {
+  if (!workforceTaskPlanForm || !plan) return;
+  if (workforceTaskPlanForm.elements.planId) workforceTaskPlanForm.elements.planId.value = plan.id;
+  if (workforceTaskPlanForm.elements.date) workforceTaskPlanForm.elements.date.value = plan.date || "";
+  if (workforceTaskPlanEmployeeSelect) workforceTaskPlanEmployeeSelect.value = plan.userId || "";
+  populateProjectSelect(workforceTaskPlanProjectSelect, {
+    allowBlankLabel: "Support location / custom",
+    currentValue: plan.projectId || "",
+  });
+  if (workforceTaskPlanLocationInput) workforceTaskPlanLocationInput.value = plan.location || "";
+  if (workforceTaskPlanForemanInput) workforceTaskPlanForemanInput.value = plan.foremanName || "";
+  if (workforceTaskPlanForm.elements.taskDescription) workforceTaskPlanForm.elements.taskDescription.value = plan.taskDescription || "";
+  if (workforceTaskPlanForm.elements.dailyNeeds) workforceTaskPlanForm.elements.dailyNeeds.value = plan.dailyNeeds || "";
+  if (workforceTaskPlanForm.elements.weekOutlook) workforceTaskPlanForm.elements.weekOutlook.value = plan.weekOutlook || "";
+  if (workforceTaskPlanDeleteBtn) workforceTaskPlanDeleteBtn.disabled = false;
+}
+
+async function deleteWorkforceTaskPlanRecord(planId) {
+  if (!can("accessAdmin")) return;
+  const target = workforcePlans.find((plan) => plan.id === planId);
+  if (!target) return;
+  const confirmed = confirmDeleteAction(`worker task plan for "${target.userName || "selected worker"}" on ${fmtDateOnly(target.date)}`);
+  if (!confirmed) return;
+
+  pushEntityAudit(
+    "Workforce plans",
+    "deleted",
+    `${target.userName || "-"} | ${fmtDateOnly(target.date)} | ${target.projectName || target.location || "-"}`,
+    "workforce"
+  );
+  await trashDeleteRecord(WORKFORCE_PLAN_STORE, target, {
+    label: `Worker task plan: ${target.userName || "-"} • ${fmtDateOnly(target.date)}`,
+    scope: "workforce-plans",
+  });
+  selectedWorkforceTaskPlanId = "";
+  await loadAll();
+  render();
+  queueAutoSync();
+}
+
+function renderWorkforceTaskPlanSection(range = weekRangeFromAnchor(workforceWeekAnchor || new Date())) {
+  if (!workforceTaskPlanSection) return;
+  const allowed = can("accessAdmin");
+  workforceTaskPlanSection.classList.toggle("hidden", !allowed);
+  if (!allowed) return;
+
+  const taskUsers = workforcePlannableUsers();
+  const currentEmployeeValue = workforceTaskPlanEmployeeSelect?.value || "";
+  if (workforceTaskPlanEmployeeSelect) {
+    workforceTaskPlanEmployeeSelect.innerHTML = `<option value="">Select employee</option>${taskUsers
+      .map(
+        (user) =>
+          `<option value="${escapeHtml(user.id)}">${escapeHtml(
+            `${user.name || user.username || "User"} • ${user.companyName || "No company"} • ${user.jobTitle || user.employmentType || "No role"}`
+          )}</option>`
+      )
+      .join("")}`;
+    if (taskUsers.some((user) => user.id === currentEmployeeValue)) workforceTaskPlanEmployeeSelect.value = currentEmployeeValue;
+  }
+
+  const selectedPlan = selectedWorkforceTaskPlanId ? workforcePlans.find((plan) => plan.id === selectedWorkforceTaskPlanId) || null : null;
+  if (selectedWorkforceTaskPlanId && !selectedPlan) selectedWorkforceTaskPlanId = "";
+  populateProjectSelect(workforceTaskPlanProjectSelect, {
+    allowBlankLabel: "Support location / custom",
+    currentValue: selectedPlan?.projectId || workforceTaskPlanProjectSelect?.value || "",
+  });
+
+  if (selectedPlan) populateWorkforceTaskPlanForm(selectedPlan);
+  else if (!workforceTaskPlanForm?.elements?.planId?.value) resetWorkforceTaskPlanForm();
+
+  const filteredPlans = workforceFilteredTaskPlans(range);
+  if (selectedWorkforceTaskPlanId && !filteredPlans.some((plan) => plan.id === selectedWorkforceTaskPlanId) && !selectedPlan) {
+    selectedWorkforceTaskPlanId = "";
+  }
+
+  if (workforceTaskPlanStatus) {
+    workforceTaskPlanStatus.textContent = selectedPlan
+      ? `Editing ${selectedPlan.userName || "worker"} for ${fmtDateOnly(selectedPlan.date)} • ${selectedPlan.projectName || selectedPlan.location || "Custom location"}`
+      : `${filteredPlans.length} worker task plan(s) matched the current week and filter.`;
+  }
+
+  const rows = filteredPlans
+    .map(
+      (plan) => `<tr class="${plan.id === selectedWorkforceTaskPlanId ? "selected-row" : ""}" data-workforce-task-plan-row="${escapeHtml(plan.id)}">
+        <td>${escapeHtml(fmtDateOnly(plan.date))}</td>
+        <td>${escapeHtml(plan.userName || "-")}</td>
+        <td>${escapeHtml(plan.companyName || "-")}</td>
+        <td>${escapeHtml(plan.projectName || plan.location || "-")}</td>
+        <td>${escapeHtml(plan.foremanName || "-")}</td>
+        <td>${escapeHtml(compactTextSummary(plan.taskDescription))}</td>
+        <td>${escapeHtml(compactTextSummary(plan.dailyNeeds))}</td>
+        <td>${escapeHtml(compactTextSummary(plan.weekOutlook))}</td>
+      </tr>`
+    )
+    .join("");
+
+  if (workforceTaskPlanTable) {
+    mountDataTable(workforceTaskPlanTable, {
+      columns: ["Date", "Employee", "Company", "Project / location", "Foreman", "What to do", "Daily needs", "Week outlook"],
+      rowsHtml: rows,
+      emptyMessage: "No worker task plans were created for this week/filter yet.",
+      emptyColspan: 8,
+    });
+    renderTableContextBar(workforceTaskPlanTable, {
+      title: "Worker task planner",
+      selected: Boolean(selectedPlan),
+      name: selectedPlan ? `${selectedPlan.userName || "Selected worker"} • ${fmtDateOnly(selectedPlan.date)}` : "No task plan selected",
+      detail: selectedPlan
+        ? `${selectedPlan.projectName || selectedPlan.location || "Custom location"} • ${compactTextSummary(selectedPlan.taskDescription, 72)}`
+        : "Select a row to edit the worker plan in the form above.",
+    });
+    bindSelectableRows(workforceTaskPlanTable, "[data-workforce-task-plan-row]", (row) => {
+      selectedWorkforceTaskPlanId = row.dataset.workforceTaskPlanRow || "";
+      renderWorkforceAdminPanel();
+    });
+  }
+}
+
 function renderTimeClockPanel() {
   if (!timeClockPanel) return;
   const allowed = canUseTimeClock();
@@ -12453,9 +12676,10 @@ function renderWorkforceAdminPanel() {
   const activeRows = activeTimeEntries().filter((entry) => workforceMatchesEntry(entry));
   const { range, employees, subcontractors, entries } = workforceAdminAggregates();
   const plannerState = workforceWeeklyPlannerState(range);
+  const taskPlans = workforceFilteredTaskPlans(range);
 
   if (workforceAdminStatus) {
-    workforceAdminStatus.textContent = `Week starting ${fmtDateOnly(range.startIso)} | ${entries.length} time record(s) and ${plannerState.items.length} schedule entr${plannerState.items.length === 1 ? "y" : "ies"} matched the current filter.`;
+    workforceAdminStatus.textContent = `Week starting ${fmtDateOnly(range.startIso)} | ${entries.length} time record(s), ${plannerState.items.length} crew schedule entr${plannerState.items.length === 1 ? "y" : "ies"}, and ${taskPlans.length} worker task plan(s) matched the current filter.`;
   }
 
   if (workforceSummaryCards) {
@@ -12488,9 +12712,14 @@ function renderWorkforceAdminPanel() {
         <span>People in weekly plan</span>
         <strong>${plannerState.scheduledPeopleCount}</strong>
       </article>
+      <article class="workforce-summary-card">
+        <span>Worker task plans</span>
+        <strong>${taskPlans.length}</strong>
+      </article>
     `;
   }
 
+  renderWorkforceTaskPlanSection(range);
   renderWorkforceWeeklyPlanner(plannerState);
 
   const activeTableRows = activeRows
@@ -12591,6 +12820,7 @@ function renderWorkforceAdminPanel() {
 function generateWorkforceWeeklyReport() {
   const { range, employees, subcontractors, entries } = workforceAdminAggregates();
   const plannerState = workforceWeeklyPlannerState(range);
+  const taskPlans = workforceFilteredTaskPlans(range);
   const filteredProject = workforceProjectFilter ? projectById(workforceProjectFilter)?.name || "-" : "All projects / locations";
   const filteredTeam = workforceEmploymentFilter === "all" ? "All" : workforceEmploymentFilter;
 
@@ -12656,6 +12886,21 @@ function generateWorkforceWeeklyReport() {
     })
     .join("");
 
+  const taskPlanRows = taskPlans
+    .map(
+      (plan) => `<tr>
+        <td>${escapeHtml(fmtDateOnly(plan.date))}</td>
+        <td>${escapeHtml(plan.userName || "-")}</td>
+        <td>${escapeHtml(plan.companyName || "-")}</td>
+        <td>${escapeHtml(plan.projectName || plan.location || "-")}</td>
+        <td>${escapeHtml(plan.foremanName || "-")}</td>
+        <td>${escapeHtml(plan.taskDescription || "-")}</td>
+        <td>${escapeHtml(plan.dailyNeeds || "-")}</td>
+        <td>${escapeHtml(plan.weekOutlook || "-")}</td>
+      </tr>`
+    )
+    .join("");
+
   const html = reportShell(
     `Workforce weekly report ${range.startIso}`,
     `
@@ -12682,6 +12927,12 @@ function generateWorkforceWeeklyReport() {
 
       <h2>Weekly team planning board</h2>
       ${plannerSections}
+
+      <h2>Worker task plans</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Employee</th><th>Company</th><th>Project / location</th><th>Foreman</th><th>What to do</th><th>Daily needs</th><th>Week outlook</th></tr></thead>
+        <tbody>${taskPlanRows || '<tr><td colspan="8">No worker task plans were created for this report.</td></tr>'}</tbody>
+      </table>
     `
   );
 
@@ -13702,21 +13953,34 @@ function generateAdminWeeklyReport() {
   setTimeout(() => win.print(), 300);
 }
 
+function currentUserAgendaEntries({ startMs = 0, endMs = Number.POSITIVE_INFINITY } = {}) {
+  if (!currentUser) return [];
+  const personalPlans = workforcePlansForUser(currentUser, { startMs, endMs }).map((plan) => normalizeWorkforcePlan(plan));
+  const plannedDates = new Set(personalPlans.map((plan) => plan.date));
+  const genericSchedules = scheduleEntriesForUser(currentUser, { startMs, endMs }).filter((entry) => !plannedDates.has(entry.date));
+  return [...personalPlans, ...genericSchedules].sort((a, b) => {
+    const dateDiff = scheduleEntryDateMs(a) - scheduleEntryDateMs(b);
+    if (dateDiff !== 0) return dateDiff;
+    const priorityA = a.kind === "workforcePlan" ? 0 : 1;
+    const priorityB = b.kind === "workforcePlan" ? 0 : 1;
+    if (priorityA !== priorityB) return priorityA - priorityB;
+    return String(a.projectName || a.location || "").localeCompare(String(b.projectName || b.location || ""));
+  });
+}
+
 function currentUserNextScheduleEntry() {
   if (!currentUser) return null;
   const todayMs = scheduleEntryDateMs({ date: isoDateFromValue(new Date()) });
-  return (
-    scheduleEntriesForUser(currentUser, {
-      startMs: todayMs,
-      endMs: todayMs + 1000 * 60 * 60 * 24 * 14,
-    })[0] || null
-  );
+  return currentUserAgendaEntries({
+    startMs: todayMs,
+    endMs: todayMs + 1000 * 60 * 60 * 24 * 14,
+  })[0] || null;
 }
 
 function currentUserWeekScheduleEntries() {
   if (!currentUser) return [];
   const startMs = scheduleEntryDateMs({ date: isoDateFromValue(new Date()) });
-  return scheduleEntriesForUser(currentUser, {
+  return currentUserAgendaEntries({
     startMs,
     endMs: startMs + 1000 * 60 * 60 * 24 * 7,
   });
@@ -13727,16 +13991,18 @@ function schedulePeopleLabel(names = [], emptyLabel = "None assigned") {
 }
 
 function scheduleEntryCardHtml(entry) {
+  const isTaskPlan = entry.kind === "workforcePlan";
   const people = scheduleEntryPeopleSummary(entry);
   const project = scheduleEntryProject(entry);
   const isForeman = entry.foremanKind === "user" && entry.foremanId === currentUser?.id;
+  const entryTitle = project?.name || entry.projectName || (isTaskPlan ? entry.location : "") || "Project not linked";
   return `<article class="schedule-entry-card">
     <div class="schedule-entry-head">
       <div>
         <p class="eyebrow">${escapeHtml(fmtDateOnly(entry.date))}</p>
-        <h4>${escapeHtml(project?.name || entry.projectName || "Project not linked")}</h4>
+        <h4>${escapeHtml(entryTitle)}</h4>
       </div>
-      <span class="schedule-entry-pill">${escapeHtml(isForeman ? "Foreman" : "Assigned")}</span>
+      <span class="schedule-entry-pill">${escapeHtml(isTaskPlan ? "Task plan" : isForeman ? "Foreman" : "Assigned")}</span>
     </div>
     <div class="schedule-entry-body">
       <div class="workspace-detail-list">
@@ -13753,17 +14019,38 @@ function scheduleEntryCardHtml(entry) {
           <strong>${escapeHtml(scheduleForemanLabel(entry))}</strong>
         </div>
       </div>
-      <p class="hint schedule-entry-copy">${escapeHtml(entry.description || "No work description defined yet.")}</p>
-      <div class="schedule-entry-people">
-        <div>
-          <span>Workers</span>
-          <strong>${escapeHtml(schedulePeopleLabel(people.workers))}</strong>
-        </div>
-        <div>
-          <span>Sub Contractors</span>
-          <strong>${escapeHtml(schedulePeopleLabel(people.subcontractors))}</strong>
-        </div>
-      </div>
+      ${
+        isTaskPlan
+          ? `<div class="schedule-entry-briefs">
+              <div>
+                <span>What to do</span>
+                <strong>${escapeHtml(entry.taskDescription || entry.description || "No task was defined yet.")}</strong>
+              </div>
+              <div>
+                <span>Daily needs</span>
+                <strong>${escapeHtml(entry.dailyNeeds || "No daily needs were defined yet.")}</strong>
+              </div>
+              ${
+                entry.weekOutlook
+                  ? `<div>
+                      <span>Week outlook</span>
+                      <strong>${escapeHtml(entry.weekOutlook)}</strong>
+                    </div>`
+                  : ""
+              }
+            </div>`
+          : `<p class="hint schedule-entry-copy">${escapeHtml(entry.description || "No work description defined yet.")}</p>
+            <div class="schedule-entry-people">
+              <div>
+                <span>Workers</span>
+                <strong>${escapeHtml(schedulePeopleLabel(people.workers))}</strong>
+              </div>
+              <div>
+                <span>Sub Contractors</span>
+                <strong>${escapeHtml(schedulePeopleLabel(people.subcontractors))}</strong>
+              </div>
+            </div>`
+      }
     </div>
   </article>`;
 }
@@ -14256,6 +14543,7 @@ function backupCountsSnapshot() {
     materials: materials.length,
     delivery: deliverySkuItems.length,
     workforce: timeEntries.length,
+    taskPlans: workforcePlans.length,
     receipts: receipts.length,
     payments: weeklyPayments.length,
     trash: trashRecords.length,
@@ -14263,7 +14551,7 @@ function backupCountsSnapshot() {
 }
 
 function backupCountsSummary(counts) {
-  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, workforce:${counts.workforce}, receipts:${counts.receipts}, payments:${counts.payments}, trash:${counts.trash}`;
+  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, workforce:${counts.workforce}, taskPlans:${counts.taskPlans}, receipts:${counts.receipts}, payments:${counts.payments}, trash:${counts.trash}`;
 }
 
 function lastLocalBackupAt() {
@@ -14651,6 +14939,7 @@ function normalizeSyncKinds(kinds) {
     "timeEntry",
     "receipt",
     "payment",
+    "workforcePlan",
     "trash",
   ]);
   const normalized = kinds
@@ -14703,6 +14992,7 @@ function toCloudRecords({ kinds = null } = {}) {
     ...mapRecords(timeEntries, "timeEntry"),
     ...mapRecords(receipts, "receipt"),
     ...mapRecords(weeklyPayments, "payment"),
+    ...mapRecords(workforcePlans, "workforcePlan"),
     ...mapRecords(trashRecords, "trash"),
   ];
 }
@@ -14811,6 +15101,7 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
     const timeEntryMap = new Map(timeEntries.map((item) => [item.id, item]));
     const receiptMap = new Map(receipts.map((item) => [item.id, item]));
     const paymentMap = new Map(weeklyPayments.map((item) => [item.id, item]));
+    const workforcePlanMap = new Map(workforcePlans.map((item) => [item.id, item]));
     const trashMap = new Map(trashRecords.map((item) => [item.id, item]));
 
     for (const row of records) {
@@ -14919,6 +15210,14 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
         const local = paymentMap.get(item.id);
         if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
           await put(PAYMENT_STORE, normalizeWeeklyPayment(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "workforcePlan") {
+        const local = workforcePlanMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(WORKFORCE_PLAN_STORE, normalizeWorkforcePlan(item));
           hasChanges = true;
         }
       }
@@ -15754,6 +16053,91 @@ workforceActiveTable?.addEventListener("click", (event) => {
   if (!checkoutBtn) return;
   event.preventDefault();
   void closeTimeEntryAsAdmin(checkoutBtn.dataset.workforceCheckout || "");
+});
+
+workforceTaskPlanResetBtn?.addEventListener("click", () => {
+  selectedWorkforceTaskPlanId = "";
+  resetWorkforceTaskPlanForm();
+  renderWorkforceAdminPanel();
+});
+
+workforceTaskPlanProjectSelect?.addEventListener("change", () => {
+  const project = projectById(workforceTaskPlanProjectSelect.value || "");
+  if (!project) return;
+  if (workforceTaskPlanLocationInput && !String(workforceTaskPlanLocationInput.value || "").trim()) {
+    workforceTaskPlanLocationInput.value = project.address || project.name || "";
+  }
+});
+
+workforceTaskPlanForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!can("accessAdmin")) return;
+  const data = new FormData(workforceTaskPlanForm);
+  const planId = String(data.get("planId") || "").trim();
+  const targetUser = users.find((user) => user.id === String(data.get("userId") || "").trim());
+  if (!targetUser) {
+    alert("Select an employee before saving the worker task plan.");
+    return;
+  }
+
+  const date = normalizeDateField(data.get("date"));
+  if (!date) {
+    alert("Select the plan date.");
+    return;
+  }
+
+  const project = projectById(String(data.get("projectId") || "").trim());
+  const location = String(data.get("location") || "").trim() || project?.address || project?.name || "";
+  if (!location) {
+    alert("Add a work location for this worker plan.");
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const existing = planId ? workforcePlans.find((plan) => plan.id === planId) || null : null;
+  const actionLabel = existing ? "updated" : "created";
+  const savedPlan = normalizeWorkforcePlan({
+    ...existing,
+    id: existing?.id || planId || uid(),
+    userId: targetUser.id,
+    userName: targetUser.name || targetUser.username || "User",
+    employmentType: targetUser.employmentType || "",
+    companyName: targetUser.companyName || "",
+    jobTitle: targetUser.jobTitle || "",
+    projectId: project?.id || "",
+    projectName: project?.name || "",
+    location,
+    foremanName: String(data.get("foremanName") || "").trim(),
+    taskDescription: String(data.get("taskDescription") || "").trim(),
+    dailyNeeds: String(data.get("dailyNeeds") || "").trim(),
+    weekOutlook: String(data.get("weekOutlook") || "").trim(),
+    date,
+    createdByUserId: existing?.createdByUserId || currentUser?.id || "",
+    createdByName: existing?.createdByName || currentUser?.name || "System",
+    auditLog: recordAuditTrail(
+      existing?.auditLog,
+      `${existing ? "Plan updated" : "Plan created"} by ${currentUser?.name || "System"} on ${fmtDate(now)}`
+    ),
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  });
+
+  await put(WORKFORCE_PLAN_STORE, savedPlan);
+  pushEntityAudit(
+    "Workforce plans",
+    actionLabel,
+    `${savedPlan.userName} | ${fmtDateOnly(savedPlan.date)} | ${savedPlan.projectName || savedPlan.location || "-"}`,
+    "workforce"
+  );
+  await loadAll();
+  selectedWorkforceTaskPlanId = savedPlan.id;
+  render();
+  queueAutoSync();
+});
+
+workforceTaskPlanDeleteBtn?.addEventListener("click", () => {
+  if (!selectedWorkforceTaskPlanId) return;
+  void deleteWorkforceTaskPlanRecord(selectedWorkforceTaskPlanId);
 });
 
 adminWeekInput?.addEventListener("change", () => {
@@ -17529,6 +17913,7 @@ function buildFullBackupPayload() {
     materials,
     deliverySkuItems,
     timeEntries,
+    workforcePlans,
     receipts,
     weeklyPayments,
     trashRecords,
@@ -17581,6 +17966,9 @@ async function importBackupFile(file) {
       for (const item of payload.deliverySkuItems) await put(DELIVERY_SKU_STORE, normalizeDeliverySkuItem(item));
     }
     if (Array.isArray(payload.timeEntries)) for (const item of payload.timeEntries) await put(TIME_ENTRY_STORE, normalizeTimeEntry(item));
+    if (Array.isArray(payload.workforcePlans)) {
+      for (const item of payload.workforcePlans) await put(WORKFORCE_PLAN_STORE, normalizeWorkforcePlan(item));
+    }
     if (Array.isArray(payload.receipts)) for (const item of payload.receipts) await put(RECEIPT_STORE, normalizeReceipt(item));
     if (Array.isArray(payload.weeklyPayments)) {
       for (const item of payload.weeklyPayments) await put(PAYMENT_STORE, normalizeWeeklyPayment(item));
@@ -17593,7 +17981,7 @@ async function importBackupFile(file) {
     pushEntityAudit(
       "Backups",
       "imported",
-      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, workforce:${ensureArray(payload.timeEntries).length}, receipts:${ensureArray(payload.receipts).length}, payments:${ensureArray(payload.weeklyPayments).length}, trash:${ensureArray(payload.trashRecords).length}`,
+      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, workforce:${ensureArray(payload.timeEntries).length}, taskPlans:${ensureArray(payload.workforcePlans).length}, receipts:${ensureArray(payload.receipts).length}, payments:${ensureArray(payload.weeklyPayments).length}, trash:${ensureArray(payload.trashRecords).length}`,
       "backup"
     );
     render();

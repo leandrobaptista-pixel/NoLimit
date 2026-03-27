@@ -7669,7 +7669,7 @@ function userPasswordMatches(user, plainPassword, sha256Hash) {
   return legacy === plainPassword || legacy.toLowerCase() === inputHash;
 }
 
-function resolveLoginMatch(username, plainPassword, passwordHash) {
+function resolveLoginMatchFromList(list, username, plainPassword, passwordHash) {
   const normalizedUsername = String(username || "").trim().toLowerCase();
   const authPriority = (entry) => {
     if (isPrimaryDeveloperUser(entry)) return 5;
@@ -7680,7 +7680,7 @@ function resolveLoginMatch(username, plainPassword, passwordHash) {
     if (role === "supervisor") return 1;
     return 0;
   };
-  const candidates = users
+  const candidates = ensureArray(list)
     .filter((entry) => entry.username === normalizedUsername)
     .sort((a, b) => {
       const priorityScore = authPriority(b) - authPriority(a);
@@ -7692,10 +7692,175 @@ function resolveLoginMatch(username, plainPassword, passwordHash) {
   return { userByUsername, user };
 }
 
+function resolveLoginMatch(username, plainPassword, passwordHash) {
+  return resolveLoginMatchFromList(users, username, plainPassword, passwordHash);
+}
+
+function authDirectoryUnavailableMessage(code = "") {
+  if (code === "no-config") return "System database is not available on this device.";
+  if (code === "offline") return "Connect to the internet to reach the central user directory.";
+  if (code === "timeout") return "The central user directory took too long to respond.";
+  if (code === "parse-error") return "The central user directory returned unreadable data.";
+  if (String(code || "").startsWith("http-")) return `Central user directory request failed (${String(code).replace("http-", "HTTP ")}).`;
+  return "Could not reach the central user directory right now.";
+}
+
+function authDirectoryEmptyMessage() {
+  return "The central user directory returned no users for this workspace.";
+}
+
+async function fetchCloudRecords({ kinds = null, full = false, cursor = "", timeoutMs = 8000 } = {}) {
+  const endpoint = syncEndpoint();
+  if (!endpoint) {
+    return { ok: false, code: "no-config", message: authDirectoryUnavailableMessage("no-config"), records: [] };
+  }
+  if (!navigator.onLine) {
+    return { ok: false, code: "offline", message: authDirectoryUnavailableMessage("offline"), records: [] };
+  }
+
+  const normalizedKinds = normalizeSyncKinds(kinds);
+  const qs = new URLSearchParams({
+    select: "kind,id,payload,updated_at",
+    tenant: `eq.${syncConfig.tenant.trim()}`,
+    order: "updated_at.desc",
+    limit: "20000",
+  });
+  if (normalizedKinds) qs.set("kind", `in.(${normalizedKinds.join(",")})`);
+  if (!full && cursor) qs.set("updated_at", `gt.${cursor}`);
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${endpoint}?${qs.toString()}`, {
+      headers: {
+        apikey: syncConfig.supabaseAnonKey,
+        Authorization: `Bearer ${syncConfig.supabaseAnonKey}`,
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      return {
+        ok: false,
+        code: `http-${response.status}`,
+        message: authDirectoryUnavailableMessage(`http-${response.status}`),
+        details,
+        records: [],
+      };
+    }
+
+    const records = await response.json();
+    return { ok: true, code: "ok", message: "", records: Array.isArray(records) ? records : [] };
+  } catch (error) {
+    const code = error?.name === "AbortError" ? "timeout" : "network";
+    return {
+      ok: false,
+      code,
+      message: authDirectoryUnavailableMessage(code),
+      details: error?.message || "",
+      records: [],
+    };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function fetchCloudUserDirectory({ timeoutMs = 8000 } = {}) {
+  const result = await fetchCloudRecords({ kinds: ["user"], full: true, timeoutMs });
+  if (!result.ok) return { ...result, users: [] };
+  const remoteUsers = result.records
+    .map((row) => normalizeUser(row?.payload || {}))
+    .filter((entry) => entry.id && entry.username);
+  return {
+    ...result,
+    users: remoteUsers,
+    message: remoteUsers.length ? "" : authDirectoryEmptyMessage(),
+  };
+}
+
+async function persistUsersFromCloud(remoteUsers = []) {
+  if (!remoteUsers.length) return { ok: true, storedCount: 0, message: "" };
+  try {
+    await Promise.all(remoteUsers.map((user) => put(USER_STORE, normalizeUser(user))));
+    await loadAll();
+    return { ok: true, storedCount: remoteUsers.length, message: "" };
+  } catch (error) {
+    console.error("Failed to persist cloud users locally", error);
+    return { ok: false, storedCount: 0, message: "Could not refresh the local user cache on this device." };
+  }
+}
+
 async function refreshUsersForLogin({ timeoutMs = 6000 } = {}) {
-  if (!syncEndpoint()) return false;
-  if (!navigator.onLine) return false;
-  return withTimeout(pullCloud({ silent: true, force: true, kinds: ["user"], full: true }), timeoutMs, false);
+  const directory = await fetchCloudUserDirectory({ timeoutMs });
+  if (!directory.ok) return directory;
+  const persisted = await persistUsersFromCloud(directory.users);
+  return {
+    ...directory,
+    persisted: persisted.ok,
+    persistedMessage: persisted.message,
+  };
+}
+
+function cloudUserRecord(user) {
+  const clean = { ...normalizeUser(user) };
+  delete clean.legacyPassword;
+  delete clean.password;
+  return {
+    tenant: syncConfig.tenant.trim(),
+    kind: "user",
+    id: clean.id,
+    payload: clean,
+    updated_at: clean.updatedAt || clean.createdAt || new Date().toISOString(),
+  };
+}
+
+async function pushUserForAuth(user, { timeoutMs = 10000 } = {}) {
+  const endpoint = syncEndpoint();
+  if (!endpoint) return { ok: false, code: "no-config", message: authDirectoryUnavailableMessage("no-config") };
+  if (!navigator.onLine) return { ok: false, code: "offline", message: authDirectoryUnavailableMessage("offline") };
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${endpoint}?on_conflict=tenant,kind,id`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: syncConfig.supabaseAnonKey,
+        Authorization: `Bearer ${syncConfig.supabaseAnonKey}`,
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify([cloudUserRecord(user)]),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      return {
+        ok: false,
+        code: `http-${response.status}`,
+        message: `Could not save this user in the central database (${response.status}).`,
+        details,
+      };
+    }
+
+    return { ok: true, code: "ok", message: "" };
+  } catch (error) {
+    const code = error?.name === "AbortError" ? "timeout" : "network";
+    return {
+      ok: false,
+      code,
+      message: code === "timeout" ? "Central database save timed out." : "Could not reach the central database to save this user.",
+      details: error?.message || "",
+    };
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 async function finalizeLoginInBackground(userId) {
@@ -15148,6 +15313,7 @@ async function pushCloud({ silent = false, force = false, kinds = null } = {}) {
         Prefer: "resolution=merge-duplicates,return=minimal",
       },
       body: JSON.stringify(records),
+      cache: "no-store",
     });
 
     if (!response.ok) throw new Error(await response.text());
@@ -15204,6 +15370,7 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
         apikey: syncConfig.supabaseAnonKey,
         Authorization: `Bearer ${syncConfig.supabaseAnonKey}`,
       },
+      cache: "no-store",
     });
 
     if (!response.ok) throw new Error(await response.text());
@@ -15945,12 +16112,13 @@ signupForm?.addEventListener("submit", async (event) => {
     }
 
     const syncedUsers = await refreshUsersForLogin({ timeoutMs: 8000 });
-    if (!syncedUsers && !users.length) {
-      setSignupStatus("Could not reach the central user directory right now.", true);
-      alert("Could not validate users in database right now. Check connection and try again.");
+    const directoryUsers = syncedUsers.ok ? syncedUsers.users : users;
+    if (!syncedUsers.ok && !directoryUsers.length) {
+      setSignupStatus(syncedUsers.message || "Could not reach the central user directory right now.", true);
+      alert((syncedUsers.message || "Could not validate users in database right now. Check connection and try again.") + (syncedUsers.details ? `\n\n${syncedUsers.details}` : ""));
       return;
     }
-    if (users.some((user) => user.username === username)) {
+    if (directoryUsers.some((user) => user.username === username)) {
       setSignupStatus("This username is already registered.", true);
       alert(t("Usuario ja existe."));
       return;
@@ -16017,16 +16185,17 @@ signupForm?.addEventListener("submit", async (event) => {
     };
 
     setSignupStatus("Saving registration...");
-    await put(USER_STORE, normalizeUser(user));
+    const normalizedNewUser = normalizeUser(user);
+    await put(USER_STORE, normalizedNewUser);
     await loadAll();
 
     setSignupStatus("Sending registration to cloud...");
-    const pushed = await pushCloudForAuth({ kinds: ["user"], timeoutMs: 10000 });
-    if (!pushed) {
+    const pushed = await pushUserForAuth(normalizedNewUser, { timeoutMs: 10000 });
+    if (!pushed.ok) {
       await del(USER_STORE, user.id);
       await loadAll();
-      setSignupStatus("Could not save registration in the central database.", true);
-      alert("Could not save registration in the central database. Try again.");
+      setSignupStatus(pushed.message || "Could not save registration in the central database.", true);
+      alert((pushed.message || "Could not save registration in the central database. Try again.") + (pushed.details ? `\n\n${pushed.details}` : ""));
       return;
     }
 
@@ -16069,15 +16238,22 @@ loginForm.addEventListener("submit", async (event) => {
     }
 
     let { userByUsername, user } = resolveLoginMatch(username, plainPassword, passwordHash);
+    let authDirectory = { ok: true, users: users.slice(), message: "", code: "local" };
 
     if ((!userByUsername || !user) && syncEndpoint() && navigator.onLine) {
       setLoginStatus("Syncing access with cloud...");
-      await refreshUsersForLogin();
-      ({ userByUsername, user } = resolveLoginMatch(username, plainPassword, passwordHash));
+      authDirectory = await refreshUsersForLogin();
+      const sourceUsers = authDirectory.ok && authDirectory.users?.length ? authDirectory.users : users;
+      ({ userByUsername, user } = resolveLoginMatchFromList(sourceUsers, username, plainPassword, passwordHash));
     }
 
     if (!user) {
       if (!userByUsername) {
+        if (authDirectory && !authDirectory.ok) {
+          setLoginStatus(authDirectory.message || "Could not reach the central user directory right now.", true);
+          alert((authDirectory.message || "Could not reach the central user directory right now.") + (authDirectory.details ? `\n\n${authDirectory.details}` : ""));
+          return;
+        }
         if (!syncEndpoint()) {
           setLoginStatus("This device has no cloud user cache yet.", true);
           alert("This device is offline from the system database and does not have this user cached yet.");
@@ -16088,6 +16264,11 @@ loginForm.addEventListener("submit", async (event) => {
           alert("This user is not cached on this device right now. Connect to the internet and try again.");
           return;
         }
+        if (authDirectory?.ok && !authDirectory.users?.length) {
+          setLoginStatus(authDirectory.message || authDirectoryEmptyMessage(), true);
+          alert(authDirectory.message || authDirectoryEmptyMessage());
+          return;
+        }
         setLoginStatus("User is not registered in the system.", true);
         alert("User is not registered. Click 'Create Account' to register.");
         return;
@@ -16096,6 +16277,13 @@ loginForm.addEventListener("submit", async (event) => {
       alert(t("Usuario ou senha invalidos."));
       return;
     }
+
+    const localAuthUser = users.find((entry) => entry.id === user.id);
+    if (!localAuthUser) {
+      await put(USER_STORE, normalizeUser(user));
+      await loadAll();
+    }
+    user = users.find((entry) => entry.id === user.id) || normalizeUser(user);
 
     const shouldMigratePassword =
       Boolean(userLegacyPassword(user)) ||

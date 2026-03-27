@@ -16403,8 +16403,13 @@ logoutBtn.addEventListener("click", async () => {
   editingUserId = "";
   userEditReturnView = "home";
   clearSession();
+  loginForm?.reset();
+  signupForm?.reset();
+  setSignupStatus("");
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
   renderAuth();
+  setLoginStatus("This device is ready for another user.");
+  focusAuthPrimaryField();
 });
 
 timeClockSiteTypeSelect?.addEventListener("change", () => {

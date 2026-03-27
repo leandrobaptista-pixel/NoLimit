@@ -197,6 +197,12 @@ const DEFAULT_SYNC = {
   lastPullCursor: null,
 };
 
+const DEFAULT_SHARED_DEVICE_CONFIG = {
+  id: "deviceSessionConfig",
+  enabled: false,
+  inactivityMinutes: 10,
+};
+
 const FALLBACK_PRESET_SYNC = {
   supabaseUrl: "https://ecbhaeiwnygplawlbnio.supabase.co",
   supabaseAnonKey: "sb_publishable_LDBZuLzFMUo0xsugiKRpZA_qKeqeXeW",
@@ -233,6 +239,18 @@ function applyPresetSyncConfig(config) {
     supabaseAnonKey: preset.supabaseAnonKey,
     tenant: preset.tenant,
     autoSync: preset.autoSync,
+  };
+}
+
+function normalizeSharedDeviceConfig(config = {}) {
+  const rawMinutes = Number.parseInt(config.inactivityMinutes, 10);
+  const inactivityMinutes = Number.isFinite(rawMinutes) ? Math.min(240, Math.max(1, rawMinutes)) : DEFAULT_SHARED_DEVICE_CONFIG.inactivityMinutes;
+  return {
+    ...DEFAULT_SHARED_DEVICE_CONFIG,
+    ...config,
+    id: "deviceSessionConfig",
+    enabled: Boolean(config.enabled),
+    inactivityMinutes,
   };
 }
 
@@ -1170,11 +1188,15 @@ let trashRecords = [];
 let deliveryImportDraft = null;
 let ocrImportDraft = null;
 let syncConfig = { ...DEFAULT_SYNC };
+let sharedDeviceConfig = { ...DEFAULT_SHARED_DEVICE_CONFIG };
 let photosByUnit = new Map();
 let currentUser = null;
 let deferredPrompt = null;
 let autoSyncTimer = null;
 let autoPullTimer = null;
+let sharedDeviceIdleTimer = null;
+let sharedDeviceLastActivityAt = 0;
+let sharedDeviceLogoutInFlight = false;
 let tablePrintRenderScheduled = false;
 let autoPullInFlight = false;
 let autoPullBlockedUntil = 0;
@@ -1495,6 +1517,12 @@ const syncConfigForm = document.getElementById("syncConfigForm");
 const pushSyncBtn = document.getElementById("pushSyncBtn");
 const pullSyncBtn = document.getElementById("pullSyncBtn");
 const syncStatus = document.getElementById("syncStatus");
+const sharedDeviceLoginHint = document.getElementById("sharedDeviceLoginHint");
+const sharedDevicePanel = document.getElementById("sharedDevicePanel");
+const sharedDeviceConfigForm = document.getElementById("sharedDeviceConfigForm");
+const sharedDeviceEnabledSelect = document.getElementById("sharedDeviceEnabledSelect");
+const sharedDeviceMinutesInput = document.getElementById("sharedDeviceMinutesInput");
+const sharedDeviceStatusMessage = document.getElementById("sharedDeviceStatusMessage");
 const developerAuditPanel = document.getElementById("developerAuditPanel");
 
 const usersPanel = document.getElementById("usersPanel");
@@ -2569,6 +2597,87 @@ function setSignupStatus(message = "", isError = false) {
   if (!signupStatusMessage) return;
   signupStatusMessage.textContent = message;
   signupStatusMessage.style.color = isError ? "#b83232" : "";
+}
+
+function sharedDeviceModeEnabled() {
+  return Boolean(sharedDeviceConfig.enabled);
+}
+
+function sharedDeviceIdleTimeoutMs() {
+  return Math.max(1, Number(sharedDeviceConfig.inactivityMinutes) || DEFAULT_SHARED_DEVICE_CONFIG.inactivityMinutes) * 60 * 1000;
+}
+
+function sharedDeviceDurationLabel() {
+  const minutes = Math.max(1, Number(sharedDeviceConfig.inactivityMinutes) || DEFAULT_SHARED_DEVICE_CONFIG.inactivityMinutes);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function setSharedDeviceStatus(message = "", isError = false) {
+  if (!sharedDeviceStatusMessage) return;
+  sharedDeviceStatusMessage.textContent = message;
+  sharedDeviceStatusMessage.style.color = isError ? "#b83232" : "";
+}
+
+function renderSharedDeviceLoginHint() {
+  if (!sharedDeviceLoginHint) return;
+  sharedDeviceLoginHint.textContent = sharedDeviceModeEnabled()
+    ? `Shared device mode is on for this machine. The app signs out automatically after ${sharedDeviceDurationLabel()} of inactivity.`
+    : "This device can be used by multiple users. Always log out before the next person signs in.";
+}
+
+function stopSharedDeviceIdleGuard() {
+  if (sharedDeviceIdleTimer) {
+    window.clearTimeout(sharedDeviceIdleTimer);
+    sharedDeviceIdleTimer = null;
+  }
+  sharedDeviceLastActivityAt = 0;
+}
+
+function scheduleSharedDeviceIdleGuard() {
+  if (sharedDeviceIdleTimer) {
+    window.clearTimeout(sharedDeviceIdleTimer);
+    sharedDeviceIdleTimer = null;
+  }
+  if (!currentUser || !sharedDeviceModeEnabled()) return;
+  if (!sharedDeviceLastActivityAt) sharedDeviceLastActivityAt = Date.now();
+  const remainingMs = sharedDeviceIdleTimeoutMs() - (Date.now() - sharedDeviceLastActivityAt);
+  if (remainingMs <= 0) {
+    void handleSharedDeviceIdleTimeout();
+    return;
+  }
+  sharedDeviceIdleTimer = window.setTimeout(() => {
+    void handleSharedDeviceIdleTimeout();
+  }, Math.max(1000, remainingMs));
+}
+
+function refreshSharedDeviceIdleGuard({ resetTimer = false } = {}) {
+  if (!currentUser || !sharedDeviceModeEnabled()) {
+    stopSharedDeviceIdleGuard();
+    sharedDeviceLogoutInFlight = false;
+    return;
+  }
+  if (resetTimer || !sharedDeviceLastActivityAt) sharedDeviceLastActivityAt = Date.now();
+  scheduleSharedDeviceIdleGuard();
+}
+
+function markSharedDeviceActivity() {
+  if (!currentUser || !sharedDeviceModeEnabled()) return;
+  sharedDeviceLastActivityAt = Date.now();
+  scheduleSharedDeviceIdleGuard();
+}
+
+function enforceSharedDeviceIdleWindow() {
+  if (!currentUser || !sharedDeviceModeEnabled()) return;
+  if (!sharedDeviceLastActivityAt) {
+    sharedDeviceLastActivityAt = Date.now();
+    scheduleSharedDeviceIdleGuard();
+    return;
+  }
+  if (Date.now() - sharedDeviceLastActivityAt >= sharedDeviceIdleTimeoutMs()) {
+    void handleSharedDeviceIdleTimeout();
+    return;
+  }
+  scheduleSharedDeviceIdleGuard();
 }
 
 function withTimeout(promise, timeoutMs, fallbackValue = false) {
@@ -3959,6 +4068,8 @@ async function loadAll() {
     ...savedSync,
     autoSync: Boolean(savedSync.autoSync),
   });
+  const savedSharedDeviceConfig = settingsRows.find((row) => row.id === "deviceSessionConfig") || {};
+  sharedDeviceConfig = normalizeSharedDeviceConfig(savedSharedDeviceConfig);
 
   photosByUnit = new Map();
   for (const photo of photos) {
@@ -8102,9 +8213,11 @@ function showSignupMode(show) {
 }
 
 function renderAuth() {
+  renderSharedDeviceLoginHint();
   if (currentUser) {
     document.body.classList.remove("auth-mode");
     startAutoPullLoop();
+    refreshSharedDeviceIdleGuard({ resetTimer: true });
     authView.classList.add("hidden");
     appMain.classList.remove("hidden");
     userBadge.classList.remove("hidden");
@@ -8138,6 +8251,8 @@ function renderAuth() {
 
   stopAutoPullLoop();
   stopAutoTimeClock({ clearStatus: true });
+  stopSharedDeviceIdleGuard();
+  sharedDeviceLogoutInFlight = false;
   pendingTimeClockFocus = false;
   pendingPostLoginLanding = false;
   ensureAuthUiInteractive();
@@ -15035,7 +15150,24 @@ function renderSyncPanel() {
       ? `Last sync: ${fmtDate(syncConfig.lastSyncAt)}`
       : t("Sem sincronizacao");
   updateSyncStatus(statusText, false);
+  renderSharedDevicePanel();
   renderDeveloperAuditPanel();
+}
+
+function renderSharedDevicePanel() {
+  if (!sharedDevicePanel || !sharedDeviceConfigForm) return;
+  sharedDevicePanel.classList.toggle("hidden", !can("sync"));
+  if (!can("sync")) return;
+  if (sharedDeviceEnabledSelect) sharedDeviceEnabledSelect.value = String(sharedDeviceModeEnabled());
+  if (sharedDeviceMinutesInput) {
+    sharedDeviceMinutesInput.value = String(sharedDeviceConfig.inactivityMinutes || DEFAULT_SHARED_DEVICE_CONFIG.inactivityMinutes);
+    sharedDeviceMinutesInput.disabled = !sharedDeviceModeEnabled();
+  }
+  setSharedDeviceStatus(
+    sharedDeviceModeEnabled()
+      ? `Shared device mode is active on this machine. Auto logout runs after ${sharedDeviceDurationLabel()} of inactivity.`
+      : "Shared device mode is off. Users must log out manually before handing the device to the next person."
+  );
 }
 
 function renderQrLookupPanel() {
@@ -16394,9 +16526,20 @@ loginForm.addEventListener("submit", async (event) => {
   }
 });
 
-logoutBtn.addEventListener("click", async () => {
+async function logoutCurrentSession({
+  reason = "manual",
+  statusMessage = "This device is ready for another user.",
+} = {}) {
   const userId = currentUser?.id || "";
-  if (currentUser) pushAppAudit("Session logout", "session", "auth");
+  if (currentUser) {
+    const auditMessage =
+      reason === "shared-device-idle"
+        ? `Session auto logout after ${sharedDeviceDurationLabel()} of inactivity`
+        : "Session logout";
+    pushAppAudit(auditMessage, "session", "auth");
+  }
+  stopSharedDeviceIdleGuard();
+  sharedDeviceLogoutInFlight = false;
   if (userId) await setUserSessionState(userId, false);
   currentUser = null;
   hasAutoDispatchedCoiReminder = false;
@@ -16408,8 +16551,21 @@ logoutBtn.addEventListener("click", async () => {
   setSignupStatus("");
   window.history.replaceState(null, "", window.location.pathname + window.location.search);
   renderAuth();
-  setLoginStatus("This device is ready for another user.");
+  if (statusMessage) setLoginStatus(statusMessage);
   focusAuthPrimaryField();
+}
+
+async function handleSharedDeviceIdleTimeout() {
+  if (sharedDeviceLogoutInFlight || !currentUser || !sharedDeviceModeEnabled()) return;
+  sharedDeviceLogoutInFlight = true;
+  await logoutCurrentSession({
+    reason: "shared-device-idle",
+    statusMessage: `This shared device signed out automatically after ${sharedDeviceDurationLabel()} of inactivity.`,
+  });
+}
+
+logoutBtn.addEventListener("click", async () => {
+  await logoutCurrentSession();
 });
 
 timeClockSiteTypeSelect?.addEventListener("change", () => {
@@ -18363,7 +18519,7 @@ function buildFullBackupPayload() {
     receipts,
     weeklyPayments,
     trashRecords,
-    settings: [{ id: "syncConfig", ...syncConfig }],
+    settings: [{ id: "syncConfig", ...syncConfig }, normalizeSharedDeviceConfig(sharedDeviceConfig)],
   };
 }
 
@@ -18488,6 +18644,40 @@ syncConfigForm.addEventListener("submit", async (event) => {
   updateSyncStatus(t("Configuracao salva."));
   if (navigator.onLine) startAutoPullLoop();
   else stopAutoPullLoop();
+});
+
+sharedDeviceEnabledSelect?.addEventListener("change", () => {
+  if (!sharedDeviceMinutesInput) return;
+  sharedDeviceMinutesInput.disabled = sharedDeviceEnabledSelect.value !== "true";
+});
+
+sharedDeviceConfigForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!can("sync")) return;
+  const data = new FormData(sharedDeviceConfigForm);
+  const nextConfig = normalizeSharedDeviceConfig({
+    enabled: data.get("enabled")?.toString() === "true",
+    inactivityMinutes: data.get("inactivityMinutes"),
+    updatedAt: new Date().toISOString(),
+  });
+  const configChanged =
+    sharedDeviceModeEnabled() !== Boolean(nextConfig.enabled) ||
+    Number(sharedDeviceConfig.inactivityMinutes || 0) !== Number(nextConfig.inactivityMinutes || 0);
+  sharedDeviceConfig = nextConfig;
+  await saveSetting(sharedDeviceConfig);
+  pushEntityAudit(
+    "Shared device mode",
+    "updated",
+    `enabled:${sharedDeviceConfig.enabled ? "on" : "off"} | autoLogout:${sharedDeviceDurationLabel()}`,
+    "device"
+  );
+  renderSharedDeviceLoginHint();
+  refreshSharedDeviceIdleGuard({ resetTimer: configChanged });
+  setSharedDeviceStatus(
+    sharedDeviceModeEnabled()
+      ? `Shared device mode saved. This machine will sign out automatically after ${sharedDeviceDurationLabel()} of inactivity.`
+      : "Shared device mode saved. This machine now requires manual logout between users."
+  );
 });
 
 pushSyncBtn.addEventListener("click", () => pushCloud());
@@ -18897,7 +19087,10 @@ window.addEventListener("pageshow", () => {
 });
 
 window.addEventListener("focus", () => {
-  if (currentUser) return;
+  if (currentUser) {
+    enforceSharedDeviceIdleWindow();
+    return;
+  }
   ensureAuthUiInteractive();
 });
 
@@ -18906,6 +19099,7 @@ document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       startAutoPullLoop();
       void runAutoPullCycle();
+      enforceSharedDeviceIdleWindow();
     } else {
       stopAutoPullLoop();
     }
@@ -18913,6 +19107,12 @@ document.addEventListener("visibilitychange", () => {
   }
   if (document.visibilityState !== "visible") return;
   ensureAuthUiInteractive();
+});
+
+["pointerdown", "keydown", "touchstart", "wheel"].forEach((eventName) => {
+  document.addEventListener(eventName, () => {
+    markSharedDeviceActivity();
+  });
 });
 
 bootRetryBtn?.addEventListener("click", () => {

@@ -2664,6 +2664,27 @@ table.data-table tbody tr.is-selected td:first-child {
   justify-content: flex-end;
 }
 
+.shared-device-panel {
+  margin-top: 0.7rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.shared-device-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  margin: 0;
+}
+
+.shared-device-panel .grid-form {
+  align-items: end;
+}
+
+.shared-device-panel .grid-form > button {
+  justify-self: start;
+}
+
 .developer-tools {
   margin-top: 0.55rem;
   display: grid;

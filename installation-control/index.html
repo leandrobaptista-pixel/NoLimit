@@ -7,7 +7,7 @@
     <title>Delivery & Installation Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260326-navcompact1" />
+    <link rel="stylesheet" href="styles.css?v=20260326-kiosk1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -65,7 +65,7 @@
           </div>
         </form>
         <p id="loginStatusMessage" class="hint"></p>
-        <p class="hint">This device can be used by multiple users. Always log out before the next person signs in.</p>
+        <p id="sharedDeviceLoginHint" class="hint">This device can be used by multiple users. Always log out before the next person signs in.</p>
         <div class="auth-inline-actions">
           <p class="hint">New to the system?</p>
           <button id="openSignupBtn" class="secondary" type="button">Create Account</button>
@@ -813,6 +813,31 @@
           <button id="pullSyncBtn" class="secondary">Pull from cloud</button>
           <span id="syncStatus" class="badge">No sync</span>
         </div>
+        <article id="sharedDevicePanel" class="subpanel shared-device-panel">
+          <h3>
+            Shared / kiosk mode
+            <button
+              class="help-tip"
+              type="button"
+              data-help-tip="Use this on a shared workstation or tablet. The device signs out automatically after inactivity. This setting stays only on this machine."
+              aria-label="Shared device help"
+            >?</button>
+          </h3>
+          <p class="hint">Use this on shared workstations and tablets. This setting is local to this device and does not sync to other machines.</p>
+          <form id="sharedDeviceConfigForm" class="grid-form compact">
+            <label>Shared device mode
+              <select id="sharedDeviceEnabledSelect" name="enabled">
+                <option value="false">Off</option>
+                <option value="true">On</option>
+              </select>
+            </label>
+            <label>Auto logout after inactivity (minutes)
+              <input id="sharedDeviceMinutesInput" name="inactivityMinutes" type="number" min="1" max="240" step="1" />
+            </label>
+            <button class="secondary" type="submit">Save shared device mode</button>
+          </form>
+          <p id="sharedDeviceStatusMessage" class="hint"></p>
+        </article>
         <div id="developerAuditPanel" class="subpanel hidden"></div>
       </section>
 
@@ -1945,6 +1970,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260326-shareddevice1" defer></script>
+    <script src="app.js?v=20260326-kiosk1" defer></script>
   </body>
 </html>

@@ -7768,17 +7768,81 @@ async function fetchCloudRecords({ kinds = null, full = false, cursor = "", time
   }
 }
 
-async function fetchCloudUserDirectory({ timeoutMs = 8000 } = {}) {
-  const result = await fetchCloudRecords({ kinds: ["user"], full: true, timeoutMs });
-  if (!result.ok) return { ...result, users: [] };
-  const remoteUsers = result.records
-    .map((row) => normalizeUser(row?.payload || {}))
-    .filter((entry) => entry.id && entry.username);
-  return {
-    ...result,
-    users: remoteUsers,
-    message: remoteUsers.length ? "" : authDirectoryEmptyMessage(),
-  };
+async function fetchCloudUserDirectoryOnce({ timeoutMs = 12000 } = {}) {
+  const endpoint = syncEndpoint();
+  if (!endpoint) {
+    return { ok: false, code: "no-config", message: authDirectoryUnavailableMessage("no-config"), users: [] };
+  }
+  if (!navigator.onLine) {
+    return { ok: false, code: "offline", message: authDirectoryUnavailableMessage("offline"), users: [] };
+  }
+
+  const qs = new URLSearchParams({
+    select: "payload",
+    tenant: `eq.${syncConfig.tenant.trim()}`,
+    kind: "eq.user",
+    limit: "500",
+  });
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${endpoint}?${qs.toString()}`, {
+      headers: {
+        apikey: syncConfig.supabaseAnonKey,
+        Authorization: `Bearer ${syncConfig.supabaseAnonKey}`,
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      return {
+        ok: false,
+        code: `http-${response.status}`,
+        message: authDirectoryUnavailableMessage(`http-${response.status}`),
+        details,
+        users: [],
+      };
+    }
+
+    const rows = await response.json();
+    const remoteUsers = ensureArray(rows)
+      .map((row) => normalizeUser(row?.payload || {}))
+      .filter((entry) => entry.id && entry.username);
+    return {
+      ok: true,
+      code: "ok",
+      message: remoteUsers.length ? "" : authDirectoryEmptyMessage(),
+      users: remoteUsers,
+    };
+  } catch (error) {
+    const code = error?.name === "AbortError" ? "timeout" : "network";
+    return {
+      ok: false,
+      code,
+      message: authDirectoryUnavailableMessage(code),
+      details: error?.message || "",
+      users: [],
+    };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function fetchCloudUserDirectory({ timeoutMs = 12000 } = {}) {
+  const attempts = [timeoutMs, Math.max(timeoutMs + 8000, 20000)];
+  let lastResult = { ok: false, code: "timeout", message: authDirectoryUnavailableMessage("timeout"), users: [] };
+
+  for (const attemptTimeout of attempts) {
+    lastResult = await fetchCloudUserDirectoryOnce({ timeoutMs: attemptTimeout });
+    if (lastResult.ok) return lastResult;
+    if (!["timeout", "network"].includes(lastResult.code)) return lastResult;
+  }
+
+  return lastResult;
 }
 
 async function persistUsersFromCloud(remoteUsers = []) {
@@ -7793,7 +7857,7 @@ async function persistUsersFromCloud(remoteUsers = []) {
   }
 }
 
-async function refreshUsersForLogin({ timeoutMs = 6000 } = {}) {
+async function refreshUsersForLogin({ timeoutMs = 12000 } = {}) {
   const directory = await fetchCloudUserDirectory({ timeoutMs });
   if (!directory.ok) return directory;
   const persisted = await persistUsersFromCloud(directory.users);
@@ -16111,7 +16175,7 @@ signupForm?.addEventListener("submit", async (event) => {
       return;
     }
 
-    const syncedUsers = await refreshUsersForLogin({ timeoutMs: 8000 });
+    const syncedUsers = await refreshUsersForLogin({ timeoutMs: 12000 });
     const directoryUsers = syncedUsers.ok ? syncedUsers.users : users;
     if (!syncedUsers.ok && !directoryUsers.length) {
       setSignupStatus(syncedUsers.message || "Could not reach the central user directory right now.", true);

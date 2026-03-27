@@ -1220,6 +1220,7 @@ const AUTO_PULL_KINDS = [
   "trash",
 ];
 let currentView = "home";
+let activeSectionShortcutId = "";
 let editingUserId = "";
 let userEditReturnView = "home";
 let adminEditingUserId = "";
@@ -13092,16 +13093,29 @@ function renderSectionShortcutPanel() {
 
   sectionShortcutPanel.classList.toggle("hidden-view", !items.length);
   if (!items.length) {
+    activeSectionShortcutId = "";
     sectionShortcutList.innerHTML = "";
     return;
+  }
+
+  if (!items.some((item) => item.id === activeSectionShortcutId)) {
+    activeSectionShortcutId = "";
   }
 
   sectionShortcutList.innerHTML = items
     .map(
       (item) =>
-        `<button class="secondary section-shortcut-btn" type="button" data-section-shortcut="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`
+        `<button class="secondary section-shortcut-btn${activeSectionShortcutId === item.id ? " is-active" : ""}" type="button" data-section-shortcut="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`
     )
     .join("");
+}
+
+function setActiveSectionShortcut(targetId = "") {
+  activeSectionShortcutId = String(targetId || "").trim();
+  if (!sectionShortcutList) return;
+  sectionShortcutList.querySelectorAll("[data-section-shortcut]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.sectionShortcut === activeSectionShortcutId);
+  });
 }
 
 function renderWorkforceAdminPanel() {
@@ -18961,22 +18975,26 @@ appMain?.addEventListener("click", (event) => {
   if (sectionShortcutTrigger) {
     event.preventDefault();
     const targetId = sectionShortcutTrigger.dataset.sectionShortcut || "";
+    setActiveSectionShortcut(targetId);
     if (targetId === "usersRegistrationView") {
       setUsersSubView("registration");
       render();
+      setActiveSectionShortcut(targetId);
     } else if (targetId === "usersDirectoryView") {
       setUsersSubView(can("manageUsers") ? "directory" : "self");
       render();
+      setActiveSectionShortcut(targetId);
     }
     let targetSection = document.getElementById(targetId);
     if (!targetSection || targetSection.classList.contains("hidden-view") || targetSection.classList.contains("hidden")) {
       render();
+      setActiveSectionShortcut(targetId);
       targetSection = document.getElementById(targetId);
     }
     if (!targetSection || targetSection.classList.contains("hidden-view") || targetSection.classList.contains("hidden")) {
       return;
     }
-    targetSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+    targetSection?.scrollIntoView({ behavior: "auto", block: "start" });
     return;
   }
 

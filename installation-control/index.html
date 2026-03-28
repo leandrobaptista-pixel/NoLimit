@@ -7,7 +7,7 @@
     <title>Delivery & Installation Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260327-shortcuts1" />
+    <link rel="stylesheet" href="styles.css?v=20260327-workday1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -168,7 +168,7 @@
               <button
                 class="help-tip"
                 type="button"
-                data-help-tip="Select where you are working, review your location status, and then check in or enable automatic project check-in."
+                data-help-tip="Choose the assignment first. Project work can be manual or automatic by geofence, while office, warehouse, and homeworking stay manual. Review the route card before moving to the rest of the app."
                 aria-label="Workday Quick Access help"
               >?</button>
             </h2>
@@ -177,36 +177,42 @@
               office, warehouse, or homeworking.
             </p>
           </div>
-          <button id="workdayContinueBtn" class="secondary" type="button">Continue to dashboard</button>
+          <div class="workday-panel-actions">
+            <button id="workdayContinueBtn" class="secondary workday-continue-btn" type="button">Dashboard</button>
+          </div>
         </div>
-        <div class="workday-status-grid">
+        <div class="workday-status-grid workday-status-grid-single">
           <article class="subpanel" id="workdayLocationSection">
             <h3>
-              Location and distance
+              Location and route
               <button
                 class="help-tip"
                 type="button"
-                data-help-tip="The app checks your GPS position against the selected project radius. If you are outside the range, use Start auto check-in."
+                data-help-tip="The route card shows the active destination, approximate drive time, distance in miles, and a mini map. Tap the map to open navigation on this device."
                 aria-label="Location and distance help"
               >?</button>
             </h3>
+            <div class="workday-location-shell">
+              <a id="workdayMapLink" class="workday-map-card" href="#" target="_blank" rel="noopener" aria-label="Open route in maps">
+                <iframe id="workdayMiniMap" title="Mini map preview" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                <span class="workday-map-overlay">Open route</span>
+              </a>
+              <div class="workday-location-metrics">
+                <div class="workday-location-stat workday-location-stat-primary">
+                  <span>Approx. drive</span>
+                  <strong id="workdayEtaValue">--</strong>
+                </div>
+                <div class="workday-location-stat">
+                  <span>Distance</span>
+                  <strong id="workdayDistanceValue">--</strong>
+                </div>
+                <div class="workday-location-stat">
+                  <span>Destination</span>
+                  <strong id="workdayDestinationValue">Checking project...</strong>
+                </div>
+              </div>
+            </div>
             <p id="workdayGeoStatus" class="hint">Checking your current location against project geofences.</p>
-          </article>
-          <article class="subpanel" id="workdayRulesSection">
-            <h3>
-              How this works
-              <button
-                class="help-tip"
-                type="button"
-                data-help-tip="Manual check-in is for office, warehouse, homeworking, or when you are already inside the project radius. Auto check-in keeps tracking while the app remains open."
-                aria-label="How this works help"
-              >?</button>
-            </h3>
-            <ul class="plain-list">
-              <li>Choose the assignment below before starting the shift.</li>
-              <li>Project work can be manual or automatic by geofence.</li>
-              <li>Office, warehouse, and homeworking are always manual to avoid missing worked days.</li>
-            </ul>
           </article>
         </div>
         <div class="workday-schedule-grid">
@@ -239,14 +245,16 @@
             Use manual check-in for office, warehouse, or homeworking, or start automatic project geofence check-in while this app stays open.
           </p>
         </div>
-        <form id="timeClockForm" class="grid-form compact">
-          <label>Assignment
-            <button
-              class="help-tip"
-              type="button"
-              data-help-tip="Project job site enables geofence automation. Office, warehouse, and homeworking create manual attendance only."
-              aria-label="Assignment help"
-            >?</button>
+        <form id="timeClockForm" class="grid-form compact time-clock-form">
+          <label class="time-clock-field">
+            <span class="field-label-inline">Assignment
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="Project job site enables geofence automation. Office, warehouse, and homeworking create manual attendance only."
+                aria-label="Assignment help"
+              >?</button>
+            </span>
             <select id="timeClockSiteTypeSelect">
               <option value="project">Project job site</option>
               <option value="office">Office</option>
@@ -254,31 +262,35 @@
               <option value="homeworking">Homeworking</option>
             </select>
           </label>
-          <label>Project
-            <button
-              class="help-tip"
-              type="button"
-              data-help-tip="Select a project for manual site attendance, or leave it blank so the system can detect the nearest project geofence."
-              aria-label="Project help"
-            >?</button>
+          <label class="time-clock-field">
+            <span class="field-label-inline">Project
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="Select a project for manual site attendance, or leave it blank so the system can detect the nearest project geofence."
+                aria-label="Project help"
+              >?</button>
+            </span>
             <select id="timeClockProjectSelect">
               <option value="">Nearest project with geofence</option>
             </select>
           </label>
-          <label>Shift note
-            <button
-              class="help-tip"
-              type="button"
-              data-help-tip="Add a short note only when extra context is needed, such as office support, warehouse loading, or remote coordination."
-              aria-label="Shift note help"
-            >?</button>
+          <label class="time-clock-field">
+            <span class="field-label-inline">Shift note
+              <button
+                class="help-tip"
+                type="button"
+                data-help-tip="Add a short note only when extra context is needed, such as office support, warehouse loading, or remote coordination."
+                aria-label="Shift note help"
+              >?</button>
+            </span>
             <input id="timeClockNoteInput" placeholder="Optional note for this shift" />
           </label>
-          <div class="row full">
-            <button id="timeClockCheckInBtn" class="primary" type="button">Check in now</button>
-            <button id="timeClockCheckOutBtn" class="secondary" type="button">Check out now</button>
-            <button id="timeClockAutoStartBtn" class="secondary" type="button">Start auto check-in</button>
-            <button id="timeClockAutoStopBtn" class="secondary" type="button">Stop auto check-in</button>
+          <div class="time-clock-actions">
+            <button id="timeClockCheckInBtn" class="primary time-clock-checkin-btn" type="button">Check-in</button>
+            <button id="timeClockCheckOutBtn" class="secondary time-clock-action-btn" type="button">Check-out</button>
+            <button id="timeClockAutoStartBtn" class="secondary time-clock-action-btn" type="button">Start auto</button>
+            <button id="timeClockAutoStopBtn" class="secondary time-clock-action-btn" type="button">Stop auto</button>
           </div>
         </form>
         <p id="timeClockSummary" class="hint">No active shift for this user.</p>
@@ -1970,6 +1982,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260327-shortcuts1" defer></script>
+    <script src="app.js?v=20260327-workday1" defer></script>
   </body>
 </html>

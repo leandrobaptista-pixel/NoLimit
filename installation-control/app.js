@@ -103,8 +103,7 @@ const WAREHOUSE_SUBVIEW_LABELS = {
 
 const SECTION_SHORTCUTS = {
   workday: [
-    { id: "workdayLocationSection", label: "Location and distance" },
-    { id: "workdayRulesSection", label: "How this works" },
+    { id: "workdayLocationSection", label: "Location and route" },
     { id: "workdayTodayScheduleSection", label: "Today's assignment" },
     { id: "workdayWeekScheduleSection", label: "This week" },
     { id: "timeClockPanel", label: "Check-in controls" },
@@ -1320,6 +1319,11 @@ const workspaceShellContext = document.getElementById("workspaceShellContext");
 const workspaceShellActions = document.getElementById("workspaceShellActions");
 const workdayPanel = document.getElementById("workdayPanel");
 const workdayContinueBtn = document.getElementById("workdayContinueBtn");
+const workdayMapLink = document.getElementById("workdayMapLink");
+const workdayMiniMap = document.getElementById("workdayMiniMap");
+const workdayEtaValue = document.getElementById("workdayEtaValue");
+const workdayDistanceValue = document.getElementById("workdayDistanceValue");
+const workdayDestinationValue = document.getElementById("workdayDestinationValue");
 const workdayGeoStatus = document.getElementById("workdayGeoStatus");
 const workdayTodayScheduleCard = document.getElementById("workdayTodayScheduleCard");
 const workdayWeekScheduleCard = document.getElementById("workdayWeekScheduleCard");
@@ -2296,6 +2300,73 @@ function geoDistanceMeters(from, to) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLng / 2) ** 2;
   return 2 * earthRadius * Math.asin(Math.sqrt(a));
+}
+
+function milesFromMeters(distanceMeters) {
+  const value = Number(distanceMeters || 0);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return value / 1609.344;
+}
+
+function formatMiles(distanceMeters) {
+  const miles = milesFromMeters(distanceMeters);
+  if (!miles) return "0 mi";
+  if (miles < 0.1) return "< 0.1 mi";
+  if (miles < 10) return `${miles.toFixed(1)} mi`;
+  return `${Math.round(miles)} mi`;
+}
+
+function estimateDriveMinutes(distanceMeters) {
+  const miles = milesFromMeters(distanceMeters);
+  if (!miles) return 0;
+  if (miles < 0.5) return 3;
+  return Math.max(4, Math.round((miles / 28) * 60));
+}
+
+function formatDriveEta(distanceMeters) {
+  const minutes = estimateDriveMinutes(distanceMeters);
+  if (!minutes) return "On site";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${String(remainder).padStart(2, "0")}m` : `${hours}h`;
+}
+
+function workdayMapEmbedUrl(destination, origin = null) {
+  if (!destination) return "";
+  const points = [destination];
+  if (origin?.lat && origin?.lng) points.push(origin);
+  const latitudes = points.map((point) => Number(point.lat));
+  const longitudes = points.map((point) => Number(point.lng));
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLng = Math.min(...longitudes);
+  const maxLng = Math.max(...longitudes);
+  const latPad = Math.max(0.01, (maxLat - minLat || 0.02) * 0.45);
+  const lngPad = Math.max(0.01, (maxLng - minLng || 0.02) * 0.45);
+  const bbox = [minLng - lngPad, minLat - latPad, maxLng + lngPad, maxLat + latPad].join(",");
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${destination.lat},${destination.lng}`;
+}
+
+function workdayNavigationUrl(destination, origin = null, label = "") {
+  if (!destination) return "#";
+  const destinationLabel = `${destination.lat},${destination.lng}`;
+  const appleDevice = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
+  if (appleDevice) {
+    const params = new URLSearchParams({
+      daddr: destinationLabel,
+      dirflg: "d",
+    });
+    if (label) params.set("q", label);
+    return `https://maps.apple.com/?${params.toString()}`;
+  }
+  const params = new URLSearchParams({
+    api: "1",
+    destination: destinationLabel,
+    travelmode: "driving",
+  });
+  if (origin?.lat && origin?.lng) params.set("origin", `${origin.lat},${origin.lng}`);
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
 function formatMinutesAsHours(totalMinutes) {
@@ -13023,17 +13094,61 @@ function nearestProjectWithGeofenceDistance(geoPoint, preferredProjectId = "") {
   return best;
 }
 
+function setWorkdayMapState({
+  destinationLabel = "No destination selected",
+  distanceMeters = 0,
+  mapHref = "#",
+  mapEmbedUrl = "",
+  interactive = false,
+  etaLabel = "--",
+} = {}) {
+  if (workdayDestinationValue) workdayDestinationValue.textContent = destinationLabel;
+  if (workdayDistanceValue) workdayDistanceValue.textContent = interactive ? formatMiles(distanceMeters) : "Not required";
+  if (workdayEtaValue) workdayEtaValue.textContent = interactive ? etaLabel : "Manual";
+  if (workdayMapLink) {
+    workdayMapLink.href = interactive ? mapHref : "#";
+    workdayMapLink.classList.toggle("is-disabled", !interactive);
+    workdayMapLink.setAttribute("aria-disabled", interactive ? "false" : "true");
+    workdayMapLink.title = interactive ? `Open route to ${destinationLabel}` : "Route preview is only available for project job sites with geofence";
+  }
+  if (workdayMiniMap) {
+    const nextSrc = interactive ? mapEmbedUrl : "about:blank";
+    if (workdayMiniMap.getAttribute("src") !== nextSrc) workdayMiniMap.setAttribute("src", nextSrc);
+  }
+}
+
 async function refreshWorkdayGeoStatus() {
   if (!workdayGeoStatus || !currentUser || currentView !== "workday" || !canUseTimeClock()) return;
   const selectedSiteType = normalizeWorkSiteType(timeClockSiteTypeSelect?.value || "project");
   if (!isProjectWorkSiteType(selectedSiteType)) {
-    workdayGeoStatus.textContent = `Manual attendance is selected for ${workforceSiteLabel(selectedSiteType)}. Location range is only required for project job sites.`;
+    setWorkdayMapState({
+      destinationLabel: workforceSiteLabel(selectedSiteType),
+      interactive: false,
+    });
+    workdayGeoStatus.textContent = `Manual attendance is selected for ${workforceSiteLabel(selectedSiteType)}. Route preview is only needed for project job sites.`;
     return;
   }
 
   workdayGeoStatus.textContent = "Checking your current position...";
   const snapshot = timeClockAutoWatchId !== null && timeClockLastGeoPoint ? timeClockLastGeoPoint : await getCurrentGeoSnapshot({ timeout: 9000 });
   if (!snapshot) {
+    const selectedProjectWithoutLocation = projectById(String(timeClockProjectSelect?.value || "").trim());
+    const selectedGeofenceWithoutLocation = projectGeofence(selectedProjectWithoutLocation);
+    if (selectedProjectWithoutLocation && selectedGeofenceWithoutLocation) {
+      setWorkdayMapState({
+        destinationLabel: selectedProjectWithoutLocation.address || selectedProjectWithoutLocation.name || "Selected project",
+        distanceMeters: 0,
+        etaLabel: "GPS needed",
+        mapHref: workdayNavigationUrl(selectedGeofenceWithoutLocation, null, selectedProjectWithoutLocation.name || ""),
+        mapEmbedUrl: workdayMapEmbedUrl(selectedGeofenceWithoutLocation, null),
+        interactive: true,
+      });
+    } else {
+      setWorkdayMapState({
+        destinationLabel: "GPS permission required",
+        interactive: false,
+      });
+    }
     workdayGeoStatus.textContent =
       "Location is not available yet. Allow GPS access to compare your distance with project geofences or use manual office/warehouse/homeworking attendance.";
     return;
@@ -13045,26 +13160,48 @@ async function refreshWorkdayGeoStatus() {
   const selectedGeofence = projectGeofence(selectedProject);
   if (selectedProject && selectedGeofence) {
     const distance = geoDistanceMeters(snapshot, selectedGeofence);
+    const eta = distance <= selectedGeofence.checkInRadius ? "On site" : formatDriveEta(distance);
+    setWorkdayMapState({
+      destinationLabel: selectedProject.address || selectedProject.name || "Selected project",
+      distanceMeters: distance,
+      etaLabel: eta,
+      mapHref: workdayNavigationUrl(selectedGeofence, snapshot, selectedProject.name || ""),
+      mapEmbedUrl: workdayMapEmbedUrl(selectedGeofence, snapshot),
+      interactive: true,
+    });
     if (distance <= selectedGeofence.checkInRadius) {
-      workdayGeoStatus.textContent = `You are inside ${selectedProject.name} check-in radius (${Math.round(distance)}m). Manual check-in is ready.`;
+      workdayGeoStatus.textContent = `You are already inside ${selectedProject.name} check-in radius. Check in is ready.`;
       return;
     }
-    workdayGeoStatus.textContent = `You are ${Math.round(distance)}m away from ${selectedProject.name}. Start auto check-in to wait for the project geofence.`;
+    workdayGeoStatus.textContent = `${selectedProject.name} is about ${eta} away (${formatMiles(distance)}). Start auto check-in while traveling to the site.`;
     return;
   }
 
   const nearest = nearestProjectWithGeofenceDistance(snapshot);
   if (!nearest) {
+    setWorkdayMapState({
+      destinationLabel: "No geofenced project available",
+      interactive: false,
+    });
     workdayGeoStatus.textContent = "No projects with geofence settings are available yet. Set a project radius before using automatic check-in.";
     return;
   }
 
+  const nearestEta = nearest.distance <= nearest.geofence.checkInRadius ? "On site" : formatDriveEta(nearest.distance);
+  setWorkdayMapState({
+    destinationLabel: nearest.project.address || nearest.project.name || "Nearest project",
+    distanceMeters: nearest.distance,
+    etaLabel: nearestEta,
+    mapHref: workdayNavigationUrl(nearest.geofence, snapshot, nearest.project.name || ""),
+    mapEmbedUrl: workdayMapEmbedUrl(nearest.geofence, snapshot),
+    interactive: true,
+  });
   if (nearest.distance <= nearest.geofence.checkInRadius) {
-    workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name} (${Math.round(nearest.distance)}m). You are already inside the check-in range.`;
+    workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name}. You are already inside the check-in range.`;
     return;
   }
 
-  workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name} (${Math.round(nearest.distance)}m away). Use Start auto check-in while traveling to the site.`;
+  workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name}. Drive time is about ${nearestEta} (${formatMiles(nearest.distance)}). Use Start auto while traveling to the site.`;
 }
 
 function renderWorkdayPanel() {
@@ -16245,6 +16382,17 @@ backToLoginBtn?.addEventListener("click", () => {
 
 workdayContinueBtn?.addEventListener("click", () => {
   setView("home");
+});
+
+workdayMapLink?.addEventListener("click", (event) => {
+  if (!workdayMapLink.href || workdayMapLink.classList.contains("is-disabled")) {
+    event.preventDefault();
+    return;
+  }
+  if (window.matchMedia("(pointer: coarse)").matches) {
+    event.preventDefault();
+    window.location.assign(workdayMapLink.href);
+  }
 });
 
 usersSelfOpenWorkdayBtn?.addEventListener("click", () => {

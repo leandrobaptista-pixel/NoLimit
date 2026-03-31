@@ -148,8 +148,28 @@ const SECTION_SHORTCUTS = {
     { id: "workforceWeeklyPlannerSection", label: "Weekly team planning board" },
     { id: "adminCheckedInSection", label: "People currently checked in" },
     { id: "adminPayrollHoursSection", label: "Weekly payroll hours" },
+    { id: "adminSubcontractorPresenceSection", label: "Sub Contractor list by project / location" },
   ],
 };
+
+const ADMIN_SHORTCUT_SECTION_IDS = SECTION_SHORTCUTS.admin.map((item) => item.id);
+const ADMIN_TOP_LEVEL_SECTION_IDS = [
+  "adminEmployeeListSection",
+  "adminEmployeeControlsSection",
+  "adminWeeklyPaymentSection",
+  "adminReceiptSection",
+  "adminSubcontractorSection",
+  "workforceAdminPanel",
+];
+const ADMIN_WORKFORCE_SECTION_IDS = new Set([
+  "workforceAdminPanel",
+  "workforceTaskPlanSection",
+  "workforceWeeklyPlannerSection",
+  "adminCheckedInSection",
+  "adminPayrollHoursSection",
+  "adminSubcontractorPresenceSection",
+]);
+const IP_GEO_LOOKUP_TTL_MS = 1000 * 60 * 2;
 
 const RECEIPT_CATEGORY_OPTIONS = [
   { value: "reimbursement", label: "Reimbursement" },
@@ -1239,6 +1259,7 @@ let adminRoleFilter = "all";
 let adminProjectFilter = "";
 let adminApprovalFilter = "all";
 let adminSortKey = "employee";
+let adminSubView = ADMIN_SHORTCUT_SECTION_IDS[0] || "adminEmployeeListSection";
 let hasAutoDispatchedCoiReminder = false;
 let selectedClientId = "";
 let selectedProjectId = "";
@@ -1274,6 +1295,8 @@ let timeClockAutoWatchId = null;
 let timeClockAutoPreferredProjectId = "";
 let timeClockStatusMessage = "";
 let timeClockLastGeoPoint = null;
+let timeClockLastRouteOrigin = null;
+let timeClockLastIpLookupAt = 0;
 let timeClockLastHandledAt = 0;
 let timeClockProcessing = false;
 let pendingTimeClockFocus = false;
@@ -3452,10 +3475,14 @@ function normalizeGeoSnapshot(value) {
   const lng = Number(value.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   const accuracy = Number(value.accuracy);
+  const source = String(value.source || "").trim().toLowerCase();
+  const ip = String(value.ip || "").trim();
   return {
     lat,
     lng,
     accuracy: Number.isFinite(accuracy) && accuracy > 0 ? Math.round(accuracy) : 0,
+    source: source || "gps",
+    ip,
   };
 }
 
@@ -3500,6 +3527,8 @@ function normalizeWorkforcePlan(plan) {
     kind: "workforcePlan",
     userId: String(plan?.userId || "").trim(),
     userName: String(plan?.userName || "").trim(),
+    userUsername: String(plan?.userUsername || "").trim(),
+    userEmail: String(plan?.userEmail || "").trim().toLowerCase(),
     employmentType: String(plan?.employmentType || "").trim(),
     companyName: String(plan?.companyName || "").trim(),
     jobTitle: String(plan?.jobTitle || "").trim(),
@@ -3525,11 +3554,40 @@ function workforcePlanDateMs(plan) {
   return scheduleEntryDateMs(plan);
 }
 
+function userIdentityTokens(user) {
+  const tokens = new Set();
+  if (!user || typeof user !== "object") return tokens;
+  [
+    user.id,
+    String(user.username || "").trim().toLowerCase(),
+    String(user.email || "").trim().toLowerCase(),
+    String(user.name || "").trim().toLowerCase(),
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .forEach((value) => tokens.add(value));
+  return tokens;
+}
+
+function workforcePlanMatchesUser(plan, user) {
+  if (!plan || !user) return false;
+  const userTokens = userIdentityTokens(user);
+  const planTokens = [
+    plan.userId,
+    String(plan.userUsername || "").trim().toLowerCase(),
+    String(plan.userEmail || "").trim().toLowerCase(),
+    String(plan.userName || "").trim().toLowerCase(),
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return planTokens.some((value) => userTokens.has(value));
+}
+
 function workforcePlansForUser(user, { startMs = 0, endMs = Number.POSITIVE_INFINITY } = {}) {
   if (!user) return [];
   return workforcePlans.filter((plan) => {
     const dateMs = workforcePlanDateMs(plan);
-    return plan.userId === user.id && dateMs >= startMs && dateMs < endMs;
+    return workforcePlanMatchesUser(plan, user) && dateMs >= startMs && dateMs < endMs;
   });
 }
 
@@ -12535,6 +12593,7 @@ function timeClockGeoSnapshotFromCoords(coords) {
     lat,
     lng,
     accuracy: Number.isFinite(accuracy) && accuracy > 0 ? Math.round(accuracy) : 0,
+    source: "gps",
   };
 }
 
@@ -12566,6 +12625,87 @@ async function getCurrentGeoSnapshot({ timeout = 12000 } = {}) {
       }
     );
   });
+}
+
+async function fetchJsonWithTimeout(url, { timeout = 4000 } = {}) {
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timerId = controller ? window.setTimeout(() => controller.abort(), timeout) : 0;
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+      signal: controller?.signal,
+      headers: {
+        Accept: "application/json",
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    if (timerId) window.clearTimeout(timerId);
+  }
+}
+
+function normalizeIpGeoCandidate(value) {
+  if (!value || typeof value !== "object") return null;
+  const lat = Number(value.latitude ?? value.lat);
+  const lng = Number(value.longitude ?? value.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return normalizeGeoSnapshot({
+    lat,
+    lng,
+    source: "ip",
+    ip: String(value.ip || value.query || "").trim(),
+  });
+}
+
+async function fetchIpGeoSnapshot({ timeout = 4000 } = {}) {
+  if (timeClockLastRouteOrigin?.source === "ip" && Date.now() - timeClockLastIpLookupAt < IP_GEO_LOOKUP_TTL_MS) {
+    return timeClockLastRouteOrigin;
+  }
+
+  const providers = [
+    async () => {
+      const payload = await fetchJsonWithTimeout("https://ipwho.is/?fields=success,ip,latitude,longitude", { timeout });
+      if (!payload || payload.success === false) return null;
+      return normalizeIpGeoCandidate(payload);
+    },
+    async () => {
+      const payload = await fetchJsonWithTimeout("https://ipapi.co/json/", { timeout });
+      return normalizeIpGeoCandidate(payload);
+    },
+  ];
+
+  for (const provider of providers) {
+    try {
+      const snapshot = await provider();
+      if (snapshot) {
+        timeClockLastRouteOrigin = snapshot;
+        timeClockLastIpLookupAt = Date.now();
+        return snapshot;
+      }
+    } catch (error) {
+      console.warn("IP geo lookup failed", error);
+    }
+  }
+
+  return null;
+}
+
+async function getWorkdayRouteOriginSnapshot({ timeout = 9000 } = {}) {
+  const gpsSnapshot =
+    timeClockAutoWatchId !== null && timeClockLastGeoPoint
+      ? normalizeGeoSnapshot({
+          ...timeClockLastGeoPoint,
+          source: timeClockLastGeoPoint.source || "gps",
+        })
+      : await getCurrentGeoSnapshot({ timeout });
+  if (gpsSnapshot) {
+    timeClockLastRouteOrigin = gpsSnapshot;
+    return gpsSnapshot;
+  }
+  return fetchIpGeoSnapshot({ timeout: Math.max(2500, Math.round(timeout * 0.55)) });
 }
 
 function timeEntrySummaryLine(entry) {
@@ -13129,8 +13269,9 @@ async function refreshWorkdayGeoStatus() {
     return;
   }
 
-  workdayGeoStatus.textContent = "Checking your current position...";
-  const snapshot = timeClockAutoWatchId !== null && timeClockLastGeoPoint ? timeClockLastGeoPoint : await getCurrentGeoSnapshot({ timeout: 9000 });
+  workdayGeoStatus.textContent = "Checking your live location and current access IP route estimate...";
+  const snapshot = await getWorkdayRouteOriginSnapshot({ timeout: 9000 });
+  const usingIpEstimate = snapshot?.source === "ip";
   if (!snapshot) {
     const selectedProjectWithoutLocation = projectById(String(timeClockProjectSelect?.value || "").trim());
     const selectedGeofenceWithoutLocation = projectGeofence(selectedProjectWithoutLocation);
@@ -13150,14 +13291,15 @@ async function refreshWorkdayGeoStatus() {
       });
     }
     workdayGeoStatus.textContent =
-      "Location is not available yet. Allow GPS access to compare your distance with project geofences or use manual office/warehouse/homeworking attendance.";
+      "Location is not available yet. Allow GPS access or keep the network active so the app can estimate the route from the current access IP.";
     return;
   }
 
-  timeClockLastGeoPoint = snapshot;
+  if (!usingIpEstimate) timeClockLastGeoPoint = snapshot;
   const preferredProjectId = String(timeClockProjectSelect?.value || "").trim();
   const selectedProject = projectById(preferredProjectId);
   const selectedGeofence = projectGeofence(selectedProject);
+  const originLabel = usingIpEstimate ? "current access IP estimate" : "live GPS";
   if (selectedProject && selectedGeofence) {
     const distance = geoDistanceMeters(snapshot, selectedGeofence);
     const eta = distance <= selectedGeofence.checkInRadius ? "On site" : formatDriveEta(distance);
@@ -13170,10 +13312,10 @@ async function refreshWorkdayGeoStatus() {
       interactive: true,
     });
     if (distance <= selectedGeofence.checkInRadius) {
-      workdayGeoStatus.textContent = `You are already inside ${selectedProject.name} check-in radius. Check in is ready.`;
+      workdayGeoStatus.textContent = `You are already inside ${selectedProject.name} check-in radius. Check in is ready (${originLabel}).`;
       return;
     }
-    workdayGeoStatus.textContent = `${selectedProject.name} is about ${eta} away (${formatMiles(distance)}). Start auto check-in while traveling to the site.`;
+    workdayGeoStatus.textContent = `${selectedProject.name} is about ${eta} away (${formatMiles(distance)}) using ${originLabel}. Start auto check-in while traveling to the site.`;
     return;
   }
 
@@ -13197,11 +13339,11 @@ async function refreshWorkdayGeoStatus() {
     interactive: true,
   });
   if (nearest.distance <= nearest.geofence.checkInRadius) {
-    workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name}. You are already inside the check-in range.`;
+    workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name}. You are already inside the check-in range (${originLabel}).`;
     return;
   }
 
-  workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name}. Drive time is about ${nearestEta} (${formatMiles(nearest.distance)}). Use Start auto while traveling to the site.`;
+  workdayGeoStatus.textContent = `Nearest geofenced project: ${nearest.project.name}. Drive time is about ${nearestEta} (${formatMiles(nearest.distance)}) using ${originLabel}. Use Start auto while traveling to the site.`;
 }
 
 function renderWorkdayPanel() {
@@ -13218,6 +13360,7 @@ function renderWorkdayPanel() {
 function renderSectionShortcutPanel() {
   if (!sectionShortcutPanel || !sectionShortcutList) return;
   const manageUsers = can("manageUsers");
+  if (currentView === "admin") activeSectionShortcutId = normalizeAdminSubView(adminSubView);
   const items = ensureArray(SECTION_SHORTCUTS[currentView]).filter((item) => {
     if (item.requiresManager && !manageUsers) return false;
     if (item.requiresSelfService && manageUsers) return false;
@@ -13255,11 +13398,61 @@ function setActiveSectionShortcut(targetId = "") {
   });
 }
 
+function normalizeAdminSubView(targetId = "") {
+  const requested = String(targetId || "").trim();
+  if (requested && ADMIN_SHORTCUT_SECTION_IDS.includes(requested)) return requested;
+  return ADMIN_SHORTCUT_SECTION_IDS[0] || "adminEmployeeListSection";
+}
+
+function setAdminSubView(targetId = "") {
+  adminSubView = normalizeAdminSubView(targetId);
+  activeSectionShortcutId = adminSubView;
+}
+
+function adminUsesWorkforceShell(targetId = adminSubView) {
+  const resolved = normalizeAdminSubView(targetId);
+  return resolved === "workforceAdminPanel" || ADMIN_WORKFORCE_SECTION_IDS.has(resolved);
+}
+
+function activeWorkforceAdminSection(targetId = adminSubView) {
+  const resolved = normalizeAdminSubView(targetId);
+  if (!adminUsesWorkforceShell(resolved)) return "";
+  return resolved === "workforceAdminPanel" ? "adminCheckedInSection" : resolved;
+}
+
+function applyAdminSubViewVisibility() {
+  const activeId = normalizeAdminSubView(adminSubView);
+  adminSubView = activeId;
+
+  ADMIN_TOP_LEVEL_SECTION_IDS.forEach((sectionId) => {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    const visible = sectionId === "workforceAdminPanel" ? adminUsesWorkforceShell(activeId) : activeId === sectionId;
+    section.classList.toggle("hidden-view", !visible);
+  });
+
+  [
+    "workforceTaskPlanSection",
+    "workforceWeeklyPlannerSection",
+    "adminCheckedInSection",
+    "adminPayrollHoursSection",
+    "adminSubcontractorPresenceSection",
+  ].forEach((sectionId) => {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    const visible = activeWorkforceAdminSection(activeId) === sectionId;
+    section.classList.toggle("hidden-view", !visible);
+  });
+
+  if (currentView === "admin") activeSectionShortcutId = activeId;
+}
+
 function renderWorkforceAdminPanel() {
   if (!workforceAdminPanel) return;
   const allowed = can("accessAdmin");
   workforceAdminPanel.classList.toggle("hidden", !allowed);
   if (!allowed) return;
+  const activeWorkforceView = activeWorkforceAdminSection(adminSubView);
 
   if (!workforceWeekAnchor) workforceWeekAnchor = weekStartIso(new Date());
   if (workforceWeekInput && workforceWeekInput.value !== workforceWeekAnchor) workforceWeekInput.value = workforceWeekAnchor;
@@ -13315,8 +13508,8 @@ function renderWorkforceAdminPanel() {
     `;
   }
 
-  renderWorkforceTaskPlanSection(range);
-  renderWorkforceWeeklyPlanner(plannerState);
+  if (activeWorkforceView === "workforceTaskPlanSection") renderWorkforceTaskPlanSection(range);
+  if (activeWorkforceView === "workforceWeeklyPlannerSection") renderWorkforceWeeklyPlanner(plannerState);
 
   const activeTableRows = activeRows
     .map(
@@ -13332,7 +13525,7 @@ function renderWorkforceAdminPanel() {
       </tr>`
     )
     .join("");
-  if (workforceActiveTable) {
+  if (workforceActiveTable && activeWorkforceView === "adminCheckedInSection") {
     if (selectedWorkforceActiveEntryId && !activeRows.some((entry) => entry.id === selectedWorkforceActiveEntryId)) {
       selectedWorkforceActiveEntryId = "";
     }
@@ -13378,7 +13571,7 @@ function renderWorkforceAdminPanel() {
       </tr>`
     )
     .join("");
-  if (workforceWeeklyTable) {
+  if (workforceWeeklyTable && activeWorkforceView === "adminPayrollHoursSection") {
     mountDataTable(workforceWeeklyTable, {
       columns: ["Name", "Company", "Function", "Type", "Projects / locations", "Days", "Total hours"],
       rowsHtml: weeklyRows,
@@ -13402,7 +13595,7 @@ function renderWorkforceAdminPanel() {
       </tr>`
     )
     .join("");
-  if (workforceSubcontractorTable) {
+  if (workforceSubcontractorTable && activeWorkforceView === "adminSubcontractorPresenceSection") {
     mountDataTable(workforceSubcontractorTable, {
       columns: ["Project / location", "Company", "Person", "Function", "Work areas", "Days", "Tracked hours", "Last checkout"],
       rowsHtml: subcontractorRows,
@@ -13410,6 +13603,7 @@ function renderWorkforceAdminPanel() {
       emptyColspan: 8,
     });
   }
+  applyAdminSubViewVisibility();
   scheduleTablePrintButtons();
 }
 
@@ -13909,6 +14103,10 @@ function renderAdminPanel() {
   const allowed = can("accessAdmin");
   adminPanel.classList.toggle("hidden", !allowed);
   if (!allowed) return;
+  const activeAdminView = normalizeAdminSubView(adminSubView);
+  adminSubView = activeAdminView;
+  if (currentView === "admin") activeSectionShortcutId = activeAdminView;
+  const workforceShellVisible = adminUsesWorkforceShell(activeAdminView);
 
   const range = adminWeekRange();
   const snapshots = adminFilteredEmployeeSnapshots();
@@ -13971,7 +14169,7 @@ function renderAdminPanel() {
   if (receiptFormNewBtn) receiptFormNewBtn.disabled = !can("managePayroll");
   if (adminWeeklyReportBtn) adminWeeklyReportBtn.disabled = !payrollRows.length && !receiptRows.length && !subcontractorRows.length;
 
-  if (adminEmployeesTable) {
+  if (adminEmployeesTable && activeAdminView === "adminEmployeeListSection") {
     const rows = snapshots
       .map((snapshot) => {
         const user = snapshot.user;
@@ -14034,7 +14232,7 @@ function renderAdminPanel() {
     });
   }
 
-  if (adminPaymentsTable) {
+  if (adminPaymentsTable && activeAdminView === "adminWeeklyPaymentSection") {
     if (selectedAdminPaymentUserId && !payrollRows.some((snapshot) => snapshot.user.id === selectedAdminPaymentUserId)) {
       selectedAdminPaymentUserId = "";
     }
@@ -14110,7 +14308,7 @@ function renderAdminPanel() {
     });
   }
 
-  if (adminReceiptsTable) {
+  if (adminReceiptsTable && activeAdminView === "adminReceiptSection") {
     if (adminEditingReceiptId && !receiptRows.some((receipt) => receipt.id === adminEditingReceiptId)) adminEditingReceiptId = "";
     const selectedReceiptRow = adminEditingReceiptId ? receiptRows.find((receipt) => receipt.id === adminEditingReceiptId) || null : null;
     const rows = receiptRows
@@ -14155,7 +14353,7 @@ function renderAdminPanel() {
     });
   }
 
-  if (adminSubcontractorTable) {
+  if (adminSubcontractorTable && activeAdminView === "adminSubcontractorSection") {
     const rows = subcontractorRows
       .map(
         (entry) => `<tr>
@@ -14179,14 +14377,19 @@ function renderAdminPanel() {
   }
 
   const selectedUser = adminSelectedEmployeeId ? users.find((user) => user.id === adminSelectedEmployeeId) || null : null;
-  if (selectedUser) populateAdminEmployeeForm(selectedUser);
-  else resetAdminEmployeeForm();
+  if (activeAdminView === "adminEmployeeControlsSection") {
+    if (selectedUser) populateAdminEmployeeForm(selectedUser);
+    else resetAdminEmployeeForm();
+  }
 
   const selectedReceipt = adminEditingReceiptId ? receipts.find((receipt) => receipt.id === adminEditingReceiptId) || null : null;
-  if (selectedReceipt) populateReceiptForm(selectedReceipt);
-  else resetReceiptForm();
+  if (activeAdminView === "adminReceiptSection") {
+    if (selectedReceipt) populateReceiptForm(selectedReceipt);
+    else resetReceiptForm();
+  }
 
-  renderWorkforceAdminPanel();
+  if (workforceShellVisible) renderWorkforceAdminPanel();
+  applyAdminSubViewVisibility();
   scheduleTablePrintButtons();
 }
 
@@ -16865,6 +17068,8 @@ workforceTaskPlanForm?.addEventListener("submit", async (event) => {
     id: existing?.id || planId || uid(),
     userId: targetUser.id,
     userName: targetUser.name || targetUser.username || "User",
+    userUsername: targetUser.username || "",
+    userEmail: targetUser.email || "",
     employmentType: targetUser.employmentType || "",
     companyName: targetUser.companyName || "",
     jobTitle: targetUser.jobTitle || "",
@@ -19123,6 +19328,17 @@ appMain?.addEventListener("click", (event) => {
   if (sectionShortcutTrigger) {
     event.preventDefault();
     const targetId = sectionShortcutTrigger.dataset.sectionShortcut || "";
+    if (currentView === "admin") {
+      setAdminSubView(targetId);
+      render();
+      setActiveSectionShortcut(targetId);
+      const targetSectionId = adminUsesWorkforceShell(targetId)
+        ? activeWorkforceAdminSection(targetId) || "workforceAdminPanel"
+        : targetId;
+      const targetSection = document.getElementById(targetSectionId) || document.getElementById("adminPanel");
+      targetSection?.scrollIntoView({ behavior: "auto", block: "start" });
+      return;
+    }
     setActiveSectionShortcut(targetId);
     if (targetId === "usersRegistrationView") {
       setUsersSubView("registration");

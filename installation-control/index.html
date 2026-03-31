@@ -7,7 +7,7 @@
     <title>Delivery & Installation Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260327-workday1" />
+    <link rel="stylesheet" href="styles.css?v=20260330-workday-admin1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -160,15 +160,15 @@
       </section>
 
       <section id="workdayPanel" class="panel hidden-view">
-        <div class="row workday-panel-head">
-          <div>
+        <div class="workday-hero-grid">
+          <div class="workday-panel-head">
             <p class="eyebrow">Workday Quick Access</p>
             <h2>
               Start the day before entering the rest of the app
               <button
                 class="help-tip"
                 type="button"
-                data-help-tip="Choose the assignment first. Project work can be manual or automatic by geofence, while office, warehouse, and homeworking stay manual. Review the route card before moving to the rest of the app."
+                data-help-tip="Choose the assignment first. Project work can be manual or automatic by geofence, while office, warehouse, and homeworking stay manual. The route card uses live GPS when available and falls back to the current access IP estimate."
                 aria-label="Workday Quick Access help"
               >?</button>
             </h2>
@@ -176,29 +176,27 @@
               This page opens automatically right after login so every employee can start the shift correctly, even when working from
               office, warehouse, or homeworking.
             </p>
+            <div class="workday-panel-actions">
+              <button id="workdayContinueBtn" class="secondary workday-continue-btn" type="button">Dashboard</button>
+            </div>
           </div>
-          <div class="workday-panel-actions">
-            <button id="workdayContinueBtn" class="secondary workday-continue-btn" type="button">Dashboard</button>
-          </div>
-        </div>
-        <div class="workday-status-grid workday-status-grid-single">
-          <article class="subpanel" id="workdayLocationSection">
+          <article class="subpanel workday-location-card" id="workdayLocationSection">
             <h3>
               Location and route
               <button
                 class="help-tip"
                 type="button"
-                data-help-tip="The route card shows the active destination, approximate drive time, distance in miles, and a mini map. Tap the map to open navigation on this device."
+                data-help-tip="The route card uses the user's live location first and, if needed, the current access IP estimate. Tap the mini map to open navigation on this device."
                 aria-label="Location and distance help"
               >?</button>
             </h3>
             <div class="workday-location-shell">
               <a id="workdayMapLink" class="workday-map-card" href="#" target="_blank" rel="noopener" aria-label="Open route in maps">
                 <iframe id="workdayMiniMap" title="Mini map preview" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-                <span class="workday-map-overlay">Open route</span>
+                <span class="workday-map-overlay">Open in maps</span>
               </a>
               <div class="workday-location-metrics">
-                <div class="workday-location-stat workday-location-stat-primary">
+                <div class="workday-location-stat">
                   <span>Approx. drive</span>
                   <strong id="workdayEtaValue">--</strong>
                 </div>
@@ -1982,6 +1980,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260327-workday1" defer></script>
+    <script src="app.js?v=20260330-workday-admin1" defer></script>
   </body>
 </html>

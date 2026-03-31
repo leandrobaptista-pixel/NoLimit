@@ -3260,7 +3260,7 @@ function renderUserIdCard(user = null, { useFormValues = false } = {}) {
 
 function canViewCheckInBadge(targetUser) {
   if (!currentUser || !targetUser) return false;
-  if (can("accessAdmin")) return true;
+  if (canSeeAllCheckInBadges()) return true;
   if (can("manageUsers")) return canAccessEmployeeRecord(targetUser);
   if (userSystemRole(targetUser) === "developer" || userAccessProfile(targetUser) === "developer" || isPrimaryDeveloperUser(targetUser)) {
     return false;
@@ -3270,15 +3270,47 @@ function canViewCheckInBadge(targetUser) {
   return normalizeCompanyName(targetUser.companyName) === myCompany || targetUser.id === currentUser.id;
 }
 
+function canSeeAllCheckInBadges() {
+  if (!currentUser) return false;
+  const accessProfile = userAccessProfile(currentUser);
+  return can("accessAdmin") || can("manageUsers") || ["admin", "developer"].includes(accessProfile);
+}
+
+function userForActiveTimeEntry(entry) {
+  if (!entry) return null;
+  const direct = users.find((user) => user.id === entry.userId);
+  if (direct) return direct;
+
+  const entryName = String(entry.userName || "").trim().toLowerCase();
+  const entryCompany = normalizeCompanyName(entry.companyName);
+  const byIdentity = users.find((user) => {
+    const userName = String(user.name || "").trim().toLowerCase();
+    if (!entryName || !userName || userName !== entryName) return false;
+    if (!entryCompany) return true;
+    return normalizeCompanyName(user.companyName) === entryCompany;
+  });
+  if (byIdentity) return byIdentity;
+
+  return normalizeUser({
+    id: entry.userId || `active-${entry.id}`,
+    firstName: splitNameParts({ name: entry.userName || "" }).first,
+    lastName: splitNameParts({ name: entry.userName || "" }).last,
+    name: entry.userName || "User",
+    username: entry.userName || entry.userId || "user",
+    companyName: entry.companyName || "",
+    jobTitle: entry.jobTitle || "",
+    employmentType: entry.employmentType || "tag",
+    sessionActive: true,
+    sessionStartedAt: entry.checkInAt || "",
+    lastLoginAt: entry.checkInAt || "",
+  });
+}
+
 function usersCheckedInBadgeEntries() {
-  const activeMap = new Map(activeTimeEntries().map((entry) => [entry.userId, entry]));
-  const includeUnsyncedActiveEntries = can("accessAdmin");
-  return users
-    .map((user) => ({ user, entry: activeMap.get(user.id) || null }))
-    .filter(
-      ({ user, entry }) =>
-        Boolean(entry) && canViewCheckInBadge(user) && (includeUnsyncedActiveEntries || userSessionIsActive(user))
-    )
+  const includeUnsyncedActiveEntries = canSeeAllCheckInBadges();
+  return activeTimeEntries()
+    .map((entry) => ({ entry, user: userForActiveTimeEntry(entry) }))
+    .filter(({ user, entry }) => Boolean(user) && Boolean(entry) && canViewCheckInBadge(user) && (includeUnsyncedActiveEntries || userSessionIsActive(user)))
     .sort((a, b) => {
       const aStart = new Date(a.entry?.checkInAt || 0).getTime();
       const bStart = new Date(b.entry?.checkInAt || 0).getTime();
@@ -3342,7 +3374,7 @@ function renderUsersCheckInView() {
   if (!open) return;
 
   const badgeEntries = usersCheckedInBadgeEntries();
-  const canSeeAllActiveBadges = can("accessAdmin");
+  const canSeeAllActiveBadges = canSeeAllCheckInBadges();
   const unsyncedBadgeCount = badgeEntries.filter(({ user }) => !userSessionIsActive(user)).length;
   if (usersCheckInStatus) {
     if (badgeEntries.length) {
@@ -8417,6 +8449,11 @@ function routeStateFromHash() {
     return route;
   }
 
+  if (view === "admin") {
+    route.adminSubView = ADMIN_SHORTCUT_SECTION_IDS.includes(parts[1] || "") ? parts[1] : normalizeAdminSubView();
+    return route;
+  }
+
   if (view === "clients") {
     route.clientsWorkspaceMode = ["hub", "newClients", "projects", "contracts"].includes(parts[1]) ? parts[1] : "hub";
     return route;
@@ -8455,6 +8492,8 @@ function routeHashForState() {
   const parts = [currentView];
   if (currentView === "users") {
     parts.push(usersSubView || "directory");
+  } else if (currentView === "admin") {
+    parts.push(normalizeAdminSubView(adminSubView));
   } else if (currentView === "clients") {
     parts.push(clientsWorkspaceMode || "hub");
   } else if (currentView === "manufacture") {
@@ -8483,6 +8522,9 @@ function applyRouteState(route = { view: "home" }, { updateHash = false } = {}) 
   try {
     if (targetView === "users") {
       setUsersSubView(route.usersSubView || (can("manageUsers") ? "directory" : "self"));
+    }
+    if (targetView === "admin") {
+      setAdminSubView(route.adminSubView || normalizeAdminSubView());
     }
     if (targetView === "clients") {
       setClientsWorkspaceMode(route.clientsWorkspaceMode || "hub");
@@ -13423,25 +13465,22 @@ function activeWorkforceAdminSection(targetId = adminSubView) {
 function applyAdminSubViewVisibility() {
   const activeId = normalizeAdminSubView(adminSubView);
   adminSubView = activeId;
+  const visibleTopLevelId = adminUsesWorkforceShell(activeId) ? "workforceAdminPanel" : activeId;
+  const visibleNestedId = activeWorkforceAdminSection(activeId);
+
+  adminPanel?.querySelectorAll(".table-page-section").forEach((section) => {
+    section.classList.add("hidden-view");
+  });
 
   ADMIN_TOP_LEVEL_SECTION_IDS.forEach((sectionId) => {
     const section = document.getElementById(sectionId);
     if (!section) return;
-    const visible = sectionId === "workforceAdminPanel" ? adminUsesWorkforceShell(activeId) : activeId === sectionId;
-    section.classList.toggle("hidden-view", !visible);
+    if (sectionId === visibleTopLevelId) section.classList.remove("hidden-view");
   });
 
-  [
-    "workforceTaskPlanSection",
-    "workforceWeeklyPlannerSection",
-    "adminCheckedInSection",
-    "adminPayrollHoursSection",
-    "adminSubcontractorPresenceSection",
-  ].forEach((sectionId) => {
+  [visibleNestedId].filter(Boolean).forEach((sectionId) => {
     const section = document.getElementById(sectionId);
-    if (!section) return;
-    const visible = activeWorkforceAdminSection(activeId) === sectionId;
-    section.classList.toggle("hidden-view", !visible);
+    if (section) section.classList.remove("hidden-view");
   });
 
   if (currentView === "admin") activeSectionShortcutId = activeId;
@@ -19330,6 +19369,7 @@ appMain?.addEventListener("click", (event) => {
     const targetId = sectionShortcutTrigger.dataset.sectionShortcut || "";
     if (currentView === "admin") {
       setAdminSubView(targetId);
+      syncRouteHash();
       render();
       setActiveSectionShortcut(targetId);
       const targetSectionId = adminUsesWorkforceShell(targetId)

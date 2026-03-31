@@ -7,7 +7,7 @@
     <title>Delivery & Installation Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260330-checkin-admin2" />
+    <link rel="stylesheet" href="styles.css?v=20260330-history1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -1077,7 +1077,10 @@
               Weekly workforce payment control, RBAC management, receipt approvals, reimbursements, tolls, and printable reports.
             </p>
           </div>
-          <button id="adminWeeklyReportBtn" class="secondary" type="button">Print weekly report</button>
+          <div class="row">
+            <button id="adminArchiveWeekBtn" class="secondary" type="button">Archive current week</button>
+            <button id="adminWeeklyReportBtn" class="secondary" type="button">Print weekly report</button>
+          </div>
         </div>
 
         <form id="adminFiltersForm" class="grid-form compact admin-filters-form">
@@ -1215,6 +1218,52 @@
             </h3>
             <p class="hint">Calculated hours, worked days, base pay, reimbursements, tolls, extra expenses, and approval status.</p>
             <div id="adminPaymentsTable" class="table-wrap page-table-wrap"></div>
+          </article>
+
+          <article id="adminHistorySection" class="subpanel table-page-section">
+            <div class="row admin-section-head">
+              <div>
+                <h3>History / Archive</h3>
+                <p class="hint">Search archived payments, reports, and prior versions of users, projects, containers, catalogs, and other administrative records.</p>
+              </div>
+            </div>
+            <form id="adminHistoryFiltersForm" class="grid-form compact admin-filters-form">
+              <label>Archive type
+                <select id="adminHistoryKindSelect">
+                  <option value="all">All records</option>
+                  <option value="weeklyReport">Weekly reports</option>
+                  <option value="payment">Weekly payments</option>
+                  <option value="user">Users</option>
+                  <option value="project">Projects</option>
+                  <option value="container">Containers</option>
+                  <option value="material">Catalogs / materials</option>
+                  <option value="client">Clients</option>
+                  <option value="contact">People in project</option>
+                  <option value="contract">Contracts</option>
+                  <option value="receipt">Receipts / expenses</option>
+                  <option value="workforcePlan">Worker task plans</option>
+                </select>
+              </label>
+              <label>Search
+                <input id="adminHistorySearchInput" placeholder="Search by name, project, summary, or record" />
+              </label>
+              <label>Year
+                <select id="adminHistoryYearSelect">
+                  <option value="all">All years</option>
+                </select>
+              </label>
+              <label>Week
+                <input id="adminHistoryWeekInput" type="date" />
+              </label>
+              <label>Day
+                <input id="adminHistoryDayInput" type="date" />
+              </label>
+              <div class="row">
+                <button id="adminHistoryClearBtn" class="secondary" type="button">Clear filters</button>
+              </div>
+            </form>
+            <p id="adminHistoryStatus" class="hint">No archived records loaded yet.</p>
+            <div id="adminHistoryTable" class="table-wrap page-table-wrap"></div>
           </article>
 
           <article id="adminReceiptSection" class="subpanel table-page-section">
@@ -1980,6 +2029,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260330-checkin-admin2" defer></script>
+    <script src="app.js?v=20260330-history1" defer></script>
   </body>
 </html>

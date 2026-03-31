@@ -1,5 +1,5 @@
 const DB_NAME = "cabinets-control-db";
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 const UNIT_STORE = "units";
 const PHOTO_STORE = "photos";
 const USER_STORE = "users";
@@ -16,6 +16,7 @@ const RECEIPT_STORE = "receipts";
 const PAYMENT_STORE = "weeklyPayments";
 const WORKFORCE_PLAN_STORE = "workforcePlans";
 const TRASH_STORE = "deletedRecords";
+const HISTORY_STORE = "recordHistory";
 const SESSION_KEY = "cc-session-user-id";
 const APP_AUDIT_KEY = "cc-app-audit-log";
 const LOCAL_BACKUP_META_KEY = "cc-last-local-backup-at";
@@ -141,6 +142,7 @@ const SECTION_SHORTCUTS = {
     { id: "adminEmployeeListSection", label: "Complete Employee List" },
     { id: "adminEmployeeControlsSection", label: "Employee Controls" },
     { id: "adminWeeklyPaymentSection", label: "Weekly Payment Control" },
+    { id: "adminHistorySection", label: "History / Archive" },
     { id: "adminReceiptSection", label: "Receipt Upload & Expense Management" },
     { id: "adminSubcontractorSection", label: "Sub Contractor Presence" },
     { id: "workforceAdminPanel", label: "Workforce Control" },
@@ -157,6 +159,7 @@ const ADMIN_TOP_LEVEL_SECTION_IDS = [
   "adminEmployeeListSection",
   "adminEmployeeControlsSection",
   "adminWeeklyPaymentSection",
+  "adminHistorySection",
   "adminReceiptSection",
   "adminSubcontractorSection",
   "workforceAdminPanel",
@@ -1204,6 +1207,7 @@ let receipts = [];
 let weeklyPayments = [];
 let workforcePlans = [];
 let trashRecords = [];
+let historyRecords = [];
 let deliveryImportDraft = null;
 let ocrImportDraft = null;
 let syncConfig = { ...DEFAULT_SYNC };
@@ -1237,6 +1241,7 @@ const AUTO_PULL_KINDS = [
   "payment",
   "workforcePlan",
   "trash",
+  "history",
 ];
 let currentView = "home";
 let activeSectionShortcutId = "";
@@ -1260,6 +1265,12 @@ let adminProjectFilter = "";
 let adminApprovalFilter = "all";
 let adminSortKey = "employee";
 let adminSubView = ADMIN_SHORTCUT_SECTION_IDS[0] || "adminEmployeeListSection";
+let adminHistoryKindFilter = "all";
+let adminHistorySearchTerm = "";
+let adminHistoryYearFilter = "all";
+let adminHistoryWeekFilter = "";
+let adminHistoryDayFilter = "";
+let selectedAdminHistoryId = "";
 let hasAutoDispatchedCoiReminder = false;
 let selectedClientId = "";
 let selectedProjectId = "";
@@ -1598,6 +1609,7 @@ const adminProjectFilterSelect = document.getElementById("adminProjectFilterSele
 const adminApprovalFilterSelect = document.getElementById("adminApprovalFilterSelect");
 const adminSortSelect = document.getElementById("adminSortSelect");
 const adminSummaryCards = document.getElementById("adminSummaryCards");
+const adminArchiveWeekBtn = document.getElementById("adminArchiveWeekBtn");
 const adminEmployeesTable = document.getElementById("adminEmployeesTable");
 const adminEmployeeForm = document.getElementById("adminEmployeeForm");
 const adminEmployeeSelect = document.getElementById("adminEmployeeSelect");
@@ -1606,6 +1618,16 @@ const adminEmployeeCancelBtn = document.getElementById("adminEmployeeCancelBtn")
 const adminOpenUserRegistrationBtn = document.getElementById("adminOpenUserRegistrationBtn");
 const adminPaymentsTable = document.getElementById("adminPaymentsTable");
 const adminWeeklyReportBtn = document.getElementById("adminWeeklyReportBtn");
+const adminHistoryFiltersForm = document.getElementById("adminHistoryFiltersForm");
+const adminHistoryKindSelect = document.getElementById("adminHistoryKindSelect");
+const adminHistorySearchInput = document.getElementById("adminHistorySearchInput");
+const adminHistoryYearSelect = document.getElementById("adminHistoryYearSelect");
+const adminHistoryWeekInput = document.getElementById("adminHistoryWeekInput");
+const adminHistoryDayInput = document.getElementById("adminHistoryDayInput");
+const adminHistoryClearBtn = document.getElementById("adminHistoryClearBtn");
+const adminHistoryStatus = document.getElementById("adminHistoryStatus");
+const adminHistorySection = document.getElementById("adminHistorySection");
+const adminHistoryTable = document.getElementById("adminHistoryTable");
 const receiptForm = document.getElementById("receiptForm");
 const receiptUserSelect = document.getElementById("receiptUserSelect");
 const receiptProjectSelect = document.getElementById("receiptProjectSelect");
@@ -2626,6 +2648,7 @@ function openDB() {
       if (!dbRef.objectStoreNames.contains(PAYMENT_STORE)) dbRef.createObjectStore(PAYMENT_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(WORKFORCE_PLAN_STORE)) dbRef.createObjectStore(WORKFORCE_PLAN_STORE, { keyPath: "id" });
       if (!dbRef.objectStoreNames.contains(TRASH_STORE)) dbRef.createObjectStore(TRASH_STORE, { keyPath: "id" });
+      if (!dbRef.objectStoreNames.contains(HISTORY_STORE)) dbRef.createObjectStore(HISTORY_STORE, { keyPath: "id" });
     };
 
     request.onsuccess = () => resolve(request.result);
@@ -2863,6 +2886,79 @@ function trashExpiresAt(deletedAtIso) {
   return new Date(deletedAtTs + DELETE_RETENTION_MS).toISOString();
 }
 
+async function saveHistoryRecordEntry(record) {
+  const normalized = normalizeHistoryRecord(record);
+  await put(HISTORY_STORE, normalized);
+  return normalized;
+}
+
+async function persistRecordWithHistory(storeName, record, options = {}) {
+  const normalized = normalizeRecordForStore(storeName, record);
+  const kind = String(options.kind || historyKindForStore(storeName)).trim() || historyKindForStore(storeName);
+  const action = String(options.action || (options.previousRecord ? "updated" : "created")).trim() || "updated";
+  await put(storeName, normalized);
+  await archiveEntitySnapshot(storeName, normalized, {
+    kind,
+    action,
+    summary: options.summary || `${historyKindLabel(kind)} ${action}`,
+    snapshot: options.snapshot || normalized,
+    metadata: options.metadata || {},
+    weekStart: options.weekStart || "",
+    entryDate: options.entryDate || "",
+    entityLabel: options.entityLabel || "",
+    scope: options.scope || "",
+    relatedUserId: options.relatedUserId || "",
+    relatedProjectId: options.relatedProjectId || "",
+  });
+  return normalized;
+}
+
+async function archiveEntitySnapshot(storeName, record, options = {}) {
+  if (!record || typeof record !== "object") return null;
+  const kind = String(options.kind || historyKindForStore(storeName)).trim() || historyKindForStore(storeName);
+  const snapshot = sanitizeHistorySnapshot(storeName, options.snapshot || record);
+  const entityLabel = String(options.entityLabel || historyEntityLabel(storeName, snapshot, kind)).trim() || historyKindLabel(kind);
+  const summary = String(options.summary || `${historyKindLabel(kind)} ${options.action || "updated"}`).trim();
+  const searchParts = historySearchParts(storeName, snapshot, {
+    kind,
+    action: options.action || "updated",
+    entityLabel,
+    summary,
+    metadata: options.metadata || {},
+  });
+  const entryDate =
+    normalizeDateField(options.entryDate) ||
+    normalizeDateField(snapshot.date) ||
+    normalizeDateField(snapshot.expenseDate) ||
+    normalizeDateField(snapshot.weekStart) ||
+    isoDateFromValue(snapshot.updatedAt || snapshot.createdAt || new Date());
+  const weekStart =
+    normalizeDateField(options.weekStart) ||
+    normalizeDateField(snapshot.weekStart) ||
+    (options.period === "week" ? weekStartIso(entryDate || new Date()) : "");
+  return saveHistoryRecordEntry({
+    id: options.id || uid(),
+    kind,
+    storeName,
+    entityId: String(options.entityId || snapshot.id || "").trim(),
+    entityLabel,
+    scope: options.scope || historyKindLabel(kind),
+    action: options.action || "updated",
+    summary,
+    weekStart,
+    entryDate,
+    relatedUserId: String(options.relatedUserId || snapshot.userId || "").trim(),
+    relatedProjectId: String(options.relatedProjectId || snapshot.projectId || "").trim(),
+    searchBlob: searchParts.join(" "),
+    snapshot,
+    metadata: options.metadata || {},
+    archivedByUserId: currentUser?.id || "",
+    archivedByName: currentUser?.name || "System",
+    createdAt: options.createdAt || new Date().toISOString(),
+    updatedAt: options.updatedAt || new Date().toISOString(),
+  });
+}
+
 function normalizeTrashRecord(record) {
   const deletedAt = record.deletedAt || new Date().toISOString();
   return {
@@ -2883,6 +2979,206 @@ function normalizeTrashRecord(record) {
     deletedAt,
     expiresAt: record.expiresAt || trashExpiresAt(deletedAt),
     updatedAt: record.updatedAt || deletedAt,
+  };
+}
+
+function historyKindForStore(storeName) {
+  if (storeName === UNIT_STORE) return "unit";
+  if (storeName === USER_STORE) return "user";
+  if (storeName === CLIENT_STORE) return "client";
+  if (storeName === PROJECT_STORE) return "project";
+  if (storeName === CONTACT_STORE) return "contact";
+  if (storeName === CONTRACT_STORE) return "contract";
+  if (storeName === CONTAINER_STORE) return "container";
+  if (storeName === MATERIAL_STORE) return "material";
+  if (storeName === DELIVERY_SKU_STORE) return "deliverySku";
+  if (storeName === TIME_ENTRY_STORE) return "timeEntry";
+  if (storeName === RECEIPT_STORE) return "receipt";
+  if (storeName === PAYMENT_STORE) return "payment";
+  if (storeName === WORKFORCE_PLAN_STORE) return "workforcePlan";
+  if (storeName === TRASH_STORE) return "trash";
+  if (storeName === HISTORY_STORE) return "history";
+  return "record";
+}
+
+function historyKindLabel(kind) {
+  const normalized = String(kind || "").trim();
+  if (normalized === "weeklyReport") return "Weekly report";
+  if (normalized === "payment") return "Weekly payment";
+  if (normalized === "user") return "User";
+  if (normalized === "client") return "Client";
+  if (normalized === "project") return "Project";
+  if (normalized === "contact") return "People in project";
+  if (normalized === "contract") return "Contract";
+  if (normalized === "container") return "Container";
+  if (normalized === "material") return "Catalog / material";
+  if (normalized === "receipt") return "Receipt / expense";
+  if (normalized === "workforcePlan") return "Worker task plan";
+  if (normalized === "unit") return "Unit";
+  if (normalized === "deliverySku") return "Delivery inventory";
+  if (normalized === "timeEntry") return "Time entry";
+  if (normalized === "trash") return "Deleted record";
+  return normalized || "Record";
+}
+
+function normalizeHistorySearchValue(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function historyAnchorDate(record = {}) {
+  const weekStart = normalizeDateField(record.weekStart);
+  const entryDate = normalizeDateField(record.entryDate);
+  if (entryDate) return entryDate;
+  if (weekStart) return weekStart;
+  return isoDateFromValue(record.createdAt || record.updatedAt || new Date());
+}
+
+function sanitizeHistorySnapshot(storeName, payload) {
+  const snapshot = deepClone(payload);
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+
+  if (storeName === USER_STORE) {
+    delete snapshot.passwordHash;
+    delete snapshot.password;
+    delete snapshot.legacyPassword;
+    delete snapshot.photoDataUrl;
+    if (snapshot.contractorCoiFile && typeof snapshot.contractorCoiFile === "object") {
+      snapshot.contractorCoiFile = {
+        name: snapshot.contractorCoiFile.name || "",
+        type: snapshot.contractorCoiFile.type || "",
+        uploadedAt: snapshot.contractorCoiFile.uploadedAt || "",
+      };
+    }
+  }
+
+  if (storeName === RECEIPT_STORE && snapshot.attachment && typeof snapshot.attachment === "object") {
+    snapshot.attachment = {
+      name: snapshot.attachment.name || "",
+      type: snapshot.attachment.type || "",
+      uploadedAt: snapshot.attachment.uploadedAt || "",
+    };
+  }
+
+  return snapshot;
+}
+
+function historyEntityLabel(storeName, record, kind = historyKindForStore(storeName)) {
+  if (!record || typeof record !== "object") return "Record";
+  if (kind === "weeklyReport") return `Week ${fmtDateOnly(record.weekStart || record.entryDate || new Date())}`;
+  if (kind === "payment") return `${record?.snapshot?.userName || record.userName || record.userId || "Payment"} • ${record.weekStart || "-"}`;
+  if (kind === "user") return record.name || record.username || record.email || record.id || "User";
+  if (kind === "client") return record.name || record.id || "Client";
+  if (kind === "project") return record.name || record.code || record.id || "Project";
+  if (kind === "contact") return record.name || record.email || record.id || "Contact";
+  if (kind === "contract") return record.title || record.contractCode || record.id || "Contract";
+  if (kind === "container") return record.containerCode || record.id || "Container";
+  if (kind === "material") return [record.sku, record.description].filter(Boolean).join(" • ") || record.id || "Material";
+  if (kind === "receipt") return `${record.userName || "Receipt"} • ${formatCurrency(record.amount || 0)}`;
+  if (kind === "workforcePlan") return `${record.userName || "Worker"} • ${record.date || "-"}`;
+  if (kind === "unit") return record.unitCode || record.id || "Unit";
+  if (kind === "deliverySku") return [record.sku, record.finish].filter(Boolean).join(" • ") || record.id || "Delivery item";
+  if (kind === "timeEntry") return record.userName || record.id || "Time entry";
+  return record.name || record.title || record.id || "Record";
+}
+
+function historySearchParts(storeName, snapshot, options = {}) {
+  const metadata = options.metadata && typeof options.metadata === "object" ? options.metadata : {};
+  const parts = [
+    options.entityLabel || "",
+    options.summary || "",
+    options.action || "",
+    options.kind || historyKindForStore(storeName),
+    metadata.notes || "",
+  ];
+
+  if (storeName === USER_STORE) {
+    parts.push(snapshot.name, snapshot.username, snapshot.email, snapshot.companyName, snapshot.jobTitle, snapshot.systemRole, snapshot.accessProfile);
+  } else if (storeName === CLIENT_STORE) {
+    parts.push(snapshot.name, snapshot.address, snapshot.officePhone, snapshot.email, snapshot.ownerName, snapshot.contactSeniorProjectManager, snapshot.offices);
+  } else if (storeName === PROJECT_STORE) {
+    parts.push(snapshot.name, snapshot.code, snapshot.address, ensureArray(snapshot.scopeCategories).join(" "), ensureArray(snapshot.scopeExtras).join(" "));
+  } else if (storeName === CONTACT_STORE) {
+    parts.push(snapshot.name, snapshot.role, snapshot.company, snapshot.phone, snapshot.email);
+  } else if (storeName === CONTRACT_STORE) {
+    parts.push(snapshot.title, snapshot.contractCode, snapshot.status, snapshot.amount, snapshot.notes);
+  } else if (storeName === CONTAINER_STORE) {
+    parts.push(
+      snapshot.containerCode,
+      snapshot.supplier,
+      snapshot.manufacturer,
+      snapshot.notes,
+      snapshot.loosePartsNotes,
+      ensureArray(snapshot.materialItems).map((item) => `${item.code || ""} ${item.description || ""}`).join(" ")
+    );
+  } else if (storeName === MATERIAL_STORE) {
+    parts.push(snapshot.sku, snapshot.description, snapshot.category, snapshot.unit, snapshot.kitchenType);
+  } else if (storeName === RECEIPT_STORE) {
+    parts.push(snapshot.userName, snapshot.projectName, snapshot.category, snapshot.description, snapshot.approvalStatus);
+  } else if (storeName === PAYMENT_STORE) {
+    parts.push(
+      snapshot.weekStart,
+      snapshot.status,
+      snapshot.notes,
+      snapshot.snapshot?.userName,
+      snapshot.snapshot?.userId,
+      formatCurrency(snapshot.snapshot?.totalPayment || 0)
+    );
+  } else if (storeName === WORKFORCE_PLAN_STORE) {
+    parts.push(snapshot.userName, snapshot.projectName, snapshot.location, snapshot.foremanName, snapshot.taskDescription, snapshot.dailyNeeds, snapshot.weekOutlook);
+  } else if (storeName === UNIT_STORE) {
+    parts.push(snapshot.unitCode, snapshot.projectName, snapshot.clientName, snapshot.category, snapshot.unitType, snapshot.kitchenModel);
+  } else if (storeName === DELIVERY_SKU_STORE) {
+    parts.push(snapshot.sku, snapshot.description, snapshot.finish, snapshot.destinationNote, snapshot.projectId, snapshot.clientId);
+  } else if (options.kind === "weeklyReport") {
+    parts.push(
+      snapshot.weekStart,
+      snapshot.weekEnd,
+      ensureArray(snapshot.payrollRows).map((row) => row.userName || "").join(" "),
+      ensureArray(snapshot.receiptRows).map((row) => row.userName || row.projectName || "").join(" "),
+      ensureArray(snapshot.subcontractorRows).map((row) => `${row.userName || ""} ${row.projectName || ""}`).join(" ")
+    );
+  }
+
+  return parts.filter(Boolean);
+}
+
+function normalizeHistoryRecord(record) {
+  const kind = String(record.kind || historyKindForStore(record.storeName)).trim() || "record";
+  const storeName = String(record.storeName || "").trim();
+  const createdAt = String(record.createdAt || "").trim() || new Date().toISOString();
+  const updatedAt = String(record.updatedAt || "").trim() || createdAt;
+  const weekStart = normalizeDateField(record.weekStart) ? weekStartIso(record.weekStart) : "";
+  const entryDate = normalizeDateField(record.entryDate) || historyAnchorDate({ ...record, createdAt, updatedAt, weekStart });
+  const [year = "0", month = "0", day = "0"] = entryDate.split("-");
+  const summary = String(record.summary || "").trim();
+  const searchBlob = normalizeHistorySearchValue(record.searchBlob || "");
+  return {
+    id: String(record.id || uid()).trim(),
+    kind,
+    storeName,
+    entityId: String(record.entityId || "").trim(),
+    entityLabel: String(record.entityLabel || historyKindLabel(kind)).trim() || historyKindLabel(kind),
+    scope: String(record.scope || historyKindLabel(kind)).trim() || historyKindLabel(kind),
+    action: String(record.action || "updated").trim() || "updated",
+    summary,
+    weekStart,
+    entryDate,
+    year: Number.parseInt(year, 10) || 0,
+    month: Number.parseInt(month, 10) || 0,
+    day: Number.parseInt(day, 10) || 0,
+    relatedUserId: String(record.relatedUserId || "").trim(),
+    relatedProjectId: String(record.relatedProjectId || "").trim(),
+    searchBlob,
+    snapshot: deepClone(record.snapshot),
+    metadata: deepClone(record.metadata) || {},
+    archivedByUserId: String(record.archivedByUserId || "").trim(),
+    archivedByName: String(record.archivedByName || "").trim(),
+    createdAt,
+    updatedAt,
   };
 }
 
@@ -2907,6 +3203,7 @@ function normalizeRecordForStore(storeName, payload) {
   if (storeName === PAYMENT_STORE) return normalizeWeeklyPayment(payload);
   if (storeName === WORKFORCE_PLAN_STORE) return normalizeWorkforcePlan(payload);
   if (storeName === TRASH_STORE) return normalizeTrashRecord(payload);
+  if (storeName === HISTORY_STORE) return normalizeHistoryRecord(payload);
   return payload;
 }
 
@@ -2941,6 +3238,17 @@ async function saveTrashRecord({
 
 async function trashDeleteRecord(storeName, record, { label = "", scope = "-", relatedRecords = [] } = {}) {
   if (!record || !record.id) return false;
+  if (storeName && storeName !== HISTORY_STORE && storeName !== TRASH_STORE) {
+    await archiveEntitySnapshot(storeName, record, {
+      action: "deleted",
+      summary: `${historyKindLabel(historyKindForStore(storeName))} deleted`,
+      scope,
+      metadata: {
+        label,
+        relatedRecords: ensureArray(relatedRecords).length,
+      },
+    });
+  }
   await saveTrashRecord({
     storeName,
     recordId: record.id,
@@ -3931,6 +4239,8 @@ function normalizeWeeklyPayment(record) {
     rejectedByUserId: String(record.rejectedByUserId || "").trim(),
     rejectedByName: String(record.rejectedByName || "").trim(),
     rejectedAt: String(record.rejectedAt || "").trim(),
+    archivedAt: String(record.archivedAt || "").trim(),
+    archiveBatchId: String(record.archiveBatchId || "").trim(),
     createdAt: String(record.createdAt || "").trim() || new Date().toISOString(),
     updatedAt: String(record.updatedAt || "").trim() || record.createdAt || new Date().toISOString(),
   };
@@ -4164,6 +4474,7 @@ async function loadAll() {
     paymentRows,
     workforcePlanRows,
     trashRows,
+    historyRows,
   ] =
     await Promise.all([
       getAll(UNIT_STORE),
@@ -4182,6 +4493,7 @@ async function loadAll() {
       getAll(PAYMENT_STORE),
       getAll(WORKFORCE_PLAN_STORE),
       getAll(TRASH_STORE),
+      getAll(HISTORY_STORE),
     ]);
 
   legacyUserRoleKeyDetected = userRows.some((row) => Object.prototype.hasOwnProperty.call(row || {}, "role"));
@@ -4220,6 +4532,9 @@ async function loadAll() {
   trashRecords = normalizedTrash
     .filter((row) => !expiredTrashIds.includes(row.id))
     .sort((a, b) => new Date(b.deletedAt || 0).getTime() - new Date(a.deletedAt || 0).getTime());
+  historyRecords = historyRows
+    .map(normalizeHistoryRecord)
+    .sort((a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime());
   if (expiredTrashIds.length) {
     await Promise.all(expiredTrashIds.map((id) => del(TRASH_STORE, id)));
   }
@@ -10398,7 +10713,18 @@ async function deleteProjectScheduleRecord(scheduleId) {
     updatedAt: new Date().toISOString(),
   });
 
-  await put(PROJECT_STORE, savedProject);
+  await persistRecordWithHistory(PROJECT_STORE, savedProject, {
+    previousRecord: targetProject,
+    action: "deleted",
+    summary: "Project schedule deleted",
+    relatedProjectId: savedProject.id,
+    entryDate: targetEntry.date,
+    metadata: {
+      scheduleId,
+      location: targetEntry.location,
+      foremanName: targetEntry.foremanName,
+    },
+  });
   pushEntityAudit(
     "Projects",
     "deleted",
@@ -10430,7 +10756,12 @@ async function editContactRecord(contactId) {
     email,
     updatedAt: new Date().toISOString(),
   });
-  await put(CONTACT_STORE, updatedContact);
+  await persistRecordWithHistory(CONTACT_STORE, updatedContact, {
+    previousRecord: contact,
+    action: "updated",
+    summary: "Project contact updated",
+    relatedProjectId: updatedContact.projectId || "",
+  });
   const changes = collectAuditChanges(contact, updatedContact, [
     { key: "name", label: "Contact name" },
     { key: "company", label: "Company" },
@@ -10508,7 +10839,11 @@ async function editMaterialRecord(materialId) {
     kitchenType,
     updatedAt: new Date().toISOString(),
   });
-  await put(MATERIAL_STORE, updatedMaterial);
+  await persistRecordWithHistory(MATERIAL_STORE, updatedMaterial, {
+    previousRecord: material,
+    action: "updated",
+    summary: "Catalog material updated",
+  });
   const changes = collectAuditChanges(material, updatedMaterial, [
     { key: "sku", label: "SKU" },
     { key: "description", label: "Description" },
@@ -10595,6 +10930,14 @@ function renderProjectsTable() {
       ? [
           { label: "Schedule", attrs: { "data-open-project-schedule": selectedProject.id } },
           { label: "Warehouse", attrs: { "data-open-project-warehouse": selectedProject.id } },
+          {
+            label: "History",
+            attrs: {
+              "data-open-history": "1",
+              "data-history-kind": "project",
+              "data-history-search": selectedProject.name || selectedProject.code || "",
+            },
+          },
           ...(canManage ? [{ label: "Delete", tone: "danger", attrs: { "data-del-project": selectedProject.id } }] : []),
         ]
       : [],
@@ -10652,6 +10995,14 @@ function renderContactsTable() {
     actions: selectedContact && canManage
       ? [
           { label: "Edit", attrs: { "data-edit-contact": selectedContact.id } },
+          {
+            label: "History",
+            attrs: {
+              "data-open-history": "1",
+              "data-history-kind": "contact",
+              "data-history-search": selectedContact.name || selectedContact.email || "",
+            },
+          },
           { label: "Delete", tone: "danger", attrs: { "data-del-contact": selectedContact.id } },
         ]
       : [],
@@ -10754,7 +11105,19 @@ function renderContractsTable() {
     detail: selectedContract
       ? `${contractStatusLabel(selectedContract.status)} • ${selectedContract.amount || "-"}`
       : "Select one contract row to keep delete actions outside the grid.",
-    actions: selectedContract && canManage ? [{ label: "Delete", tone: "danger", attrs: { "data-del-contract": selectedContract.id } }] : [],
+    actions: selectedContract && canManage
+      ? [
+          {
+            label: "History",
+            attrs: {
+              "data-open-history": "1",
+              "data-history-kind": "contract",
+              "data-history-search": selectedContract.title || selectedContract.contractCode || "",
+            },
+          },
+          { label: "Delete", tone: "danger", attrs: { "data-del-contract": selectedContract.id } },
+        ]
+      : [],
   });
 
   bindSelectableRows(contractsTable, "[data-contract-row]", (row) => {
@@ -10802,6 +11165,14 @@ function renderMaterialsTable() {
     actions: selectedMaterial && canManage
       ? [
           { label: "Edit", attrs: { "data-edit-material": selectedMaterial.id } },
+          {
+            label: "History",
+            attrs: {
+              "data-open-history": "1",
+              "data-history-kind": "material",
+              "data-history-search": selectedMaterial.sku || selectedMaterial.description || "",
+            },
+          },
           { label: "Delete", tone: "danger", attrs: { "data-del-material": selectedMaterial.id } },
         ]
       : [],
@@ -10877,9 +11248,14 @@ function containerAlertLine(container) {
   return `ETA in ${d} day(s).`;
 }
 
-async function saveContainer(container) {
+async function saveContainer(container, historyOptions = {}) {
   container.updatedAt = new Date().toISOString();
-  await put(CONTAINER_STORE, normalizeContainer(container));
+  await persistRecordWithHistory(CONTAINER_STORE, container, {
+    action: historyOptions.action || "updated",
+    summary: historyOptions.summary || `Container ${historyOptions.action || "updated"}`,
+    metadata: historyOptions.metadata || {},
+    relatedProjectId: historyOptions.relatedProjectId || container.projectId || "",
+  });
   await loadAll();
   render();
   queueAutoSync();
@@ -11135,6 +11511,19 @@ function renderContainers() {
           changes.length ? `Container updated (${container.containerCode}): ${changes.join("; ")}` : `Container updated (${container.containerCode}) with no field changes`
         );
         await saveContainer(container);
+      });
+    }
+    if (can("accessAdmin")) {
+      const historyBtn = document.createElement("button");
+      historyBtn.type = "button";
+      historyBtn.className = "secondary";
+      historyBtn.textContent = "History";
+      deleteBtn.parentElement.appendChild(historyBtn);
+      historyBtn.addEventListener("click", () => {
+        openAdminHistoryBrowser({
+          kind: "container",
+          searchTerm: container.containerCode || container.id || "",
+        });
       });
     }
     deleteBtn.classList.toggle("hidden", !can("deleteContainer"));
@@ -11546,7 +11935,19 @@ function renderContainers() {
       );
 
       container.updatedAt = now;
-      await put(CONTAINER_STORE, normalizeContainer(container));
+      await persistRecordWithHistory(CONTAINER_STORE, container, {
+        action: "updated",
+        summary: `Container ${action === "release" ? "dispatch" : "hold"} recorded`,
+        relatedProjectId: container.projectId || "",
+        metadata: {
+          destination,
+          unitId: unitId || "",
+          kitchens,
+          vanities,
+          medCabinets,
+          countertops,
+        },
+      });
 
       if (action === "release" && selectedUnit) {
         selectedUnit.stages.warehouse = { done: true, at: now };
@@ -14077,6 +14478,447 @@ function resetAdminEmployeeForm() {
   syncAdminEmployeeRolePermissions();
 }
 
+function historyRecordDateMs(record) {
+  const anchor = historyAnchorDate(record || {});
+  return new Date(`${anchor}T12:00:00`).getTime();
+}
+
+function historyPeriodLabel(record) {
+  if (record?.weekStart) return `Week of ${fmtDateOnly(record.weekStart)}`;
+  if (record?.entryDate) return fmtDateOnly(record.entryDate);
+  return fmtDate(record?.createdAt || record?.updatedAt || new Date());
+}
+
+function historyMatchesWeek(record, weekReference) {
+  const normalizedWeek = normalizeDateField(weekReference);
+  if (!normalizedWeek) return true;
+  const range = weekRangeFromAnchor(normalizedWeek);
+  const recordTs = historyRecordDateMs(record);
+  return record.weekStart === range.startIso || (recordTs >= range.startMs && recordTs < range.endMs);
+}
+
+function filteredAdminHistoryRecords() {
+  const searchNeedle = normalizeHistorySearchValue(adminHistorySearchTerm);
+  const targetYear = adminHistoryYearFilter === "all" ? 0 : Number.parseInt(adminHistoryYearFilter, 10) || 0;
+  return historyRecords.filter((record) => {
+    if (adminHistoryKindFilter !== "all" && record.kind !== adminHistoryKindFilter) return false;
+    if (targetYear && record.year !== targetYear) return false;
+    if (adminHistoryWeekFilter && !historyMatchesWeek(record, adminHistoryWeekFilter)) return false;
+    if (adminHistoryDayFilter && record.entryDate !== normalizeDateField(adminHistoryDayFilter)) return false;
+    if (searchNeedle && !record.searchBlob.includes(searchNeedle)) return false;
+    return true;
+  });
+}
+
+function populateAdminHistoryYearOptions() {
+  if (!adminHistoryYearSelect) return;
+  const years = [...new Set(historyRecords.map((record) => record.year).filter((year) => Number.isFinite(year) && year > 0))].sort((a, b) => b - a);
+  const currentValue = adminHistoryYearFilter;
+  adminHistoryYearSelect.innerHTML = `<option value="all">All years</option>${years
+    .map((year) => `<option value="${year}">${year}</option>`)
+    .join("")}`;
+  adminHistoryYearSelect.value = years.some((year) => String(year) === String(currentValue)) ? String(currentValue) : "all";
+}
+
+function weeklyArchiveRecordId(weekStart) {
+  return `weekly-report::${weekStartIso(weekStart || new Date())}`;
+}
+
+function buildArchivedWeeklySnapshot(range = adminWeekRange()) {
+  const snapshotRows = sortAdminSnapshots(adminVisibleUsers().map((user) => buildAdminEmployeeSnapshot(user, range)));
+  const payrollRows = snapshotRows
+    .filter((entry) => entry.user.employmentType !== "subcontractor")
+    .map((entry) => ({
+      userId: entry.user.id,
+      userName: entry.user.name || entry.user.username || "User",
+      companyName: entry.user.companyName || "",
+      jobTitle: entry.user.jobTitle || "",
+      systemRole: systemRoleLabel(userSystemRole(entry.user)),
+      accessProfile: roleLabel(userAccessProfile(entry.user)),
+      workedDays: entry.workedDays,
+      workedMinutes: entry.workedMinutes,
+      workedHoursLabel: formatMinutesAsHours(entry.workedMinutes),
+      basePay: roundCurrency(entry.basePay),
+      reimbursements: roundCurrency(entry.reimbursements),
+      toll: roundCurrency(entry.toll),
+      extras: roundCurrency(entry.extras),
+      totalPayment: roundCurrency(entry.totalPayment),
+      paymentStatus: entry.paymentStatus,
+      paymentProfile: entry.user.bankName
+        ? `${entry.user.bankName} • ${maskedBankAccountNumber(entry.user.bankAccountNumber)}`
+        : "No bank details",
+    }));
+  const receiptRows = adminFilteredReceipts(range).map((receipt) => ({
+    id: receipt.id,
+    expenseDate: receipt.expenseDate,
+    userId: receipt.userId,
+    userName: receipt.userName || "",
+    category: receiptCategoryLabel(receipt.category),
+    projectName: receipt.projectName || "No project linked",
+    amount: roundCurrency(receipt.amount),
+    approvalStatus: approvalStatusLabel(receipt.approvalStatus),
+    description: receipt.description || "",
+  }));
+  const subcontractorRows = adminSubcontractorPresenceRows(range).map((entry) => ({
+    projectName: entry.projectName,
+    companyName: entry.companyName,
+    userName: entry.userName,
+    jobTitle: entry.jobTitle,
+    workAreas: ensureArray(entry.workAreas),
+    days: entry.days.size,
+    minutes: entry.minutes,
+    hoursLabel: formatMinutesAsHours(entry.minutes),
+    lastOut: entry.lastOut || "",
+  }));
+  const plannerState = workforceWeeklyPlannerState(range);
+  const plannerDays = plannerState.days.map((day) => ({
+    iso: day.iso,
+    label: workforcePlannerDayLabel(day.iso, { weekday: "long" }),
+    entries: day.entries.map((entry) => ({
+      projectName: entry.project?.name || entry.projectName || "-",
+      location: entry.locationLabel || scheduleEntryLocationLabel(entry),
+      foreman: entry.plannerGroups?.foremanLabel || scheduleForemanLabel(entry),
+      workers: entry.plannerGroups?.visibleWorkers?.map((user) => user.name || user.username || "Worker") || [],
+      subcontractors:
+        entry.plannerGroups?.visibleSubcontractors?.map((user) => user.name || user.username || "Sub Contractor") || [],
+      description: entry.description || "-",
+    })),
+  }));
+  const taskPlans = workforceFilteredTaskPlans(range).map((plan) => ({
+    id: plan.id,
+    date: plan.date,
+    userId: plan.userId,
+    userName: plan.userName || "",
+    companyName: plan.companyName || "",
+    projectName: plan.projectName || "",
+    location: plan.location || "",
+    foremanName: plan.foremanName || "",
+    taskDescription: plan.taskDescription || "",
+    dailyNeeds: plan.dailyNeeds || "",
+    weekOutlook: plan.weekOutlook || "",
+  }));
+  return {
+    weekStart: range.startIso,
+    weekEnd: isoDateFromValue(new Date(range.endMs - 1000 * 60 * 60 * 12)),
+    generatedAt: new Date().toISOString(),
+    payrollRows,
+    receiptRows,
+    subcontractorRows,
+    plannerDays,
+    taskPlans,
+  };
+}
+
+async function archiveCurrentAdminWeek() {
+  if (!can("approvePayroll")) return false;
+  const range = adminWeekRange();
+  const snapshot = buildArchivedWeeklySnapshot(range);
+  const summary = `${snapshot.payrollRows.length} payroll row(s), ${snapshot.receiptRows.length} receipt(s), ${snapshot.subcontractorRows.length} Sub Contractor row(s), ${snapshot.taskPlans.length} task plan(s)`;
+  const now = new Date().toISOString();
+  const archiveId = weeklyArchiveRecordId(range.startIso);
+
+  await saveHistoryRecordEntry({
+    id: archiveId,
+    kind: "weeklyReport",
+    storeName: PAYMENT_STORE,
+    entityId: range.startIso,
+    entityLabel: `Weekly report • ${fmtDateOnly(range.startIso)}`,
+    scope: "Payments / reports",
+    action: "archived",
+    summary,
+    weekStart: range.startIso,
+    entryDate: range.startIso,
+    relatedProjectId: adminProjectFilter || "",
+    searchBlob: [
+      range.startIso,
+      summary,
+      ...snapshot.payrollRows.map((row) => `${row.userName} ${row.jobTitle} ${row.companyName}`),
+      ...snapshot.receiptRows.map((row) => `${row.userName} ${row.projectName}`),
+      ...snapshot.subcontractorRows.map((row) => `${row.userName} ${row.projectName} ${row.companyName}`),
+    ].join(" "),
+    snapshot,
+    metadata: {
+      adminSearchTerm,
+      adminRoleFilter,
+      adminProjectFilter,
+      adminApprovalFilter,
+      adminSortKey,
+    },
+    archivedByUserId: currentUser?.id || "",
+    archivedByName: currentUser?.name || "System",
+    createdAt: historyRecords.find((record) => record.id === archiveId)?.createdAt || now,
+    updatedAt: now,
+  });
+
+  const affectedPayments = weeklyPayments.filter((entry) => entry.weekStart === range.startIso);
+  for (const payment of affectedPayments) {
+    await put(
+      PAYMENT_STORE,
+      normalizeWeeklyPayment({
+        ...payment,
+        archivedAt: now,
+        archiveBatchId: archiveId,
+        updatedAt: now,
+      })
+    );
+  }
+
+  pushEntityAudit("Payments", "archived", `${range.startIso} | ${summary}`, "payments");
+  await loadAll();
+  adminHistoryKindFilter = "weeklyReport";
+  adminHistoryWeekFilter = range.startIso;
+  adminHistoryDayFilter = "";
+  adminHistoryYearFilter = String(new Date(`${range.startIso}T12:00:00`).getFullYear());
+  adminWeekAnchor = weekStartIso(new Date(range.endMs));
+  selectedAdminHistoryId = archiveId;
+  render();
+  queueAutoSync();
+  alert(`Week ${fmtDateOnly(range.startIso)} archived successfully. The admin view is now ready for the next week.`);
+  return true;
+}
+
+function openAdminHistoryBrowser({ kind = "all", searchTerm = "", weekStart = "", entryDate = "", year = "" } = {}) {
+  if (!can("accessAdmin")) return;
+  adminHistoryKindFilter = kind || "all";
+  adminHistorySearchTerm = String(searchTerm || "").trim();
+  adminHistoryWeekFilter = normalizeDateField(weekStart) || "";
+  adminHistoryDayFilter = normalizeDateField(entryDate) || "";
+  adminHistoryYearFilter = year ? String(year) : adminHistoryWeekFilter ? String(new Date(`${adminHistoryWeekFilter}T12:00:00`).getFullYear()) : "all";
+  selectedAdminHistoryId = "";
+  setAdminSubView("adminHistorySection");
+  setView("admin");
+  render();
+  adminHistorySection?.scrollIntoView({ behavior: "auto", block: "start" });
+}
+
+function selectedAdminHistoryRecord() {
+  return selectedAdminHistoryId ? historyRecords.find((record) => record.id === selectedAdminHistoryId) || null : null;
+}
+
+function openHistorySnapshotWindow(historyId) {
+  const record = historyRecords.find((entry) => entry.id === historyId);
+  if (!record) return;
+  const html = reportShell(
+    `${historyKindLabel(record.kind)} snapshot ${record.entityLabel}`,
+    `
+      <h1>${escapeHtml(historyKindLabel(record.kind))} snapshot</h1>
+      <div class="meta">
+        <p><strong>Record:</strong> ${escapeHtml(record.entityLabel)}</p>
+        <p><strong>Action:</strong> ${escapeHtml(record.action)}</p>
+        <p><strong>Period:</strong> ${escapeHtml(historyPeriodLabel(record))}</p>
+        <p><strong>Archived by:</strong> ${escapeHtml(record.archivedByName || "-")}</p>
+        <p><strong>Archived at:</strong> ${escapeHtml(fmtDate(record.createdAt))}</p>
+      </div>
+      <h3>Summary</h3>
+      <p>${escapeHtml(record.summary || "No summary provided.")}</p>
+      <h3>Snapshot data</h3>
+      <pre>${escapeHtml(JSON.stringify(record.snapshot || {}, null, 2))}</pre>
+    `
+  );
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+function openArchivedWeeklyReport(historyId) {
+  const record = historyRecords.find((entry) => entry.id === historyId && entry.kind === "weeklyReport");
+  if (!record?.snapshot) return;
+  const snapshot = record.snapshot;
+  const payrollTableRows = ensureArray(snapshot.payrollRows)
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(row.userName || "-")}</td>
+        <td>${escapeHtml(row.systemRole || "-")}</td>
+        <td>${row.workedDays || 0}</td>
+        <td>${escapeHtml(row.workedHoursLabel || formatMinutesAsHours(row.workedMinutes || 0))}</td>
+        <td>${escapeHtml(formatCurrency(row.basePay || 0))}</td>
+        <td>${escapeHtml(formatCurrency(row.reimbursements || 0))}</td>
+        <td>${escapeHtml(formatCurrency(row.toll || 0))}</td>
+        <td>${escapeHtml(formatCurrency(row.extras || 0))}</td>
+        <td>${escapeHtml(formatCurrency(row.totalPayment || 0))}</td>
+        <td>${escapeHtml(row.paymentProfile || "No bank details")}</td>
+        <td>${escapeHtml(row.paymentStatus || "-")}</td>
+      </tr>`
+    )
+    .join("");
+  const receiptTableRows = ensureArray(snapshot.receiptRows)
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(fmtDateOnly(row.expenseDate))}</td>
+        <td>${escapeHtml(row.userName || "-")}</td>
+        <td>${escapeHtml(row.category || "-")}</td>
+        <td>${escapeHtml(row.projectName || "-")}</td>
+        <td>${escapeHtml(formatCurrency(row.amount || 0))}</td>
+        <td>${escapeHtml(row.approvalStatus || "-")}</td>
+        <td>${escapeHtml(row.description || "-")}</td>
+      </tr>`
+    )
+    .join("");
+  const subcontractorTableRows = ensureArray(snapshot.subcontractorRows)
+    .map(
+      (row) => `<tr>
+        <td>${escapeHtml(row.projectName || "-")}</td>
+        <td>${escapeHtml(row.companyName || "-")}</td>
+        <td>${escapeHtml(row.userName || "-")}</td>
+        <td>${escapeHtml(row.jobTitle || "-")}</td>
+        <td>${row.days || 0}</td>
+        <td>${escapeHtml(row.hoursLabel || formatMinutesAsHours(row.minutes || 0))}</td>
+      </tr>`
+    )
+    .join("");
+  const plannerSections = ensureArray(snapshot.plannerDays)
+    .map((day) => {
+      const rows = ensureArray(day.entries)
+        .map(
+          (entry) => `<tr>
+            <td>${escapeHtml(entry.projectName || "-")}</td>
+            <td>${escapeHtml(entry.location || "-")}</td>
+            <td>${escapeHtml(entry.foreman || "-")}</td>
+            <td>${escapeHtml(schedulePeopleLabel(ensureArray(entry.workers), "-"))}</td>
+            <td>${escapeHtml(schedulePeopleLabel(ensureArray(entry.subcontractors), "-"))}</td>
+            <td>${escapeHtml(entry.description || "-")}</td>
+          </tr>`
+        )
+        .join("");
+      return `
+        <h3>${escapeHtml(day.label || fmtDateOnly(day.iso))}</h3>
+        <table>
+          <thead><tr><th>Project</th><th>Location</th><th>Foreman</th><th>Workers</th><th>Sub Contractors</th><th>Description</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6">No planned crews for this day.</td></tr>'}</tbody>
+        </table>
+      `;
+    })
+    .join("");
+  const taskPlanRows = ensureArray(snapshot.taskPlans)
+    .map(
+      (plan) => `<tr>
+        <td>${escapeHtml(fmtDateOnly(plan.date))}</td>
+        <td>${escapeHtml(plan.userName || "-")}</td>
+        <td>${escapeHtml(plan.companyName || "-")}</td>
+        <td>${escapeHtml(plan.projectName || plan.location || "-")}</td>
+        <td>${escapeHtml(plan.foremanName || "-")}</td>
+        <td>${escapeHtml(plan.taskDescription || "-")}</td>
+        <td>${escapeHtml(plan.dailyNeeds || "-")}</td>
+        <td>${escapeHtml(plan.weekOutlook || "-")}</td>
+      </tr>`
+    )
+    .join("");
+
+  const html = reportShell(
+    `Archived weekly report ${snapshot.weekStart || record.weekStart || ""}`,
+    `
+      <h1>Archived weekly payroll and expense report</h1>
+      <div class="meta">
+        <p><strong>Week starting:</strong> ${escapeHtml(fmtDateOnly(snapshot.weekStart || record.weekStart || new Date()))}</p>
+        <p><strong>Week ending:</strong> ${escapeHtml(fmtDateOnly(snapshot.weekEnd || snapshot.weekStart || new Date()))}</p>
+        <p><strong>Archived by:</strong> ${escapeHtml(record.archivedByName || "-")}</p>
+        <p><strong>Archived at:</strong> ${escapeHtml(fmtDate(record.createdAt))}</p>
+      </div>
+      <h3>Weekly payment control</h3>
+      <table>
+        <thead><tr><th>Employee</th><th>Role</th><th>Worked days</th><th>Worked hours</th><th>Base pay</th><th>Reimbursements</th><th>Toll</th><th>Extra</th><th>Total payment</th><th>Payment profile</th><th>Status</th></tr></thead>
+        <tbody>${payrollTableRows || '<tr><td colspan="11">No payroll rows in this archived week.</td></tr>'}</tbody>
+      </table>
+      <h3>Receipts and extra expenses</h3>
+      <table>
+        <thead><tr><th>Date</th><th>Employee</th><th>Category</th><th>Project</th><th>Amount</th><th>Status</th><th>Description</th></tr></thead>
+        <tbody>${receiptTableRows || '<tr><td colspan="7">No receipts in this archived week.</td></tr>'}</tbody>
+      </table>
+      <h3>Sub Contractor presence</h3>
+      <table>
+        <thead><tr><th>Project / location</th><th>Company</th><th>Person</th><th>Function</th><th>Days</th><th>Tracked hours</th></tr></thead>
+        <tbody>${subcontractorTableRows || '<tr><td colspan="6">No Sub Contractor entries in this archived week.</td></tr>'}</tbody>
+      </table>
+      <h2>Weekly team planning board</h2>
+      ${plannerSections || "<p>No planning board was archived for this week.</p>"}
+      <h2>Worker task plans</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Employee</th><th>Company</th><th>Project / location</th><th>Foreman</th><th>What to do</th><th>Daily needs</th><th>Week outlook</th></tr></thead>
+        <tbody>${taskPlanRows || '<tr><td colspan="8">No worker task plans were archived for this week.</td></tr>'}</tbody>
+      </table>
+    `
+  );
+  const win = window.open("", "_blank");
+  if (!win) return;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+function loadArchivedWeekIntoAdmin(historyId) {
+  const record = historyRecords.find((entry) => entry.id === historyId);
+  if (!record) return;
+  const weekStart = normalizeDateField(record.weekStart) || weekStartIso(record.entryDate || new Date());
+  adminWeekAnchor = weekStart;
+  adminSubView = "adminWeeklyPaymentSection";
+  setView("admin");
+  render();
+  document.getElementById("adminWeeklyPaymentSection")?.scrollIntoView({ behavior: "auto", block: "start" });
+}
+
+function renderAdminHistorySection() {
+  if (!adminHistoryTable) return;
+  populateAdminHistoryYearOptions();
+  if (adminHistoryKindSelect) adminHistoryKindSelect.value = adminHistoryKindFilter;
+  if (adminHistorySearchInput && adminHistorySearchInput.value !== adminHistorySearchTerm) adminHistorySearchInput.value = adminHistorySearchTerm;
+  if (adminHistoryYearSelect && adminHistoryYearSelect.value !== adminHistoryYearFilter) adminHistoryYearSelect.value = adminHistoryYearFilter;
+  if (adminHistoryWeekInput && adminHistoryWeekInput.value !== adminHistoryWeekFilter) adminHistoryWeekInput.value = adminHistoryWeekFilter;
+  if (adminHistoryDayInput && adminHistoryDayInput.value !== adminHistoryDayFilter) adminHistoryDayInput.value = adminHistoryDayFilter;
+
+  const rowsSource = filteredAdminHistoryRecords();
+  if (selectedAdminHistoryId && !rowsSource.some((record) => record.id === selectedAdminHistoryId)) selectedAdminHistoryId = "";
+  const selectedRecord = selectedAdminHistoryRecord();
+  if (adminHistoryStatus) {
+    adminHistoryStatus.textContent = `${rowsSource.length} archived record(s) matched the current filters. Search by week, day, year, and type to revisit old payments and data versions.`;
+  }
+
+  const rows = rowsSource
+    .map(
+      (record) => `<tr class="${record.id === selectedAdminHistoryId ? "selected-row" : ""}" data-admin-history-row="${escapeHtml(record.id)}">
+        <td>${escapeHtml(fmtDate(record.createdAt))}</td>
+        <td>${escapeHtml(historyKindLabel(record.kind))}</td>
+        <td>${escapeHtml(record.entityLabel || "-")}</td>
+        <td>${escapeHtml(record.action || "-")}</td>
+        <td>${escapeHtml(historyPeriodLabel(record))}</td>
+        <td>${escapeHtml(record.summary || "-")}</td>
+        <td>${escapeHtml(record.archivedByName || "-")}</td>
+      </tr>`
+    )
+    .join("");
+
+  mountDataTable(adminHistoryTable, {
+    columns: ["Archived at", "Type", "Record", "Action", "Period", "Summary", "By"],
+    rowsHtml: rows,
+    emptyMessage: "No archived records matched the current filters.",
+    emptyColspan: 7,
+  });
+
+  renderTableContextBar(adminHistoryTable, {
+    title: "History actions",
+    selected: Boolean(selectedRecord),
+    name: selectedRecord ? selectedRecord.entityLabel || "Selected archive" : "No archived record selected",
+    detail: selectedRecord
+      ? `${historyKindLabel(selectedRecord.kind)} • ${historyPeriodLabel(selectedRecord)}`
+      : "Select one archived record to open its snapshot, report, or week context.",
+    actions: selectedRecord
+      ? [
+          { label: "Open snapshot", attrs: { "data-history-open-snapshot": selectedRecord.id } },
+          ...(selectedRecord.kind === "weeklyReport"
+            ? [{ label: "Open report", attrs: { "data-history-open-report": selectedRecord.id } }]
+            : []),
+          ...(selectedRecord.weekStart ? [{ label: "Use week in admin", attrs: { "data-history-load-week": selectedRecord.id } }] : []),
+        ]
+      : [],
+  });
+
+  bindSelectableRows(adminHistoryTable, "[data-admin-history-row]", (row) => {
+    selectedAdminHistoryId = row.dataset.adminHistoryRow || "";
+    renderAdminHistorySection();
+  });
+}
+
 function populateAdminEmployeeForm(user) {
   if (!adminEmployeeForm || !user) return;
   adminSelectedEmployeeId = user.id;
@@ -14207,6 +15049,7 @@ function renderAdminPanel() {
   if (adminOpenUserRegistrationBtn) adminOpenUserRegistrationBtn.disabled = !can("manageUsers");
   if (receiptFormNewBtn) receiptFormNewBtn.disabled = !can("managePayroll");
   if (adminWeeklyReportBtn) adminWeeklyReportBtn.disabled = !payrollRows.length && !receiptRows.length && !subcontractorRows.length;
+  if (adminArchiveWeekBtn) adminArchiveWeekBtn.disabled = !payrollRows.length && !receiptRows.length && !subcontractorRows.length;
 
   if (adminEmployeesTable && activeAdminView === "adminEmployeeListSection") {
     const rows = snapshots
@@ -14261,7 +15104,19 @@ function renderAdminPanel() {
       detail: selectedAdminEmployee
         ? `${systemRoleLabel(userSystemRole(selectedAdminEmployee))} • ${roleLabel(userAccessProfile(selectedAdminEmployee))}`
         : "Select one employee row to keep edit actions outside the table.",
-      actions: selectedAdminEmployee ? [{ label: "Edit in controls", attrs: { "data-admin-edit-employee": selectedAdminEmployee.id } }] : [],
+      actions: selectedAdminEmployee
+        ? [
+            { label: "Edit in controls", attrs: { "data-admin-edit-employee": selectedAdminEmployee.id } },
+            {
+              label: "History",
+              attrs: {
+                "data-open-history": "1",
+                "data-history-kind": "user",
+                "data-history-search": selectedAdminEmployee.name || selectedAdminEmployee.username || "",
+              },
+            },
+          ]
+        : [],
     });
     bindSelectableRows(adminEmployeesTable, "[data-admin-employee-row]", (row) => {
       const target = users.find((user) => user.id === row.dataset.adminEmployeeRow);
@@ -14338,6 +15193,15 @@ function renderAdminPanel() {
                 attrs: { "data-payment-reject": selectedPaymentSnapshot.user.id },
                 disabled: !(can("approvePayroll") && (selectedPaymentSnapshot.workedMinutes > 0 || selectedPaymentSnapshot.expensesTotal > 0)),
               },
+              {
+                label: "History",
+                attrs: {
+                  "data-open-history": "1",
+                  "data-history-kind": "payment",
+                  "data-history-search": selectedPaymentSnapshot.user.name || selectedPaymentSnapshot.user.username || "",
+                  "data-history-week": range.startIso,
+                },
+              },
             ]
           : [],
     });
@@ -14383,6 +15247,15 @@ function renderAdminPanel() {
             { label: "Open", attrs: { "data-receipt-open": selectedReceiptRow.id }, disabled: !selectedReceiptRow.attachment?.dataUrl },
             { label: "Approve", attrs: { "data-receipt-approve": selectedReceiptRow.id }, disabled: !can("approveExpenses") },
             { label: "Reject", tone: "danger", attrs: { "data-receipt-reject": selectedReceiptRow.id }, disabled: !can("approveExpenses") },
+            {
+              label: "History",
+              attrs: {
+                "data-open-history": "1",
+                "data-history-kind": "receipt",
+                "data-history-search": selectedReceiptRow.userName || "",
+                "data-history-day": selectedReceiptRow.expenseDate || "",
+              },
+            },
           ]
         : [],
     });
@@ -14425,6 +15298,10 @@ function renderAdminPanel() {
   if (activeAdminView === "adminReceiptSection") {
     if (selectedReceipt) populateReceiptForm(selectedReceipt);
     else resetReceiptForm();
+  }
+
+  if (activeAdminView === "adminHistorySection") {
+    renderAdminHistorySection();
   }
 
   if (workforceShellVisible) renderWorkforceAdminPanel();
@@ -14490,7 +15367,14 @@ async function saveAdminEmployeeSettings() {
     { key: "bankAccountNumber", label: "Bank Account", map: (value) => maskedBankAccountNumber(value) },
   ]);
 
-  await put(USER_STORE, savedUser);
+  await persistRecordWithHistory(USER_STORE, savedUser, {
+    previousRecord: targetUser,
+    action: "updated",
+    summary: "User payroll / access settings updated",
+    metadata: {
+      changes,
+    },
+  });
   pushEntityAudit(
     "Users",
     "updated",
@@ -14582,7 +15466,17 @@ async function saveReceiptFormRecord() {
     updatedAt: now,
   });
 
-  await put(RECEIPT_STORE, savedReceipt);
+  await persistRecordWithHistory(RECEIPT_STORE, savedReceipt, {
+    previousRecord: existing,
+    action: existing ? "updated" : "created",
+    summary: `Receipt ${existing ? "updated" : "created"}`,
+    relatedUserId: savedReceipt.userId || "",
+    relatedProjectId: savedReceipt.projectId || "",
+    metadata: {
+      category: savedReceipt.category,
+      approvalStatus: savedReceipt.approvalStatus,
+    },
+  });
   pushEntityAudit(
     "Receipts",
     existing ? "updated" : "created",
@@ -14616,7 +15510,17 @@ async function updateReceiptApprovalStatus(receiptId, nextStatus) {
     auditLog: recordAuditTrail(target.auditLog, `Receipt ${status} by ${currentUser?.name || "System"}`),
     updatedAt: now,
   });
-  await put(RECEIPT_STORE, updated);
+  await persistRecordWithHistory(RECEIPT_STORE, updated, {
+    previousRecord: target,
+    action: status,
+    summary: `Receipt ${status}`,
+    relatedUserId: updated.userId || "",
+    relatedProjectId: updated.projectId || "",
+    metadata: {
+      category: updated.category,
+      approvalStatus: updated.approvalStatus,
+    },
+  });
   pushEntityAudit(
     "Receipts",
     status,
@@ -14683,7 +15587,18 @@ async function updateWeeklyPaymentStatus(userId, nextStatus) {
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   });
-  await put(PAYMENT_STORE, saved);
+  await persistRecordWithHistory(PAYMENT_STORE, saved, {
+    previousRecord: existing,
+    action: status,
+    summary: `Weekly payment ${status}`,
+    weekStart: range.startIso,
+    relatedUserId: saved.userId || "",
+    metadata: {
+      totalPayment: snapshot.totalPayment,
+      workedDays: snapshot.workedDays,
+      workedMinutes: snapshot.workedMinutes,
+    },
+  });
   pushEntityAudit(
     "Payments",
     status,
@@ -15049,6 +15964,30 @@ function renderUsers() {
     emptyColspan: 11,
   });
 
+  const selectedDirectoryUser = adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null;
+  renderTableContextBar(usersTable, {
+    title: "User directory actions",
+    selected: Boolean(selectedDirectoryUser),
+    name: selectedDirectoryUser ? selectedDirectoryUser.name || selectedDirectoryUser.username || "Selected user" : "No user selected",
+    detail: selectedDirectoryUser
+      ? `${selectedDirectoryUser.companyName || "-"} • ${selectedDirectoryUser.jobTitle || "-"}`
+      : "Select one user row to open edit or history actions outside the table.",
+    actions: selectedDirectoryUser
+      ? [
+          { label: "Edit", attrs: { "data-user-edit": selectedDirectoryUser.id }, disabled: !can("manageUsers") },
+          {
+            label: "History",
+            attrs: {
+              "data-open-history": "1",
+              "data-history-kind": "user",
+              "data-history-search": selectedDirectoryUser.name || selectedDirectoryUser.username || "",
+            },
+            disabled: !can("accessAdmin"),
+          },
+        ]
+      : [],
+  });
+
   usersTable.querySelectorAll("[data-user-row]").forEach((row) => {
     row.addEventListener("click", () => {
       selectAdminUser(row.dataset.userRow || "");
@@ -15384,12 +16323,13 @@ function backupCountsSnapshot() {
     taskPlans: workforcePlans.length,
     receipts: receipts.length,
     payments: weeklyPayments.length,
+    history: historyRecords.length,
     trash: trashRecords.length,
   };
 }
 
 function backupCountsSummary(counts) {
-  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, workforce:${counts.workforce}, taskPlans:${counts.taskPlans}, receipts:${counts.receipts}, payments:${counts.payments}, trash:${counts.trash}`;
+  return `units:${counts.units}, users:${counts.users}, clients:${counts.clients}, projects:${counts.projects}, contacts:${counts.contacts}, contracts:${counts.contracts}, containers:${counts.containers}, materials:${counts.materials}, delivery:${counts.delivery}, workforce:${counts.workforce}, taskPlans:${counts.taskPlans}, receipts:${counts.receipts}, payments:${counts.payments}, history:${counts.history}, trash:${counts.trash}`;
 }
 
 function lastLocalBackupAt() {
@@ -15819,6 +16759,7 @@ function normalizeSyncKinds(kinds) {
     "payment",
     "workforcePlan",
     "trash",
+    "history",
   ]);
   const normalized = kinds
     .map((kind) => String(kind || "").trim())
@@ -15872,6 +16813,7 @@ function toCloudRecords({ kinds = null } = {}) {
     ...mapRecords(weeklyPayments, "payment"),
     ...mapRecords(workforcePlans, "workforcePlan"),
     ...mapRecords(trashRecords, "trash"),
+    ...mapRecords(historyRecords, "history"),
   ];
 }
 
@@ -15989,6 +16931,7 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
     const paymentMap = new Map(weeklyPayments.map((item) => [item.id, item]));
     const workforcePlanMap = new Map(workforcePlans.map((item) => [item.id, item]));
     const trashMap = new Map(trashRecords.map((item) => [item.id, item]));
+    const historyMap = new Map(historyRecords.map((item) => [item.id, item]));
 
     for (const row of records) {
       const item = row.payload || {};
@@ -16112,6 +17055,14 @@ async function pullCloud({ silent = false, force = false, kinds = null, full = f
         const local = trashMap.get(item.id);
         if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
           await put(TRASH_STORE, normalizeTrashRecord(item));
+          hasChanges = true;
+        }
+      }
+
+      if (row.kind === "history") {
+        const local = historyMap.get(item.id);
+        if (!local || newerThan(remoteUpdatedAt, local.updatedAt)) {
+          await put(HISTORY_STORE, normalizeHistoryRecord(item));
           hasChanges = true;
         }
       }
@@ -16786,7 +17737,13 @@ signupForm?.addEventListener("submit", async (event) => {
 
     setSignupStatus("Saving registration...");
     const normalizedNewUser = normalizeUser(user);
-    await put(USER_STORE, normalizedNewUser);
+    await persistRecordWithHistory(USER_STORE, normalizedNewUser, {
+      action: "created",
+      summary: "User self-registration created",
+      metadata: {
+        source: "signup",
+      },
+    });
     await loadAll();
 
     setSignupStatus("Sending registration to cloud...");
@@ -17130,7 +18087,14 @@ workforceTaskPlanForm?.addEventListener("submit", async (event) => {
     updatedAt: now,
   });
 
-  await put(WORKFORCE_PLAN_STORE, savedPlan);
+  await persistRecordWithHistory(WORKFORCE_PLAN_STORE, savedPlan, {
+    previousRecord: existing,
+    action: existing ? "updated" : "created",
+    summary: `Worker task plan ${existing ? "updated" : "created"}`,
+    entryDate: savedPlan.date,
+    relatedUserId: savedPlan.userId || "",
+    relatedProjectId: savedPlan.projectId || "",
+  });
   pushEntityAudit(
     "Workforce plans",
     actionLabel,
@@ -17233,6 +18197,45 @@ openReceiptFileBtn?.addEventListener("click", () => {
 
 adminWeeklyReportBtn?.addEventListener("click", () => {
   generateAdminWeeklyReport();
+});
+
+adminArchiveWeekBtn?.addEventListener("click", () => {
+  void archiveCurrentAdminWeek();
+});
+
+adminHistoryKindSelect?.addEventListener("change", () => {
+  adminHistoryKindFilter = adminHistoryKindSelect.value || "all";
+  renderAdminPanel();
+});
+
+adminHistorySearchInput?.addEventListener("input", () => {
+  adminHistorySearchTerm = String(adminHistorySearchInput.value || "").trim();
+  renderAdminPanel();
+});
+
+adminHistoryYearSelect?.addEventListener("change", () => {
+  adminHistoryYearFilter = adminHistoryYearSelect.value || "all";
+  renderAdminPanel();
+});
+
+adminHistoryWeekInput?.addEventListener("change", () => {
+  adminHistoryWeekFilter = normalizeDateField(adminHistoryWeekInput.value) || "";
+  renderAdminPanel();
+});
+
+adminHistoryDayInput?.addEventListener("change", () => {
+  adminHistoryDayFilter = normalizeDateField(adminHistoryDayInput.value) || "";
+  renderAdminPanel();
+});
+
+adminHistoryClearBtn?.addEventListener("click", () => {
+  adminHistoryKindFilter = "all";
+  adminHistorySearchTerm = "";
+  adminHistoryYearFilter = "all";
+  adminHistoryWeekFilter = "";
+  adminHistoryDayFilter = "";
+  selectedAdminHistoryId = "";
+  renderAdminPanel();
 });
 
 userWorkforceSiteTypeSelect?.addEventListener("change", () => {
@@ -17405,7 +18408,14 @@ userForm.addEventListener("submit", async (event) => {
     updatedAt: new Date().toISOString(),
   });
 
-  await put(USER_STORE, savedUser);
+  await persistRecordWithHistory(USER_STORE, savedUser, {
+    previousRecord: targetUser,
+    action: targetUser ? "updated" : "created",
+    summary: targetUser ? "User updated by admin" : "User created by admin",
+    metadata: {
+      source: "admin",
+    },
+  });
   if (!targetUser) {
     pushEntityAudit(
       "Users",
@@ -17644,7 +18654,14 @@ userEditForm?.addEventListener("submit", async (event) => {
     updatedAt: new Date().toISOString(),
   });
 
-  await put(USER_STORE, savedUser);
+  await persistRecordWithHistory(USER_STORE, savedUser, {
+    previousRecord: targetUser,
+    action: "updated",
+    summary: "User profile updated",
+    metadata: {
+      source: "self-edit",
+    },
+  });
   const changes = collectAuditChanges(targetUser, savedUser, [
     { key: "firstName", label: "First name" },
     { key: "lastName", label: "Last name" },
@@ -17721,7 +18738,11 @@ clientForm.addEventListener("submit", async (event) => {
     updatedAt: nowIso,
   });
 
-  await put(CLIENT_STORE, savedClient);
+  await persistRecordWithHistory(CLIENT_STORE, savedClient, {
+    previousRecord: editingClient,
+    action: editingClient ? "updated" : "created",
+    summary: `Client ${editingClient ? "updated" : "created"}`,
+  });
   if (!editingClient) {
     pushEntityAudit("Clients", "created", `${savedClient.name} | office "${auditValue(savedClient.officePhone)}"`, "clients");
   } else {
@@ -18036,7 +19057,12 @@ projectForm.addEventListener("submit", async (event) => {
     updatedAt: new Date().toISOString(),
   });
 
-  await put(PROJECT_STORE, savedProject);
+  await persistRecordWithHistory(PROJECT_STORE, savedProject, {
+    previousRecord: targetProject,
+    action: targetProject ? "updated" : "created",
+    summary: `Project ${targetProject ? "updated" : "created"}`,
+    relatedProjectId: savedProject.id,
+  });
   const linkedClient = clientById(savedProject.clientId);
   if (!targetProject) {
     pushEntityAudit(
@@ -18135,7 +19161,18 @@ projectScheduleForm?.addEventListener("submit", async (event) => {
     updatedAt: new Date().toISOString(),
   });
 
-  await put(PROJECT_STORE, savedProject);
+  await persistRecordWithHistory(PROJECT_STORE, savedProject, {
+    previousRecord: targetProject,
+    action: existingEntry ? "updated" : "created",
+    summary: `Project schedule ${existingEntry ? "updated" : "created"}`,
+    relatedProjectId: savedProject.id,
+    entryDate: savedEntry.date,
+    metadata: {
+      scheduleId: savedEntry.id,
+      location: savedEntry.location,
+      foremanName: savedEntry.foremanName,
+    },
+  });
   pushEntityAudit(
     "Projects",
     existingEntry ? "updated" : "created",
@@ -18192,7 +19229,11 @@ contactForm.addEventListener("submit", async (event) => {
     updatedAt: new Date().toISOString(),
   });
 
-  await put(CONTACT_STORE, createdContact);
+  await persistRecordWithHistory(CONTACT_STORE, createdContact, {
+    action: "created",
+    summary: "Project contact created",
+    relatedProjectId: createdContact.projectId || "",
+  });
   pushEntityAudit(
     "Contacts",
     "created",
@@ -18302,7 +19343,12 @@ contractForm?.addEventListener("submit", async (event) => {
     updatedAt: nowIso,
   });
 
-  await put(CONTRACT_STORE, savedContract);
+  await persistRecordWithHistory(CONTRACT_STORE, savedContract, {
+    previousRecord: targetContract,
+    action: targetContract ? "updated" : "created",
+    summary: `Contract ${targetContract ? "updated" : "created"}`,
+    relatedProjectId: savedContract.projectId || "",
+  });
   const linkedClient = clientById(savedContract.clientId);
   const linkedProject = projectById(savedContract.projectId);
   if (!targetContract) {
@@ -18366,7 +19412,10 @@ materialForm.addEventListener("submit", async (event) => {
     updatedAt: new Date().toISOString(),
   });
 
-  await put(MATERIAL_STORE, createdMaterial);
+  await persistRecordWithHistory(MATERIAL_STORE, createdMaterial, {
+    action: "created",
+    summary: "Catalog material created",
+  });
   pushEntityAudit(
     "Materials",
     "created",
@@ -18516,7 +19565,11 @@ containerForm.addEventListener("submit", async (event) => {
     createdContainer,
     `Container created: ${containerCode}${createdContainer.materialItems.length ? ` | manifest lines ${createdContainer.materialItems.length} | QR ${createdContainer.qrItems.length}` : ""}`
   );
-  await put(CONTAINER_STORE, createdContainer);
+  await persistRecordWithHistory(CONTAINER_STORE, createdContainer, {
+    action: "created",
+    summary: "Container created",
+    relatedProjectId: createdContainer.projectId || "",
+  });
 
   containerForm.reset();
   containerManifestDraft = [];
@@ -18925,6 +19978,7 @@ function buildFullBackupPayload() {
     receipts,
     weeklyPayments,
     trashRecords,
+    historyRecords,
     settings: [{ id: "syncConfig", ...syncConfig }, normalizeSharedDeviceConfig(sharedDeviceConfig)],
   };
 }
@@ -18982,6 +20036,7 @@ async function importBackupFile(file) {
       for (const item of payload.weeklyPayments) await put(PAYMENT_STORE, normalizeWeeklyPayment(item));
     }
     if (Array.isArray(payload.trashRecords)) for (const item of payload.trashRecords) await put(TRASH_STORE, normalizeTrashRecord(item));
+    if (Array.isArray(payload.historyRecords)) for (const item of payload.historyRecords) await put(HISTORY_STORE, normalizeHistoryRecord(item));
     if (Array.isArray(payload.settings)) for (const setting of payload.settings) await put(SETTINGS_STORE, setting);
 
     await loadAll();
@@ -18989,7 +20044,7 @@ async function importBackupFile(file) {
     pushEntityAudit(
       "Backups",
       "imported",
-      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, workforce:${ensureArray(payload.timeEntries).length}, taskPlans:${ensureArray(payload.workforcePlans).length}, receipts:${ensureArray(payload.receipts).length}, payments:${ensureArray(payload.weeklyPayments).length}, trash:${ensureArray(payload.trashRecords).length}`,
+      `${file.name} | units:${ensureArray(payload.units).length}, users:${ensureArray(payload.users).length}, clients:${ensureArray(payload.clients).length}, projects:${ensureArray(payload.projects).length}, contacts:${ensureArray(payload.contacts).length}, contracts:${ensureArray(payload.contracts).length}, containers:${ensureArray(payload.containers).length}, materials:${ensureArray(payload.materials).length}, delivery:${ensureArray(payload.deliverySkuItems).length}, workforce:${ensureArray(payload.timeEntries).length}, taskPlans:${ensureArray(payload.workforcePlans).length}, receipts:${ensureArray(payload.receipts).length}, payments:${ensureArray(payload.weeklyPayments).length}, history:${ensureArray(payload.historyRecords).length}, trash:${ensureArray(payload.trashRecords).length}`,
       "backup"
     );
     render();
@@ -19353,6 +20408,51 @@ appMain?.addEventListener("click", (event) => {
   if (workforceCheckoutBtn) {
     event.preventDefault();
     void closeTimeEntryAsAdmin(workforceCheckoutBtn.dataset.workforceCheckout || "");
+    return;
+  }
+
+  const userEditBtn = event.target.closest("[data-user-edit]");
+  if (userEditBtn) {
+    event.preventDefault();
+    const selected = users.find((entry) => entry.id === (userEditBtn.dataset.userEdit || ""));
+    if (!selected || !can("manageUsers")) return;
+    populateAdminUserForm(selected);
+    setUserAdminFormOpen(true);
+    setUsersSubView("registration");
+    userForm?.querySelector('input[name="firstName"]')?.focus();
+    return;
+  }
+
+  const openHistoryBtn = event.target.closest("[data-open-history]");
+  if (openHistoryBtn) {
+    event.preventDefault();
+    openAdminHistoryBrowser({
+      kind: openHistoryBtn.dataset.historyKind || "all",
+      searchTerm: openHistoryBtn.dataset.historySearch || "",
+      weekStart: openHistoryBtn.dataset.historyWeek || "",
+      entryDate: openHistoryBtn.dataset.historyDay || "",
+    });
+    return;
+  }
+
+  const historySnapshotBtn = event.target.closest("[data-history-open-snapshot]");
+  if (historySnapshotBtn) {
+    event.preventDefault();
+    openHistorySnapshotWindow(historySnapshotBtn.dataset.historyOpenSnapshot || "");
+    return;
+  }
+
+  const historyReportBtn = event.target.closest("[data-history-open-report]");
+  if (historyReportBtn) {
+    event.preventDefault();
+    openArchivedWeeklyReport(historyReportBtn.dataset.historyOpenReport || "");
+    return;
+  }
+
+  const historyLoadWeekBtn = event.target.closest("[data-history-load-week]");
+  if (historyLoadWeekBtn) {
+    event.preventDefault();
+    loadArchivedWeekIntoAdmin(historyLoadWeekBtn.dataset.historyLoadWeek || "");
     return;
   }
 

@@ -2225,6 +2225,71 @@ table.data-table tbody tr.is-selected td:first-child {
   flex: 0 0 auto;
 }
 
+.workspace-view-lead {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.82rem 0.96rem;
+  border: 1px solid #dfe8ef;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 254, 0.96));
+  box-shadow: 0 8px 20px rgba(27, 47, 71, 0.05);
+}
+
+.workspace-view-lead-admin {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 252, 255, 0.96));
+}
+
+.workspace-view-lead-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.workspace-view-lead-eyebrow {
+  margin: 0 0 0.12rem;
+  font-size: 0.71rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #597388;
+}
+
+.workspace-view-lead h3 {
+  margin: 0;
+  font-size: 1.08rem;
+  line-height: 1.15;
+  color: #17384a;
+}
+
+.workspace-view-lead-copy {
+  margin: 0;
+  color: #51687c;
+  line-height: 1.45;
+  max-width: 80ch;
+}
+
+.workspace-view-lead-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.workspace-view-lead-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0.18rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid #d9e4ef;
+  background: #f7fbff;
+  color: #23455d;
+  font-size: 0.73rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .users-subview-btn.active {
   background: #1f4f3e;
   border-color: #1f4f3e;
@@ -2238,7 +2303,7 @@ table.data-table tbody tr.is-selected td:first-child {
 .users-registration-view {
   margin-top: 0.08rem;
   display: grid;
-  gap: 0.46rem;
+  gap: 0.6rem;
 }
 
 .users-checkin-view {
@@ -3270,6 +3335,14 @@ body[data-app-view="projects"] .container-card > .subpanel {
 }
 
 @media (max-width: 900px) {
+  .workspace-view-lead-head {
+    flex-direction: column;
+  }
+
+  .workspace-view-lead-chips {
+    justify-content: flex-start;
+  }
+
   .kpi-box-wide {
     grid-column: span 1;
   }
@@ -3637,12 +3710,14 @@ body[data-app-view="projects"] .container-card > .subpanel {
   }
 
   .workspace-shell-head,
-  .project-sector-shell-head {
+  .project-sector-shell-head,
+  .workspace-view-lead-head {
     flex-direction: column;
   }
 
   .workspace-shell-actions,
-  .project-subview-cluster {
+  .project-subview-cluster,
+  .workspace-view-lead-chips {
     width: 100%;
     justify-content: flex-start;
   }

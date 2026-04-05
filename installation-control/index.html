@@ -7,7 +7,7 @@
     <title>Delivery & Installation Control</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="styles.css?v=20260330-history1" />
+    <link rel="stylesheet" href="styles.css?v=20260404-stability1" />
   </head>
   <body class="auth-mode">
     <header class="app-header">
@@ -866,6 +866,8 @@
           </button>
         </div>
 
+        <article id="usersViewLead" class="workspace-view-lead"></article>
+
         <div id="usersDirectoryView" class="users-workspace users-directory-view">
           <div class="users-left-column">
             <aside id="usersNameRail" class="users-name-rail"></aside>
@@ -1124,6 +1126,7 @@
         </form>
 
         <div id="adminSummaryCards" class="admin-summary-grid"></div>
+        <article id="adminViewLead" class="workspace-view-lead workspace-view-lead-admin"></article>
 
         <div class="admin-primary-grid">
           <article id="adminEmployeeListSection" class="subpanel admin-directory-card table-page-section">
@@ -1233,10 +1236,13 @@
                   <option value="all">All records</option>
                   <option value="weeklyReport">Weekly reports</option>
                   <option value="payment">Weekly payments</option>
+                  <option value="timeEntry">Time entries / check-ins</option>
                   <option value="user">Users</option>
                   <option value="project">Projects</option>
+                  <option value="unit">Units</option>
                   <option value="container">Containers</option>
                   <option value="material">Catalogs / materials</option>
+                  <option value="deliverySku">Delivery inventory</option>
                   <option value="client">Clients</option>
                   <option value="contact">People in project</option>
                   <option value="contract">Contracts</option>
@@ -2029,6 +2035,6 @@
 
     <script src="cloud-sync-config.js?v=20260309-deliverysku3" defer></script>
     <script src="delivery-sku-seed.js?v=20260309-deliverysku3" defer></script>
-    <script src="app.js?v=20260330-history1" defer></script>
+    <script src="app.js?v=20260404-stability1" defer></script>
   </body>
 </html>

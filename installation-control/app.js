@@ -393,6 +393,7 @@ initManagedForms();
 
 const DEFAULT_LANG = "en";
 const SUPPORTED_LANGS = ["en"];
+const PRIMARY_DEVELOPER_ID = "b7d91adc-2838-4caa-a459-c3e068f49fec";
 const PRIMARY_DEVELOPER_NAME = "leandro baptista";
 const PRIMARY_DEVELOPER_EMAILS = ["leandro@nolimitcontractor.net", "leandrobaptista@me.com"];
 const PRIMARY_DEVELOPER_PASSWORD = "0000";
@@ -1226,23 +1227,44 @@ let autoPullBlockedUntil = 0;
 let clientsNavHoverTimer = null;
 const AUTO_PULL_INTERVAL_MS = 30 * 1000;
 const AUTO_PULL_SUBMIT_GRACE_MS = 12 * 1000;
-const AUTO_PULL_KINDS = [
-  "unit",
-  "user",
-  "client",
-  "project",
-  "contact",
-  "contract",
-  "container",
-  "material",
-  "deliverySku",
-  "timeEntry",
-  "receipt",
-  "payment",
-  "workforcePlan",
-  "trash",
-  "history",
-];
+const AUTH_DIRECTORY_CACHE_KEY = "cab-auth-directory-cache";
+const AUTH_USER_SELECT = [
+  "id",
+  "updated_at",
+  "userId:payload->>id",
+  "name:payload->>name",
+  "firstName:payload->>firstName",
+  "lastName:payload->>lastName",
+  "birthDate:payload->>birthDate",
+  "companyName:payload->>companyName",
+  "jobTitle:payload->>jobTitle",
+  "employmentType:payload->>employmentType",
+  "address:payload->>address",
+  "phone:payload->>phone",
+  "cellPhone:payload->>cellPhone",
+  "email:payload->>email",
+  "gender:payload->>gender",
+  "username:payload->>username",
+  "passwordHash:payload->>passwordHash",
+  "legacyPassword:payload->>legacyPassword",
+  "legacyPlainPassword:payload->>password",
+  "systemRole:payload->>systemRole",
+  "accessProfile:payload->>accessProfile",
+  "payRateType:payload->>payRateType",
+  "hourlyRate:payload->>hourlyRate",
+  "dailyRate:payload->>dailyRate",
+  "bankName:payload->>bankName",
+  "bankRoutingNumber:payload->>bankRoutingNumber",
+  "bankAccountNumber:payload->>bankAccountNumber",
+  "sessionActive:payload->>sessionActive",
+  "sessionStartedAt:payload->>sessionStartedAt",
+  "lastLoginAt:payload->>lastLoginAt",
+  "lastLogoutAt:payload->>lastLogoutAt",
+  "createdAt:payload->>createdAt",
+  "userUpdatedAt:payload->>updatedAt",
+].join(",");
+const POST_LOGIN_PULL_KINDS = ["user", "project", "timeEntry", "receipt", "payment", "workforcePlan", "history"];
+const AUTO_PULL_KINDS = ["user", "timeEntry", "receipt", "payment", "workforcePlan", "history"];
 let currentView = "home";
 let activeSectionShortcutId = "";
 let editingUserId = "";
@@ -1253,6 +1275,8 @@ let adminEditingReceiptId = "";
 let selectedAdminPaymentUserId = "";
 let selectedWorkforceActiveEntryId = "";
 let selectedWorkforceTaskPlanId = "";
+let selectedWorkforceWeeklyUserId = "";
+let selectedWorkforceSubcontractorKey = "";
 let userAdminFormOpen = false;
 let usersSubView = "directory";
 let lastQrLookupCode = "";
@@ -1568,6 +1592,7 @@ const usersPanel = document.getElementById("usersPanel");
 const usersRegistrationTabBtn = document.getElementById("usersRegistrationTabBtn");
 const usersDirectoryTabBtn = document.getElementById("usersDirectoryTabBtn");
 const usersCheckInTabBtn = document.getElementById("usersCheckInTabBtn");
+const usersViewLead = document.getElementById("usersViewLead");
 const usersDirectoryView = document.getElementById("usersDirectoryView");
 const usersCheckInView = document.getElementById("usersCheckInView");
 const usersRegistrationView = document.getElementById("usersRegistrationView");
@@ -1609,6 +1634,7 @@ const adminProjectFilterSelect = document.getElementById("adminProjectFilterSele
 const adminApprovalFilterSelect = document.getElementById("adminApprovalFilterSelect");
 const adminSortSelect = document.getElementById("adminSortSelect");
 const adminSummaryCards = document.getElementById("adminSummaryCards");
+const adminViewLead = document.getElementById("adminViewLead");
 const adminArchiveWeekBtn = document.getElementById("adminArchiveWeekBtn");
 const adminEmployeesTable = document.getElementById("adminEmployeesTable");
 const adminEmployeeForm = document.getElementById("adminEmployeeForm");
@@ -1897,6 +1923,17 @@ function normalizeMoneyField(value) {
   if (!raw) return 0;
   const num = Number(raw);
   return Number.isFinite(num) ? roundCurrency(Math.max(0, num)) : 0;
+}
+
+function normalizeBooleanFlag(value) {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return false;
+  if (["false", "0", "no", "off", "null", "undefined"].includes(normalized)) return false;
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  return Boolean(value);
 }
 
 function normalizeWorkSiteType(value, fallback = "project") {
@@ -3127,6 +3164,18 @@ function historySearchParts(storeName, snapshot, options = {}) {
       snapshot.snapshot?.userId,
       formatCurrency(snapshot.snapshot?.totalPayment || 0)
     );
+  } else if (storeName === TIME_ENTRY_STORE) {
+    parts.push(
+      snapshot.userName,
+      snapshot.companyName,
+      snapshot.jobTitle,
+      snapshot.projectName,
+      snapshot.workSiteLabel,
+      snapshot.employmentType,
+      snapshot.mode,
+      snapshot.checkInNote,
+      snapshot.checkOutNote
+    );
   } else if (storeName === WORKFORCE_PLAN_STORE) {
     parts.push(snapshot.userName, snapshot.projectName, snapshot.location, snapshot.foremanName, snapshot.taskDescription, snapshot.dailyNeeds, snapshot.weekOutlook);
   } else if (storeName === UNIT_STORE) {
@@ -3791,7 +3840,7 @@ function normalizeUser(user) {
     username: (user.username || "").toLowerCase(),
     passwordHash: user.passwordHash || "",
     legacyPassword: user.legacyPassword || user.password || "",
-    sessionActive: Boolean(user.sessionActive),
+    sessionActive: normalizeBooleanFlag(user.sessionActive),
     sessionStartedAt: user.sessionStartedAt || "",
     lastLoginAt: user.lastLoginAt || "",
     lastLogoutAt: user.lastLogoutAt || "",
@@ -4594,6 +4643,32 @@ function isPrimaryDeveloperUser(user) {
     normalizedUsername === "leandro-baptista" ||
     normalizedUsername === "leandrobaptista"
   );
+}
+
+async function buildPrimaryDeveloperBootstrapUser() {
+  return normalizeUser({
+    id: PRIMARY_DEVELOPER_ID,
+    name: "Leandro Baptista",
+    firstName: "Leandro",
+    lastName: "Baptista",
+    companyName: "No Limit Contractor LLC",
+    jobTitle: "Developer",
+    email: PRIMARY_DEVELOPER_EMAILS[1] || PRIMARY_DEVELOPER_EMAILS[0] || "",
+    username: "leandro",
+    passwordHash: await hashPassword(PRIMARY_DEVELOPER_PASSWORD),
+    systemRole: "developer",
+    accessProfile: "developer",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+async function ensurePrimaryDeveloperBootstrap() {
+  if (users.some((user) => isPrimaryDeveloperUser(user) || String(user.username || "").trim().toLowerCase() === "leandro")) return;
+  const bootstrapUser = await buildPrimaryDeveloperBootstrapUser();
+  await put(USER_STORE, bootstrapUser);
+  await loadAll();
+  writeCachedAuthDirectory([bootstrapUser]);
 }
 
 async function ensureDeveloperRolePresence() {
@@ -8297,6 +8372,115 @@ function authDirectoryEmptyMessage() {
   return "The central user directory returned no users for this workspace.";
 }
 
+function mergeUserDirectoryLists(...lists) {
+  const merged = new Map();
+  lists.flat().forEach((entry) => {
+    const normalized = normalizeUser(entry || {});
+    if (!normalized.id || !normalized.username) return;
+    const existing = merged.get(normalized.id);
+    if (!existing || newerThan(normalized.updatedAt, existing.updatedAt)) {
+      merged.set(normalized.id, normalized);
+    }
+  });
+  return Array.from(merged.values());
+}
+
+function mergeUserRecords(existingUser = {}, incomingUser = {}) {
+  const merged = {
+    ...existingUser,
+    ...incomingUser,
+  };
+
+  if (!String(incomingUser.photoDataUrl || "").trim() && String(existingUser.photoDataUrl || "").trim()) {
+    merged.photoDataUrl = existingUser.photoDataUrl;
+  }
+  if (!incomingUser.contractorCoiFile && existingUser.contractorCoiFile) {
+    merged.contractorCoiFile = existingUser.contractorCoiFile;
+  }
+  if (!ensureArray(incomingUser.contractorAreas).length && ensureArray(existingUser.contractorAreas).length) {
+    merged.contractorAreas = existingUser.contractorAreas;
+  }
+  [
+    "contractorCoi",
+    "contractorCoiExpiry",
+    "contractorW9",
+    "bankName",
+    "bankRoutingNumber",
+    "bankAccountNumber",
+    "address",
+    "phone",
+    "cellPhone",
+    "birthDate",
+    "employmentType",
+    "hourlyRate",
+    "dailyRate",
+    "payRateType",
+  ].forEach((field) => {
+    if (incomingUser[field] === "" || incomingUser[field] === null || incomingUser[field] === undefined) {
+      merged[field] = existingUser[field];
+    }
+  });
+
+  return normalizeUser(merged);
+}
+
+function normalizeCloudAuthDirectoryUser(row = {}) {
+  if (row?.payload && typeof row.payload === "object") return normalizeUser(row.payload);
+  return normalizeUser({
+    id: row.userId || row.id || "",
+    name: row.name || "",
+    firstName: row.firstName || "",
+    lastName: row.lastName || "",
+    birthDate: row.birthDate || "",
+    companyName: row.companyName || "",
+    jobTitle: row.jobTitle || "",
+    employmentType: row.employmentType || "",
+    address: row.address || "",
+    phone: row.phone || "",
+    cellPhone: row.cellPhone || "",
+    email: row.email || "",
+    gender: row.gender || "unspecified",
+    username: row.username || "",
+    passwordHash: row.passwordHash || "",
+    legacyPassword: row.legacyPassword || row.legacyPlainPassword || "",
+    systemRole: row.systemRole || "",
+    accessProfile: row.accessProfile || "",
+    payRateType: row.payRateType || "",
+    hourlyRate: row.hourlyRate || 0,
+    dailyRate: row.dailyRate || 0,
+    bankName: row.bankName || "",
+    bankRoutingNumber: row.bankRoutingNumber || "",
+    bankAccountNumber: row.bankAccountNumber || "",
+    sessionActive: row.sessionActive,
+    sessionStartedAt: row.sessionStartedAt || "",
+    lastLoginAt: row.lastLoginAt || "",
+    lastLogoutAt: row.lastLogoutAt || "",
+    createdAt: row.createdAt || row.updated_at || new Date().toISOString(),
+    updatedAt: row.userUpdatedAt || row.updated_at || row.createdAt || new Date().toISOString(),
+  });
+}
+
+function readCachedAuthDirectory() {
+  try {
+    const raw = localStorage.getItem(AUTH_DIRECTORY_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry) => normalizeUser(entry || {})).filter((entry) => entry.id && entry.username);
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedAuthDirectory(remoteUsers = []) {
+  try {
+    const merged = mergeUserDirectoryLists(readCachedAuthDirectory(), remoteUsers);
+    localStorage.setItem(AUTH_DIRECTORY_CACHE_KEY, JSON.stringify(merged));
+  } catch {
+    // Ignore cache write failures to avoid blocking authentication.
+  }
+}
+
 async function fetchCloudRecords({ kinds = null, full = false, cursor = "", timeoutMs = 8000 } = {}) {
   const endpoint = syncEndpoint();
   if (!endpoint) {
@@ -8356,7 +8540,7 @@ async function fetchCloudRecords({ kinds = null, full = false, cursor = "", time
   }
 }
 
-async function fetchCloudUserDirectoryOnce({ timeoutMs = 12000 } = {}) {
+async function fetchCloudUserDirectoryOnce({ timeoutMs = 12000, username = "" } = {}) {
   const endpoint = syncEndpoint();
   if (!endpoint) {
     return { ok: false, code: "no-config", message: authDirectoryUnavailableMessage("no-config"), users: [] };
@@ -8365,25 +8549,34 @@ async function fetchCloudUserDirectoryOnce({ timeoutMs = 12000 } = {}) {
     return { ok: false, code: "offline", message: authDirectoryUnavailableMessage("offline"), users: [] };
   }
 
-  const qs = new URLSearchParams({
-    select: "payload",
-    tenant: `eq.${syncConfig.tenant.trim()}`,
-    kind: "eq.user",
-    limit: "500",
-  });
-
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${endpoint}?${qs.toString()}`, {
-      headers: {
-        apikey: syncConfig.supabaseAnonKey,
-        Authorization: `Bearer ${syncConfig.supabaseAnonKey}`,
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const requestRows = async (selectClause) => {
+      const qs = new URLSearchParams({
+        select: selectClause,
+        tenant: `eq.${syncConfig.tenant.trim()}`,
+        kind: "eq.user",
+        order: "updated_at.desc",
+        limit: username ? "20" : "500",
+      });
+      if (username) qs.set("payload->>username", `eq.${String(username || "").trim().toLowerCase()}`);
+      const response = await fetch(`${endpoint}?${qs.toString()}`, {
+        headers: {
+          apikey: syncConfig.supabaseAnonKey,
+          Authorization: `Bearer ${syncConfig.supabaseAnonKey}`,
+        },
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      return response;
+    };
+
+    let response = await requestRows(AUTH_USER_SELECT);
+    if (!response.ok && response.status === 400) {
+      response = await requestRows("payload");
+    }
 
     if (!response.ok) {
       const details = await response.text();
@@ -8398,7 +8591,7 @@ async function fetchCloudUserDirectoryOnce({ timeoutMs = 12000 } = {}) {
 
     const rows = await response.json();
     const remoteUsers = ensureArray(rows)
-      .map((row) => normalizeUser(row?.payload || {}))
+      .map((row) => normalizeCloudAuthDirectoryUser(row))
       .filter((entry) => entry.id && entry.username);
     return {
       ok: true,
@@ -8420,12 +8613,12 @@ async function fetchCloudUserDirectoryOnce({ timeoutMs = 12000 } = {}) {
   }
 }
 
-async function fetchCloudUserDirectory({ timeoutMs = 12000 } = {}) {
-  const attempts = [timeoutMs, Math.max(timeoutMs + 8000, 20000)];
+async function fetchCloudUserDirectory({ timeoutMs = 12000, username = "" } = {}) {
+  const attempts = [timeoutMs, Math.max(timeoutMs + 12000, 30000)];
   let lastResult = { ok: false, code: "timeout", message: authDirectoryUnavailableMessage("timeout"), users: [] };
 
   for (const attemptTimeout of attempts) {
-    lastResult = await fetchCloudUserDirectoryOnce({ timeoutMs: attemptTimeout });
+    lastResult = await fetchCloudUserDirectoryOnce({ timeoutMs: attemptTimeout, username });
     if (lastResult.ok) return lastResult;
     if (!["timeout", "network"].includes(lastResult.code)) return lastResult;
   }
@@ -8436,7 +8629,15 @@ async function fetchCloudUserDirectory({ timeoutMs = 12000 } = {}) {
 async function persistUsersFromCloud(remoteUsers = []) {
   if (!remoteUsers.length) return { ok: true, storedCount: 0, message: "" };
   try {
-    await Promise.all(remoteUsers.map((user) => put(USER_STORE, normalizeUser(user))));
+    const existingById = new Map(users.map((user) => [user.id, user]));
+    await Promise.all(
+      remoteUsers.map((user) => {
+        const existing = existingById.get(user.id);
+        const merged = existing ? mergeUserRecords(existing, user) : normalizeUser(user);
+        return put(USER_STORE, merged);
+      })
+    );
+    writeCachedAuthDirectory(remoteUsers);
     await loadAll();
     return { ok: true, storedCount: remoteUsers.length, message: "" };
   } catch (error) {
@@ -8445,9 +8646,28 @@ async function persistUsersFromCloud(remoteUsers = []) {
   }
 }
 
-async function refreshUsersForLogin({ timeoutMs = 12000 } = {}) {
-  const directory = await fetchCloudUserDirectory({ timeoutMs });
-  if (!directory.ok) return directory;
+async function refreshUsersForLogin({ timeoutMs = 12000, username = "" } = {}) {
+  const directory = await fetchCloudUserDirectory({ timeoutMs, username });
+  if (!directory.ok) {
+    const bootstrapUsers =
+      String(username || "").trim().toLowerCase() === "leandro" ? [await buildPrimaryDeveloperBootstrapUser()] : [];
+    const cachedUsers = mergeUserDirectoryLists(
+      bootstrapUsers,
+      readCachedAuthDirectory(),
+      users.filter((entry) => !username || entry.username === username)
+    ).filter((entry) => !username || entry.username === username);
+    if (cachedUsers.length) {
+      return {
+        ok: true,
+        code: "cache",
+        message: "Using cached user directory from this device.",
+        users: cachedUsers,
+        persisted: false,
+        persistedMessage: "",
+      };
+    }
+    return directory;
+  }
   const persisted = await persistUsersFromCloud(directory.users);
   return {
     ...directory,
@@ -8518,7 +8738,7 @@ async function pushUserForAuth(user, { timeoutMs = 10000 } = {}) {
 async function finalizeLoginInBackground(userId) {
   try {
     if (syncEndpoint() && navigator.onLine) {
-      await pullCloud({ silent: true, force: true });
+      await pullCloud({ silent: true, force: true, kinds: POST_LOGIN_PULL_KINDS });
     }
   } catch (error) {
     console.error("Post-login pull failed", error);
@@ -9138,6 +9358,32 @@ function applyViewMode() {
   statsPanel.classList.toggle("hidden-view", !showStats);
   quickNavPanel?.classList.toggle("hidden-view", false);
   updateQuickNavState();
+}
+
+function isRenderableNode(node) {
+  return Boolean(node) && !node.classList.contains("hidden-view") && !node.classList.contains("hidden");
+}
+
+function autoPullKindsForCurrentView() {
+  if (currentView === "sync") {
+    return ["unit", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "timeEntry", "receipt", "payment", "workforcePlan", "trash", "history"];
+  }
+  if (currentView === "clients") {
+    return ["user", "client", "project", "contact", "contract", "history"];
+  }
+  if (currentView === "manufacture") {
+    return ["user", "project", "container", "material", "history"];
+  }
+  if (currentView === "projects") {
+    const kinds = ["user", "project", "timeEntry", "workforcePlan", "history"];
+    if (["warehouse", "delivery", "distribuicao", "instalacao", "punchlist"].includes(currentProjectSector)) kinds.push("unit");
+    if (["fabrica", "warehouse"].includes(currentProjectSector)) kinds.push("container", "material");
+    if (currentProjectSector === "delivery") kinds.push("deliverySku");
+    return [...new Set(kinds)];
+  }
+  return currentView === "admin" || currentView === "users" || currentView === "workday" || currentView === "home"
+    ? [...new Set([...AUTO_PULL_KINDS, "project"])]
+    : AUTO_PULL_KINDS;
 }
 
 function setView(view, { updateHash = true } = {}) {
@@ -11206,14 +11452,15 @@ function renderMasterData() {
   } else if (projectClientSelect && selectedClientId && clients.some((client) => client.id === selectedClientId)) {
     projectClientSelect.value = selectedClientId;
   }
-  renderProjectDraftPills();
-  renderMaterialsTable();
+  if (!projectsSubpanel?.classList.contains("hidden-view")) renderProjectDraftPills();
   if (!canManage) return;
-  renderClientsHubList();
-  renderClientsTable();
-  renderProjectsTable();
-  renderContactsTable();
-  renderContractsTable();
+  if (!clientsSubpanel?.classList.contains("hidden-view")) {
+    renderClientsHubList();
+    renderClientsTable();
+  }
+  if (!projectsSubpanel?.classList.contains("hidden-view")) renderProjectsTable();
+  if (!contactsSubpanel?.classList.contains("hidden-view")) renderContactsTable();
+  if (!contractsSubpanel?.classList.contains("hidden-view")) renderContractsTable();
 }
 
 function containerReleasedQty(container) {
@@ -11275,12 +11522,22 @@ async function saveUnitAndContainer(unit, container, unitAuditMessage = "") {
   if (unitAuditMessage) {
     pushAppAudit(`[Unit ${unit.unitCode || unit.id}] ${unitAuditMessage}`, "unit-change", unit.projectName || "-");
   }
-  unit.updatedAt = now;
-  container.updatedAt = now;
+  const normalizedUnit = normalizeUnit({ ...unit, updatedAt: now });
+  const normalizedContainer = normalizeContainer({ ...container, updatedAt: now });
   const transaction = db.transaction([UNIT_STORE, CONTAINER_STORE], "readwrite");
-  transaction.objectStore(UNIT_STORE).put(normalizeUnit(unit));
-  transaction.objectStore(CONTAINER_STORE).put(normalizeContainer(container));
+  transaction.objectStore(UNIT_STORE).put(normalizedUnit);
+  transaction.objectStore(CONTAINER_STORE).put(normalizedContainer);
   await transactionDonePromise(transaction);
+  await archiveEntitySnapshot(UNIT_STORE, normalizedUnit, {
+    action: "updated",
+    summary: unitAuditMessage || "Unit snapshot updated",
+    relatedProjectId: normalizedUnit.projectId || "",
+  });
+  await archiveEntitySnapshot(CONTAINER_STORE, normalizedContainer, {
+    action: "updated",
+    summary: unitAuditMessage ? `Container flow updated • ${unitAuditMessage}` : "Container snapshot updated",
+    relatedProjectId: normalizedContainer.projectId || "",
+  });
   await loadAll();
   render();
   queueAutoSync();
@@ -11426,6 +11683,7 @@ function renderContainers() {
   containerPanel.classList.toggle("hidden", !currentUser);
   containersBoard.innerHTML = "";
   renderManufactureCatalogSummaries();
+  if (!manufactureCatalogView?.classList.contains("hidden-view")) renderMaterialsTable();
   renderContainerManifestDraft();
 
   if (!containers.length) {
@@ -12087,7 +12345,13 @@ function updateSyncStatus(message, isError = false) {
 
 async function saveUnit(unit) {
   unit.updatedAt = new Date().toISOString();
-  await put(UNIT_STORE, normalizeUnit(unit));
+  const normalizedUnit = normalizeUnit(unit);
+  await put(UNIT_STORE, normalizedUnit);
+  await archiveEntitySnapshot(UNIT_STORE, normalizedUnit, {
+    action: "updated",
+    summary: "Unit workflow snapshot updated",
+    relatedProjectId: normalizedUnit.projectId || "",
+  });
   await loadAll();
   render();
   queueAutoSync();
@@ -13162,7 +13426,26 @@ function setTimeClockStatus(message) {
 }
 
 async function saveTimeEntryRecord(record) {
-  await put(TIME_ENTRY_STORE, normalizeTimeEntry(record));
+  const normalizedRecord = normalizeTimeEntry(record);
+  const existingRecord = timeEntries.find((entry) => entry.id === normalizedRecord.id) || null;
+  const action = existingRecord ? (normalizedRecord.status === "closed" ? "closed" : "updated") : "created";
+  await persistRecordWithHistory(TIME_ENTRY_STORE, normalizedRecord, {
+    previousRecord: existingRecord,
+    action,
+    summary:
+      action === "created"
+        ? `Time entry created for ${normalizedRecord.userName || "user"}`
+        : action === "closed"
+        ? `Time entry closed for ${normalizedRecord.userName || "user"}`
+        : `Time entry updated for ${normalizedRecord.userName || "user"}`,
+    relatedUserId: normalizedRecord.userId || "",
+    relatedProjectId: normalizedRecord.projectId || "",
+    metadata: {
+      assignment: timeEntryAssignmentLabel(normalizedRecord),
+      status: normalizedRecord.status || "",
+      mode: normalizedRecord.mode || "",
+    },
+  });
   await loadAll();
   if (currentUser) currentUser = users.find((entry) => entry.id === currentUser.id) || currentUser;
   render();
@@ -13623,6 +13906,19 @@ function renderWorkforceTaskPlanSection(range = weekRangeFromAnchor(workforceWee
       detail: selectedPlan
         ? `${selectedPlan.projectName || selectedPlan.location || "Custom location"} • ${compactTextSummary(selectedPlan.taskDescription, 72)}`
         : "Select a row to edit the worker plan in the form above.",
+      actions: selectedPlan
+        ? [
+            {
+              label: "History",
+              attrs: {
+                "data-open-history": "1",
+                "data-history-kind": "workforcePlan",
+                "data-history-search": selectedPlan.userName || "",
+                "data-history-day": selectedPlan.date || "",
+              },
+            },
+          ]
+        : [],
     });
     bindSelectableRows(workforceTaskPlanTable, "[data-workforce-task-plan-row]", (row) => {
       selectedWorkforceTaskPlanId = row.dataset.workforceTaskPlanRow || "";
@@ -13988,7 +14284,18 @@ function renderWorkforceAdminPanel() {
         ? `${timeEntryAssignmentLabel(selectedActiveRow)} • ${elapsedFrom(selectedActiveRow.checkInAt)}`
         : "Select one active row to keep the checkout button outside the table.",
       actions: selectedActiveRow
-        ? [{ label: "Check out", attrs: { "data-workforce-checkout": selectedActiveRow.id } }]
+        ? [
+            { label: "Check out", attrs: { "data-workforce-checkout": selectedActiveRow.id } },
+            {
+              label: "History",
+              attrs: {
+                "data-open-history": "1",
+                "data-history-kind": "timeEntry",
+                "data-history-search": selectedActiveRow.userName || "",
+                "data-history-week": range.startIso,
+              },
+            },
+          ]
         : [],
     });
     bindSelectableRows(workforceActiveTable, "[data-workforce-active-row]", (row) => {
@@ -14000,7 +14307,9 @@ function renderWorkforceAdminPanel() {
   const weeklyRows = employees
     .sort((a, b) => a.jobTitle.localeCompare(b.jobTitle) || a.userName.localeCompare(b.userName))
     .map(
-      (entry) => `<tr>
+      (entry) => `<tr class="${entry.userId === selectedWorkforceWeeklyUserId ? "selected-row" : ""}" data-workforce-weekly-row="${escapeHtml(
+        entry.userId
+      )}">
         <td>${escapeHtml(entry.userName)}</td>
         <td>${escapeHtml(entry.companyName)}</td>
         <td>${escapeHtml(entry.jobTitle)}</td>
@@ -14012,18 +14321,53 @@ function renderWorkforceAdminPanel() {
     )
     .join("");
   if (workforceWeeklyTable && activeWorkforceView === "adminPayrollHoursSection") {
+    if (selectedWorkforceWeeklyUserId && !employees.some((entry) => entry.userId === selectedWorkforceWeeklyUserId)) {
+      selectedWorkforceWeeklyUserId = "";
+    }
+    const selectedWeeklyRow = selectedWorkforceWeeklyUserId
+      ? employees.find((entry) => entry.userId === selectedWorkforceWeeklyUserId) || null
+      : null;
     mountDataTable(workforceWeeklyTable, {
       columns: ["Name", "Company", "Function", "Type", "Projects / locations", "Days", "Total hours"],
       rowsHtml: weeklyRows,
       emptyMessage: "No employee hours found for this week/filter.",
       emptyColspan: 7,
     });
+    renderTableContextBar(workforceWeeklyTable, {
+      title: "Weekly hours actions",
+      selected: Boolean(selectedWeeklyRow),
+      name: selectedWeeklyRow ? selectedWeeklyRow.userName || "Selected employee" : "No weekly row selected",
+      detail: selectedWeeklyRow
+        ? `${selectedWeeklyRow.days.size} day(s) • ${formatMinutesAsHours(selectedWeeklyRow.minutes)}`
+        : "Select one weekly row to open its archived time and payment history.",
+      actions: selectedWeeklyRow
+        ? [
+            {
+              label: "History",
+              attrs: {
+                "data-open-history": "1",
+                "data-history-kind": "timeEntry",
+                "data-history-search": selectedWeeklyRow.userName || "",
+                "data-history-week": range.startIso,
+              },
+            },
+          ]
+        : [],
+    });
+    bindSelectableRows(workforceWeeklyTable, "[data-workforce-weekly-row]", (row) => {
+      selectedWorkforceWeeklyUserId = row.dataset.workforceWeeklyRow || "";
+      renderWorkforceAdminPanel();
+    });
   }
 
   const subcontractorRows = subcontractors
     .sort((a, b) => a.projectName.localeCompare(b.projectName) || a.companyName.localeCompare(b.companyName) || a.userName.localeCompare(b.userName))
     .map(
-      (entry) => `<tr>
+      (entry) => {
+        const rowKey = `${entry.projectName || "-"}::${entry.companyName || "-"}::${entry.userName || "-"}`;
+        return `<tr class="${rowKey === selectedWorkforceSubcontractorKey ? "selected-row" : ""}" data-workforce-subcontractor-row="${escapeHtml(
+          rowKey
+        )}">
         <td>${escapeHtml(entry.projectName)}</td>
         <td>${escapeHtml(entry.companyName)}</td>
         <td>${escapeHtml(entry.userName)}</td>
@@ -14032,15 +14376,54 @@ function renderWorkforceAdminPanel() {
         <td>${entry.days.size}</td>
         <td>${escapeHtml(formatMinutesAsHours(entry.minutes))}</td>
         <td>${escapeHtml(fmtDate(entry.lastOut))}</td>
-      </tr>`
+      </tr>`;
+      }
     )
     .join("");
   if (workforceSubcontractorTable && activeWorkforceView === "adminSubcontractorPresenceSection") {
+    if (
+      selectedWorkforceSubcontractorKey &&
+      !subcontractors.some(
+        (entry) => `${entry.projectName || "-"}::${entry.companyName || "-"}::${entry.userName || "-"}` === selectedWorkforceSubcontractorKey
+      )
+    ) {
+      selectedWorkforceSubcontractorKey = "";
+    }
+    const selectedSubcontractorRow = selectedWorkforceSubcontractorKey
+      ? subcontractors.find(
+          (entry) => `${entry.projectName || "-"}::${entry.companyName || "-"}::${entry.userName || "-"}` === selectedWorkforceSubcontractorKey
+        ) || null
+      : null;
     mountDataTable(workforceSubcontractorTable, {
       columns: ["Project / location", "Company", "Person", "Function", "Work areas", "Days", "Tracked hours", "Last checkout"],
       rowsHtml: subcontractorRows,
       emptyMessage: "No Sub Contractor presence found for this week/filter.",
       emptyColspan: 8,
+    });
+    renderTableContextBar(workforceSubcontractorTable, {
+      title: "Sub Contractor actions",
+      selected: Boolean(selectedSubcontractorRow),
+      name: selectedSubcontractorRow ? selectedSubcontractorRow.userName || "Selected person" : "No person selected",
+      detail: selectedSubcontractorRow
+        ? `${selectedSubcontractorRow.projectName || "-"} • ${formatMinutesAsHours(selectedSubcontractorRow.minutes)}`
+        : "Select one Sub Contractor row to open archived workforce history.",
+      actions: selectedSubcontractorRow
+        ? [
+            {
+              label: "History",
+              attrs: {
+                "data-open-history": "1",
+                "data-history-kind": "timeEntry",
+                "data-history-search": selectedSubcontractorRow.userName || "",
+                "data-history-week": range.startIso,
+              },
+            },
+          ]
+        : [],
+    });
+    bindSelectableRows(workforceSubcontractorTable, "[data-workforce-subcontractor-row]", (row) => {
+      selectedWorkforceSubcontractorKey = row.dataset.workforceSubcontractorRow || "";
+      renderWorkforceAdminPanel();
     });
   }
   applyAdminSubViewVisibility();
@@ -14983,6 +15366,7 @@ function renderAdminPanel() {
   if (!adminPanel) return;
   const allowed = can("accessAdmin");
   adminPanel.classList.toggle("hidden", !allowed);
+  adminViewLead?.classList.toggle("hidden", !allowed);
   if (!allowed) return;
   const activeAdminView = normalizeAdminSubView(adminSubView);
   adminSubView = activeAdminView;
@@ -15045,6 +15429,8 @@ function renderAdminPanel() {
       </article>
     `;
   }
+
+  renderWorkspaceViewLead(adminViewLead, adminViewLeadConfig(activeAdminView, { range, payrollRows, receiptRows, subcontractorRows, activeNow }));
 
   if (adminOpenUserRegistrationBtn) adminOpenUserRegistrationBtn.disabled = !can("manageUsers");
   if (receiptFormNewBtn) receiptFormNewBtn.disabled = !can("managePayroll");
@@ -15832,11 +16218,137 @@ function renderCurrentUserScheduleBoards() {
   renderScheduleCardList(workdayWeekScheduleCard, weekEntries, weekEmpty);
 }
 
+function workspaceShortcutLabel(view, id) {
+  return SECTION_SHORTCUTS[view]?.find((item) => item.id === id)?.label || id || "";
+}
+
+function renderWorkspaceViewLead(node, { eyebrow = "", title = "", summary = "", chips = [] } = {}) {
+  if (!node) return;
+  const normalizedChips = ensureArray(chips).filter((chip) => String(chip || "").trim());
+  node.classList.toggle("hidden", !title && !summary && !normalizedChips.length);
+  node.innerHTML = `
+    <div class="workspace-view-lead-head">
+      <div>
+        ${eyebrow ? `<p class="workspace-view-lead-eyebrow">${escapeHtml(eyebrow)}</p>` : ""}
+        <h3>${escapeHtml(title || "Workspace")}</h3>
+      </div>
+      ${normalizedChips.length ? `<div class="workspace-view-lead-chips">${normalizedChips
+        .map((chip) => `<span class="workspace-view-lead-chip">${escapeHtml(chip)}</span>`)
+        .join("")}</div>` : ""}
+    </div>
+    ${summary ? `<p class="workspace-view-lead-copy">${escapeHtml(summary)}</p>` : ""}
+  `;
+}
+
+function renderUsersViewLead() {
+  if (!usersViewLead || !currentUser) return;
+  if (!can("manageUsers")) {
+    const activeEntry = activeTimeEntryForUser(currentUser.id);
+    renderWorkspaceViewLead(usersViewLead, {
+      eyebrow: "Users / Self service",
+      title: "My badge and daily access",
+      summary: "Keep your badge, profile edits, and quick attendance actions in one light page before moving into the rest of the app.",
+      chips: [
+        currentUser.name || currentUser.username || "User",
+        activeEntry ? "Checked in" : "Checked out",
+        currentUserWeekScheduleEntries().length ? `${currentUserWeekScheduleEntries().length} weekly assignment(s)` : "No weekly plan yet",
+      ],
+    });
+    return;
+  }
+
+  if (usersSubView === "registration") {
+    renderWorkspaceViewLead(usersViewLead, {
+      eyebrow: "Users / Registration",
+      title: "Register and adjust people records",
+      summary: "Use this page to onboard employees and Sub Contractors, complete payroll data, and jump into archived changes when needed.",
+      chips: [`${users.length} people in directory`, adminEditingUserId ? "Editing existing record" : "Ready for new registration"],
+    });
+    return;
+  }
+
+  if (usersSubView === "checkin") {
+    renderWorkspaceViewLead(usersViewLead, {
+      eyebrow: "Users / Check-in board",
+      title: "Live badges currently on shift",
+      summary: "This page stays focused on who is active right now, so admins can review badge status without carrying the full registration layout.",
+      chips: [`${usersCheckInEntriesForView().length} live badge(s)`, can("accessAdmin") ? "Admin scope" : "Limited scope"],
+    });
+    return;
+  }
+
+  renderWorkspaceViewLead(usersViewLead, {
+    eyebrow: "Users / Directory",
+    title: "People directory and badge preview",
+    summary: "Keep badge identity, current work status, and manual attendance controls together, while registration stays on its own page.",
+    chips: [`${users.filter((user) => canAccessEmployeeRecord(user)).length} visible record(s)`, adminEditingUserId ? "One profile selected" : "No profile selected"],
+  });
+}
+
+function adminViewLeadConfig(activeView, context = {}) {
+  const { range, payrollRows = [], receiptRows = [], subcontractorRows = [], activeNow = 0 } = context;
+  if (activeView === "adminEmployeeListSection") {
+    return {
+      eyebrow: "Admin / Directory",
+      title: "Complete employee list",
+      summary: "Review the workforce directory here, then move to controls or payment pages when you need to act on a selected person.",
+      chips: [`${payrollRows.length} payroll row(s) this week`, `${activeNow} checked in now`],
+    };
+  }
+  if (activeView === "adminEmployeeControlsSection") {
+    return {
+      eyebrow: "Admin / Employee controls",
+      title: "Rates, roles, and bank data",
+      summary: "This page is for controlled edits only: RBAC, pay method, rates, and the banking details needed for weekly payment.",
+      chips: [adminSelectedEmployeeId ? "One employee selected" : "Select an employee", `${users.length} total people`],
+    };
+  }
+  if (activeView === "adminWeeklyPaymentSection") {
+    return {
+      eyebrow: "Admin / Weekly payment",
+      title: "Current week payment review",
+      summary: "Approve the calculated weekly totals from a filtered, printable state before archiving the week for later lookup.",
+      chips: [fmtDateOnly(range.startIso), `${payrollRows.length} payroll row(s)`],
+    };
+  }
+  if (activeView === "adminReceiptSection") {
+    return {
+      eyebrow: "Admin / Receipts",
+      title: "Receipt approvals and extra expenses",
+      summary: "Keep reimbursement, toll, and extra expense approvals isolated here so the week closes cleanly before the report is archived.",
+      chips: [`${receiptRows.length} receipt row(s)`, `${receiptRows.filter((row) => row.approvalStatus === "pending").length} pending`],
+    };
+  }
+  if (activeView === "adminSubcontractorSection") {
+    return {
+      eyebrow: "Admin / Sub Contractors",
+      title: "Presence by project and location",
+      summary: "Use this page to confirm which Sub Contractors worked with the company in the selected week and open prior history when needed.",
+      chips: [`${subcontractorRows.length} weekly presence row(s)`, fmtDateOnly(range.startIso)],
+    };
+  }
+  if (activeView === "adminHistorySection") {
+    return {
+      eyebrow: "Admin / Archive",
+      title: "Search archived weeks and record versions",
+      summary: "This browser keeps old payroll weeks, historical edits, and prior data snapshots available without crowding the live control pages.",
+      chips: [`${historyRecords.length} archived snapshot(s)`, adminHistoryKindFilter === "all" ? "All record types" : historyKindLabel(adminHistoryKindFilter)],
+    };
+  }
+  return {
+    eyebrow: "Admin / Workforce",
+    title: workspaceShortcutLabel("admin", activeView) || "Workforce Control",
+    summary: "Workforce pages now act like focused operational views: task plans, planning board, live attendance, weekly hours, and Sub Contractor presence.",
+    chips: [fmtDateOnly(range.startIso), `${activeNow} checked in now`],
+  };
+}
+
 function renderUsersSelfService() {
   if (!usersPanel || !currentUser) return;
   usersPanel.classList.remove("hidden");
   usersPanel.classList.add("self-service-mode");
   usersPanel.classList.remove("management-mode");
+  renderUsersViewLead();
   if (usersSubView !== "checkin") setUsersSubView("self");
   usersSelfQuickAccessCard?.classList.remove("hidden");
   if (usersSelfOpenWorkdayBtn) usersSelfOpenWorkdayBtn.disabled = !canUseTimeClock(currentUser);
@@ -15857,6 +16369,7 @@ function renderUsers() {
   if (!usersPanel || !currentUser) return;
   if (!canOpenView("users")) {
     usersPanel.classList.add("hidden");
+    usersViewLead?.classList.add("hidden");
     return;
   }
 
@@ -15871,6 +16384,7 @@ function renderUsers() {
   usersSelfQuickAccessCard?.classList.add("hidden");
   usersPanel.classList.remove("hidden");
   setUsersSubView(usersSubView === "self" ? "directory" : usersSubView);
+  renderUsersViewLead();
   renderUsersCheckInView();
 
   const visibleUsers = users.filter((user) => {
@@ -15902,7 +16416,10 @@ function renderUsers() {
     setUserAdminFormOpen(false);
   }
 
-  if (usersNameRail) {
+  const showDirectoryWorkspace = usersSubView === "directory";
+  usersNameRail?.closest(".users-left-column")?.classList.toggle("hidden-view", !showDirectoryWorkspace);
+
+  if (usersNameRail && showDirectoryWorkspace) {
     const nameRows = visibleUsers
       .map((user) => {
         const profile = userAccessProfile(user);
@@ -15957,48 +16474,52 @@ function renderUsers() {
     })
     .join("");
 
-  mountDataTable(usersTable, {
-    columns: ["Photo", "Name", "Company", "Job Title", "Work status", "Type", "Email", "User", "System Role", "Operational Access", "Updated"],
-    rowsHtml: rows,
-    emptyMessage: "No visible users.",
-    emptyColspan: 11,
-  });
+  if (usersSubView === "registration") {
+    mountDataTable(usersTable, {
+      columns: ["Photo", "Name", "Company", "Job Title", "Work status", "Type", "Email", "User", "System Role", "Operational Access", "Updated"],
+      rowsHtml: rows,
+      emptyMessage: "No visible users.",
+      emptyColspan: 11,
+    });
 
-  const selectedDirectoryUser = adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null;
-  renderTableContextBar(usersTable, {
-    title: "User directory actions",
-    selected: Boolean(selectedDirectoryUser),
-    name: selectedDirectoryUser ? selectedDirectoryUser.name || selectedDirectoryUser.username || "Selected user" : "No user selected",
-    detail: selectedDirectoryUser
-      ? `${selectedDirectoryUser.companyName || "-"} • ${selectedDirectoryUser.jobTitle || "-"}`
-      : "Select one user row to open edit or history actions outside the table.",
-    actions: selectedDirectoryUser
-      ? [
-          { label: "Edit", attrs: { "data-user-edit": selectedDirectoryUser.id }, disabled: !can("manageUsers") },
-          {
-            label: "History",
-            attrs: {
-              "data-open-history": "1",
-              "data-history-kind": "user",
-              "data-history-search": selectedDirectoryUser.name || selectedDirectoryUser.username || "",
+    const selectedDirectoryUser = adminEditingUserId ? users.find((entry) => entry.id === adminEditingUserId) || null : null;
+    renderTableContextBar(usersTable, {
+      title: "User directory actions",
+      selected: Boolean(selectedDirectoryUser),
+      name: selectedDirectoryUser ? selectedDirectoryUser.name || selectedDirectoryUser.username || "Selected user" : "No user selected",
+      detail: selectedDirectoryUser
+        ? `${selectedDirectoryUser.companyName || "-"} • ${selectedDirectoryUser.jobTitle || "-"}`
+        : "Select one user row to open edit or history actions outside the table.",
+      actions: selectedDirectoryUser
+        ? [
+            { label: "Edit", attrs: { "data-user-edit": selectedDirectoryUser.id }, disabled: !can("manageUsers") },
+            {
+              label: "History",
+              attrs: {
+                "data-open-history": "1",
+                "data-history-kind": "user",
+                "data-history-search": selectedDirectoryUser.name || selectedDirectoryUser.username || "",
+              },
+              disabled: !can("accessAdmin"),
             },
-            disabled: !can("accessAdmin"),
-          },
-        ]
-      : [],
-  });
+          ]
+        : [],
+    });
 
-  usersTable.querySelectorAll("[data-user-row]").forEach((row) => {
-    row.addEventListener("click", () => {
-      selectAdminUser(row.dataset.userRow || "");
+    usersTable.querySelectorAll("[data-user-row]").forEach((row) => {
+      row.addEventListener("click", () => {
+        selectAdminUser(row.dataset.userRow || "");
+      });
+      row.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        selectAdminUser(row.dataset.userRow || "");
+      });
+      row.tabIndex = 0;
     });
-    row.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      selectAdminUser(row.dataset.userRow || "");
-    });
-    row.tabIndex = 0;
-  });
+  } else if (usersTable) {
+    usersTable.innerHTML = "";
+  }
   if (adminEditingUserId) {
     const selected = users.find((entry) => entry.id === adminEditingUserId);
     if (selected) populateAdminUserForm(selected);
@@ -16646,19 +17167,19 @@ function render() {
   } else if (currentView === "userEdit") {
     safeStep("user edit", () => renderUserEditPanel());
   } else if (currentView === "clients") {
-    safeStep("clients", () => renderMasterData());
+    if (isRenderableNode(masterDataPanel)) safeStep("clients", () => renderMasterData());
   } else if (currentView === "manufacture") {
-    safeStep("manufacture", () => renderContainers());
+    if (isRenderableNode(containerPanel)) safeStep("manufacture", () => renderContainers());
   } else if (currentView === "ocrImporter") {
     safeStep("ocr importer", () => renderOcrImporterPanel());
   } else if (currentView === "projects") {
-    safeStep("projects master data", () => renderMasterData());
-    safeStep("projects containers", () => renderContainers());
-    safeStep("projects stats", () => renderStats());
-    safeStep("projects qr lookup", () => renderQrLookupPanel());
-    safeStep("projects delivery inventory", () => renderDeliveryInventoryPanel());
-    safeStep("projects access control", () => renderAccessControl());
-    safeStep("projects units", () => renderUnits());
+    if (isRenderableNode(masterDataPanel)) safeStep("projects master data", () => renderMasterData());
+    if (isRenderableNode(containerPanel)) safeStep("projects containers", () => renderContainers());
+    if (isRenderableNode(statsPanel)) safeStep("projects stats", () => renderStats());
+    if (isRenderableNode(qrLookupPanel)) safeStep("projects qr lookup", () => renderQrLookupPanel());
+    if (isRenderableNode(deliveryInventoryPanel)) safeStep("projects delivery inventory", () => renderDeliveryInventoryPanel());
+    if (isRenderableNode(unitEntryPanel) || isRenderableNode(unitsToolbarPanel)) safeStep("projects access control", () => renderAccessControl());
+    if (isRenderableNode(unitsContainer)) safeStep("projects units", () => renderUnits());
   }
 
   safeStep("section shortcuts", () => renderSectionShortcutPanel());
@@ -17141,7 +17662,7 @@ async function runAutoPullCycle() {
 
   autoPullInFlight = true;
   try {
-    await pullCloud({ silent: true, force: true, kinds: AUTO_PULL_KINDS });
+    await pullCloud({ silent: true, force: true, kinds: autoPullKindsForCurrentView() });
   } finally {
     autoPullInFlight = false;
   }
@@ -17662,17 +18183,18 @@ signupForm?.addEventListener("submit", async (event) => {
       return;
     }
 
-    const syncedUsers = await refreshUsersForLogin({ timeoutMs: 12000 });
-    const directoryUsers = syncedUsers.ok ? syncedUsers.users : users;
-    if (!syncedUsers.ok && !directoryUsers.length) {
-      setSignupStatus(syncedUsers.message || "Could not reach the central user directory right now.", true);
-      alert((syncedUsers.message || "Could not validate users in database right now. Check connection and try again.") + (syncedUsers.details ? `\n\n${syncedUsers.details}` : ""));
-      return;
-    }
+    const syncedUsers = await refreshUsersForLogin({ timeoutMs: 12000, username });
+    const directoryUsers = syncedUsers.ok
+      ? syncedUsers.users
+      : mergeUserDirectoryLists(readCachedAuthDirectory(), users, username === "leandro" ? [await buildPrimaryDeveloperBootstrapUser()] : []);
+    const directoryUnavailable = !syncedUsers.ok;
     if (directoryUsers.some((user) => user.username === username)) {
       setSignupStatus("This username is already registered.", true);
       alert(t("Usuario ja existe."));
       return;
+    }
+    if (directoryUnavailable) {
+      setSignupStatus("Central directory is slow. Continuing with local registration and pending cloud sync...");
     }
 
     setSignupStatus("Preparing registration...");
@@ -17749,12 +18271,15 @@ signupForm?.addEventListener("submit", async (event) => {
     setSignupStatus("Sending registration to cloud...");
     const pushed = await pushUserForAuth(normalizedNewUser, { timeoutMs: 10000 });
     if (!pushed.ok) {
-      await del(USER_STORE, user.id);
-      await loadAll();
-      setSignupStatus(pushed.message || "Could not save registration in the central database.", true);
-      alert((pushed.message || "Could not save registration in the central database. Try again.") + (pushed.details ? `\n\n${pushed.details}` : ""));
+      writeCachedAuthDirectory([normalizedNewUser]);
+      setSignupStatus("Registration saved on this device. Cloud sync is pending.", false);
+      alert(
+        "Registration was saved on this device, but the central directory did not answer in time. The new user can use this device now, and cloud sync will retry in the background."
+      );
+      queueAutoSync();
       return;
     }
+    writeCachedAuthDirectory([normalizedNewUser]);
 
     signupForm.reset();
     toggleSubcontractorExtras("signup", "tag");
@@ -17799,7 +18324,7 @@ loginForm.addEventListener("submit", async (event) => {
 
     if ((!userByUsername || !user) && syncEndpoint() && navigator.onLine) {
       setLoginStatus("Syncing access with cloud...");
-      authDirectory = await refreshUsersForLogin();
+      authDirectory = await refreshUsersForLogin({ timeoutMs: 9000, username });
       const sourceUsers = authDirectory.ok && authDirectory.users?.length ? authDirectory.users : users;
       ({ userByUsername, user } = resolveLoginMatchFromList(sourceUsers, username, plainPassword, passwordHash));
     }
@@ -17856,6 +18381,7 @@ loginForm.addEventListener("submit", async (event) => {
         updatedAt: new Date().toISOString(),
       });
       await put(USER_STORE, migratedUser);
+      writeCachedAuthDirectory([migratedUser]);
       await loadAll();
       currentUser = users.find((entry) => entry.id === migratedUser.id) || migratedUser;
       if (syncEndpoint() && navigator.onLine) {
@@ -20661,6 +21187,7 @@ async function runBackgroundCloudRefresh() {
   try {
     await pullCloud({ silent: true, force: true });
     await migrateLegacyUserRoleKey();
+    await ensurePrimaryDeveloperBootstrap();
     await ensureDeveloperRolePresence();
     if (currentUser) {
       currentUser = users.find((user) => user.id === currentUser.id) || currentUser;
@@ -20679,6 +21206,7 @@ ensureAuthUiInteractive();
     db = await openDB();
     await loadAll();
     await migrateLegacyUserRoleKey();
+    await ensurePrimaryDeveloperBootstrap();
     await ensureDeveloperRolePresence();
     await tryRestoreSession();
     updateConnectivity();

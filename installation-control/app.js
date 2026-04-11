@@ -154,6 +154,47 @@ const SECTION_SHORTCUTS = {
   ],
 };
 
+const SUPPORTED_NAV_ACTIONS = new Set([
+  "home",
+  "workday",
+  "sync",
+  "developer",
+  "admin",
+  "users",
+  "usersRegistration",
+  "usersPeople",
+  "usersCheckIn",
+  "clients",
+  "clientsNew",
+  "clientsProjects",
+  "clientsContracts",
+  "projects",
+  "ocrImporter",
+  "subcontractors",
+  "partners",
+  "partnersManufacturers",
+  "partnersConstructionMaterials",
+  "partnersImporters",
+  "partnersCarriers",
+  "partnersTruckDeliveries",
+  "manufacture",
+  "manufactureSchedule",
+  "manufactureCatalog",
+  "manufactureSolicitation",
+  "warehouse",
+  "warehouseDeliverySchedule",
+  "warehouseDeliveryInventory",
+  "warehouseQrScan",
+  "warehouseOperations",
+  "delivery",
+  "distribution",
+  "installation",
+  "changeOrders",
+  "projectReports",
+]);
+
+const LAZY_SHORTCUT_TARGETS = new Set(["developerDeletedRecoverySection"]);
+
 const ADMIN_SHORTCUT_SECTION_IDS = SECTION_SHORTCUTS.admin.map((item) => item.id);
 const ADMIN_TOP_LEVEL_SECTION_IDS = [
   "adminEmployeeListSection",
@@ -1267,6 +1308,8 @@ const POST_LOGIN_PULL_KINDS = ["user", "project", "timeEntry", "receipt", "payme
 const AUTO_PULL_KINDS = ["user", "timeEntry", "receipt", "payment", "workforcePlan", "history"];
 let currentView = "home";
 let activeSectionShortcutId = "";
+let lastSectionShortcutSignature = "";
+let navigationAuditCompleted = false;
 let editingUserId = "";
 let userEditReturnView = "home";
 let adminEditingUserId = "";
@@ -9669,7 +9712,6 @@ function handleQuickNavAction(action) {
     setUsersViewFilter("all");
     setClientsWorkspaceMode("projects");
     setView("clients");
-    projectsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
 
@@ -9681,7 +9723,6 @@ function handleQuickNavAction(action) {
     setUsersViewFilter("all");
     setClientsWorkspaceMode("contracts");
     setView("clients");
-    contractsSubpanel?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
 
@@ -14109,24 +14150,49 @@ function renderWorkdayPanel() {
   }
 }
 
-function renderSectionShortcutPanel() {
-  if (!sectionShortcutPanel || !sectionShortcutList) return;
+function isVisibleSectionShortcutTarget(targetId = "") {
+  const section = document.getElementById(String(targetId || "").trim());
+  return Boolean(section) && !section.classList.contains("hidden-view") && !section.classList.contains("hidden");
+}
+
+function currentSectionShortcutItems() {
   const manageUsers = can("manageUsers");
-  if (currentView === "admin") activeSectionShortcutId = normalizeAdminSubView(adminSubView);
-  const items = ensureArray(SECTION_SHORTCUTS[currentView]).filter((item) => {
+  return ensureArray(SECTION_SHORTCUTS[currentView]).filter((item) => {
     if (item.requiresManager && !manageUsers) return false;
     if (item.requiresSelfService && manageUsers) return false;
     if (ensureArray(item.usersSubViews).length && !ensureArray(item.usersSubViews).includes(usersSubView)) return false;
-    const section = document.getElementById(item.id);
-    if (!section) return false;
-    if (item.requiresVisible && section.classList.contains("hidden-view")) return false;
+    if (!document.getElementById(item.id)) return false;
+    if (item.requiresVisible && !isVisibleSectionShortcutTarget(item.id)) return false;
     return true;
   });
+}
+
+function sectionShortcutSignature(items = []) {
+  return [
+    currentView,
+    usersSubView,
+    normalizeAdminSubView(adminSubView),
+    clientsWorkspaceMode,
+    manufactureSubView,
+    projectsViewMode,
+    currentProjectSector,
+    normalizeWarehouseSubView(warehouseSubView),
+    items.map((item) => `${item.id}:${item.label}`).join(","),
+  ].join("|");
+}
+
+function renderSectionShortcutPanel() {
+  if (!sectionShortcutPanel || !sectionShortcutList) return;
+  if (currentView === "admin") activeSectionShortcutId = normalizeAdminSubView(adminSubView);
+  const items = currentSectionShortcutItems();
 
   sectionShortcutPanel.classList.toggle("hidden-view", !items.length);
   if (!items.length) {
     activeSectionShortcutId = "";
+    lastSectionShortcutSignature = "";
     sectionShortcutList.innerHTML = "";
+    sectionShortcutList.dataset.signature = "";
+    sectionShortcutList.dataset.activeId = "";
     return;
   }
 
@@ -14134,20 +14200,101 @@ function renderSectionShortcutPanel() {
     activeSectionShortcutId = "";
   }
 
-  sectionShortcutList.innerHTML = items
-    .map(
-      (item) =>
-        `<button class="secondary section-shortcut-btn${activeSectionShortcutId === item.id ? " is-active" : ""}" type="button" data-section-shortcut="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`
-    )
-    .join("");
+  const signature = sectionShortcutSignature(items);
+  if (lastSectionShortcutSignature !== signature) {
+    sectionShortcutList.innerHTML = items
+      .map(
+        (item) =>
+          `<button class="secondary section-shortcut-btn${activeSectionShortcutId === item.id ? " is-active" : ""}" type="button" data-section-shortcut="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`
+      )
+      .join("");
+    lastSectionShortcutSignature = signature;
+    sectionShortcutList.dataset.signature = signature;
+    sectionShortcutList.dataset.activeId = "";
+  }
+
+  setActiveSectionShortcut(activeSectionShortcutId);
 }
 
 function setActiveSectionShortcut(targetId = "") {
   activeSectionShortcutId = String(targetId || "").trim();
   if (!sectionShortcutList) return;
+  if (sectionShortcutList.dataset.activeId === activeSectionShortcutId) return;
   sectionShortcutList.querySelectorAll("[data-section-shortcut]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.sectionShortcut === activeSectionShortcutId);
   });
+  sectionShortcutList.dataset.activeId = activeSectionShortcutId;
+}
+
+function rerenderCurrentViewScope() {
+  if (!currentUser) return;
+  if (currentView === "workday") {
+    renderWorkdayPanel();
+  } else if (currentView === "sync") {
+    renderSyncPanel();
+  } else if (currentView === "users") {
+    renderUsers();
+  } else if (currentView === "admin") {
+    renderAdminPanel();
+  } else if (currentView === "userEdit") {
+    renderUserEditPanel();
+  } else if (currentView === "clients") {
+    if (isRenderableNode(masterDataPanel)) renderMasterData();
+  } else if (currentView === "manufacture") {
+    if (isRenderableNode(containerPanel)) renderContainers();
+  } else if (currentView === "ocrImporter") {
+    renderOcrImporterPanel();
+  } else if (currentView === "projects") {
+    if (isRenderableNode(masterDataPanel)) renderMasterData();
+    if (isRenderableNode(containerPanel)) renderContainers();
+    if (isRenderableNode(statsPanel)) renderStats();
+    if (isRenderableNode(qrLookupPanel)) renderQrLookupPanel();
+    if (isRenderableNode(deliveryInventoryPanel)) renderDeliveryInventoryPanel();
+    if (isRenderableNode(unitEntryPanel) || isRenderableNode(unitsToolbarPanel)) renderAccessControl();
+    if (isRenderableNode(unitsContainer)) renderUnits();
+  } else {
+    render();
+    return;
+  }
+  renderSectionShortcutPanel();
+  scheduleTablePrintButtons();
+  applyLanguageToUi();
+}
+
+function auditNavigationBindings() {
+  if (navigationAuditCompleted) return;
+  navigationAuditCompleted = true;
+
+  const invalidActions = [...new Set(
+    Array.from(document.querySelectorAll("[data-nav-action]"))
+      .map((node) => String(node.dataset.navAction || "").trim())
+      .filter((action) => action && !SUPPORTED_NAV_ACTIONS.has(action))
+  )];
+
+  const missingShortcutTargets = [];
+  Object.entries(SECTION_SHORTCUTS).forEach(([view, items]) => {
+    ensureArray(items).forEach((item) => {
+      if (LAZY_SHORTCUT_TARGETS.has(item.id)) return;
+      if (!document.getElementById(item.id)) missingShortcutTargets.push(`${view}:${item.id}`);
+    });
+  });
+
+  if (!invalidActions.length && !missingShortcutTargets.length) return;
+
+  console.warn("Navigation audit issues", {
+    invalidActions,
+    missingShortcutTargets,
+  });
+
+  if (currentUser) {
+    const issues = [
+      invalidActions.length ? `Unknown nav actions: ${invalidActions.join(", ")}` : "",
+      missingShortcutTargets.length ? `Missing shortcut targets: ${missingShortcutTargets.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    if (issues) pushAppAudit(`Navigation audit warning | ${issues}`, "navigation", "navigation-audit");
+  }
 }
 
 function normalizeAdminSubView(targetId = "") {
@@ -16457,37 +16604,37 @@ function renderUsers() {
     });
   }
 
-  const rows = visibleUsers
-    .map((user) => {
-      const avatarSrc = userAvatarSrc(user);
-      const profile = userAccessProfile(user);
-      const systemRole = userSystemRole(user);
-      const pendingAssignment = isPendingUserAssignment(user);
-      const active = activeTimeEntryForUser(user.id);
-      const workStatus = active
-        ? `${timeEntryAssignmentLabel(active)} • ${elapsedFrom(active.checkInAt)}`
-        : "Off shift";
-      return `<tr data-user-row="${user.id}" class="${pendingAssignment ? "user-pending-assignment" : ""}">
-      <td>${avatarSrc ? `<img class="avatar-xs" src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(user.name || user.username || "User")}" />` : ""}</td>
-      <td>${escapeHtml(user.name)}</td>
-      <td>${escapeHtml(user.companyName || "-")}</td>
-      <td>${escapeHtml(user.jobTitle || "-")}</td>
-      <td>${escapeHtml(workStatus)}</td>
-      <td>${escapeHtml(user.employmentType || "-")}</td>
-      <td>${escapeHtml(user.email || "-")}</td>
-      <td>${escapeHtml(user.username)}</td>
-      <td>${escapeHtml(systemRoleLabel(systemRole))}</td>
-      <td>${
-        pendingAssignment
-          ? '<span class="pending-assignment-pill">Pending assignment (Visitor)</span>'
-          : escapeHtml(roleLabel(profile))
-      }</td>
-      <td>${fmtDate(user.updatedAt)}</td>
-    </tr>`;
-    })
-    .join("");
-
   if (usersSubView === "registration") {
+    const rows = visibleUsers
+      .map((user) => {
+        const avatarSrc = userAvatarSrc(user);
+        const profile = userAccessProfile(user);
+        const systemRole = userSystemRole(user);
+        const pendingAssignment = isPendingUserAssignment(user);
+        const active = activeTimeEntryForUser(user.id);
+        const workStatus = active
+          ? `${timeEntryAssignmentLabel(active)} • ${elapsedFrom(active.checkInAt)}`
+          : "Off shift";
+        return `<tr data-user-row="${user.id}" class="${pendingAssignment ? "user-pending-assignment" : ""}">
+        <td>${avatarSrc ? `<img class="avatar-xs" src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(user.name || user.username || "User")}" />` : ""}</td>
+        <td>${escapeHtml(user.name)}</td>
+        <td>${escapeHtml(user.companyName || "-")}</td>
+        <td>${escapeHtml(user.jobTitle || "-")}</td>
+        <td>${escapeHtml(workStatus)}</td>
+        <td>${escapeHtml(user.employmentType || "-")}</td>
+        <td>${escapeHtml(user.email || "-")}</td>
+        <td>${escapeHtml(user.username)}</td>
+        <td>${escapeHtml(systemRoleLabel(systemRole))}</td>
+        <td>${
+          pendingAssignment
+            ? '<span class="pending-assignment-pill">Pending assignment (Visitor)</span>'
+            : escapeHtml(roleLabel(profile))
+        }</td>
+        <td>${fmtDate(user.updatedAt)}</td>
+      </tr>`;
+      })
+      .join("");
+
     mountDataTable(usersTable, {
       columns: ["Photo", "Name", "Company", "Job Title", "Work status", "Type", "Email", "User", "System Role", "Operational Access", "Updated"],
       rowsHtml: rows,
@@ -17797,43 +17944,85 @@ function scheduleTablePrintButtons() {
   });
 }
 
+function visibleTablePrintRoots() {
+  const roots = [];
+  const addRoot = (node) => {
+    if (!isRenderableNode(node)) return;
+    if (!roots.includes(node)) roots.push(node);
+  };
+
+  addRoot(workspaceShellPanel);
+
+  if (currentView === "home") addRoot(homePanel);
+  else if (currentView === "workday") addRoot(workdayPanel);
+  else if (currentView === "sync") addRoot(syncPanel);
+  else if (currentView === "users") addRoot(usersPanel);
+  else if (currentView === "admin") addRoot(adminPanel);
+  else if (currentView === "userEdit") addRoot(userEditPanel);
+  else if (currentView === "clients") addRoot(masterDataPanel);
+  else if (currentView === "manufacture") addRoot(containerPanel);
+  else if (currentView === "ocrImporter") addRoot(ocrImporterPanel);
+  else if (currentView === "projects") {
+    addRoot(masterDataPanel);
+    addRoot(projectSectorPanel);
+    addRoot(containerPanel);
+    addRoot(deliveryInventoryPanel);
+    addRoot(unitEntryPanel);
+    addRoot(unitsToolbarPanel);
+    addRoot(qrLookupPanel);
+    addRoot(unitsContainer);
+    addRoot(statsPanel);
+  }
+
+  return roots;
+}
+
 function renderTablePrintButtons() {
   if (!appMain) return;
   const seenTargets = new Set();
-  appMain.querySelectorAll("table.data-table").forEach((table) => {
-    if (table.closest(".hidden-view") || table.closest(".hidden")) return;
-    if (!table.id) table.id = `print-table-${uid()}`;
-    const targetId = table.id;
-    seenTargets.add(targetId);
+  visibleTablePrintRoots().forEach((root) => {
+    root.querySelectorAll("table.data-table").forEach((table) => {
+      if (table.closest(".hidden-view") || table.closest(".hidden")) return;
+      if (!table.id) table.id = `print-table-${uid()}`;
+      const targetId = table.id;
+      seenTargets.add(targetId);
 
-    const anchor = table.closest(".table-wrap") || table;
-    const parent = anchor.parentElement;
-    if (!parent) return;
+      const anchor = table.closest(".table-wrap") || table;
+      const parent = anchor.parentElement;
+      if (!parent) return;
 
-    const contextTargetId = anchor.id || "";
-    const contextBar = contextTargetId ? parent.querySelector(`.table-context-bar[data-context-target="${contextTargetId}"]`) : null;
-    if (contextBar) {
-      const actionsContainer = contextBar.querySelector(".table-context-actions");
-      if (actionsContainer && !actionsContainer.querySelector(`[data-table-print="${targetId}"]`)) {
-        actionsContainer.insertAdjacentHTML(
-          "beforeend",
-          `<button class="secondary xs-btn" type="button" data-table-print="${escapeHtml(targetId)}">Print table</button>`
-        );
+      const contextTargetId = anchor.id || "";
+      const contextBar = contextTargetId ? parent.querySelector(`.table-context-bar[data-context-target="${contextTargetId}"]`) : null;
+      if (contextBar) {
+        const actionsContainer = contextBar.querySelector(".table-context-actions");
+        if (actionsContainer && !actionsContainer.querySelector(`[data-table-print="${targetId}"]`)) {
+          actionsContainer.insertAdjacentHTML(
+            "beforeend",
+            `<button class="secondary xs-btn" type="button" data-table-print="${escapeHtml(targetId)}">Print table</button>`
+          );
+        }
+        const existingToolbar = Array.from(appMain.querySelectorAll(".table-print-toolbar")).find((node) => node.dataset.printTarget === targetId) || null;
+        if (existingToolbar) existingToolbar.remove();
+        return;
       }
-      const existingToolbar = Array.from(appMain.querySelectorAll(".table-print-toolbar")).find((node) => node.dataset.printTarget === targetId) || null;
-      if (existingToolbar) existingToolbar.remove();
-      return;
-    }
 
-    let toolbar = Array.from(appMain.querySelectorAll(".table-print-toolbar")).find((node) => node.dataset.printTarget === targetId) || null;
-    if (!toolbar) {
-      toolbar = document.createElement("div");
-      toolbar.className = "table-print-toolbar";
-      toolbar.dataset.printTarget = targetId;
-    }
-    toolbar.innerHTML = `<button class="secondary xs-btn" type="button" data-table-print="${escapeHtml(targetId)}">Print table</button>`;
-    if (toolbar.parentElement !== parent || toolbar.nextElementSibling !== anchor) {
-      parent.insertBefore(toolbar, anchor);
+      let toolbar = Array.from(appMain.querySelectorAll(".table-print-toolbar")).find((node) => node.dataset.printTarget === targetId) || null;
+      if (!toolbar) {
+        toolbar = document.createElement("div");
+        toolbar.className = "table-print-toolbar";
+        toolbar.dataset.printTarget = targetId;
+      }
+      toolbar.innerHTML = `<button class="secondary xs-btn" type="button" data-table-print="${escapeHtml(targetId)}">Print table</button>`;
+      if (toolbar.parentElement !== parent || toolbar.nextElementSibling !== anchor) {
+        parent.insertBefore(toolbar, anchor);
+      }
+    });
+  });
+
+  appMain.querySelectorAll(".table-context-actions [data-table-print]").forEach((button) => {
+    const targetId = button.dataset.tablePrint || "";
+    if (!seenTargets.has(targetId) || !document.getElementById(targetId) || button.closest(".hidden-view") || button.closest(".hidden")) {
+      button.remove();
     }
   });
 
@@ -21028,30 +21217,40 @@ appMain?.addEventListener("click", (event) => {
     event.preventDefault();
     const targetId = sectionShortcutTrigger.dataset.sectionShortcut || "";
     if (currentView === "admin") {
-      setAdminSubView(targetId);
+      const normalizedTarget = normalizeAdminSubView(targetId);
+      const targetChanged = normalizeAdminSubView(adminSubView) !== normalizedTarget;
+      setAdminSubView(normalizedTarget);
       syncRouteHash();
-      render();
-      setActiveSectionShortcut(targetId);
-      const targetSectionId = adminUsesWorkforceShell(targetId)
-        ? activeWorkforceAdminSection(targetId) || "workforceAdminPanel"
-        : targetId;
+      if (targetChanged || !isVisibleSectionShortcutTarget(normalizedTarget)) {
+        renderAdminPanel();
+        renderSectionShortcutPanel();
+        scheduleTablePrintButtons();
+        applyLanguageToUi();
+      }
+      setActiveSectionShortcut(normalizedTarget);
+      const targetSectionId = adminUsesWorkforceShell(normalizedTarget)
+        ? activeWorkforceAdminSection(normalizedTarget) || "workforceAdminPanel"
+        : normalizedTarget;
       const targetSection = document.getElementById(targetSectionId) || document.getElementById("adminPanel");
       targetSection?.scrollIntoView({ behavior: "auto", block: "start" });
       return;
     }
     setActiveSectionShortcut(targetId);
+    let needsRefresh = false;
     if (targetId === "usersRegistrationView") {
+      needsRefresh = usersSubView !== "registration";
       setUsersSubView("registration");
-      render();
-      setActiveSectionShortcut(targetId);
     } else if (targetId === "usersDirectoryView") {
-      setUsersSubView(can("manageUsers") ? "directory" : "self");
-      render();
-      setActiveSectionShortcut(targetId);
+      const nextSubView = can("manageUsers") ? "directory" : "self";
+      needsRefresh = usersSubView !== nextSubView;
+      setUsersSubView(nextSubView);
+    } else if (targetId === "usersCheckInSection") {
+      needsRefresh = usersSubView !== "checkin";
+      setUsersSubView("checkin");
     }
     let targetSection = document.getElementById(targetId);
-    if (!targetSection || targetSection.classList.contains("hidden-view") || targetSection.classList.contains("hidden")) {
-      render();
+    if (needsRefresh || !targetSection || targetSection.classList.contains("hidden-view") || targetSection.classList.contains("hidden")) {
+      rerenderCurrentViewScope();
       setActiveSectionShortcut(targetId);
       targetSection = document.getElementById(targetId);
     }
@@ -21239,6 +21438,7 @@ ensureAuthUiInteractive();
     setLanguage(DEFAULT_LANG, { rerender: false });
     db = await openDB();
     await loadAll();
+    auditNavigationBindings();
     await migrateLegacyUserRoleKey();
     await ensurePrimaryDeveloperBootstrap();
     await ensureDeveloperRolePresence();

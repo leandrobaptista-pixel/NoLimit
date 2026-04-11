@@ -1298,6 +1298,7 @@ let selectedAdminHistoryId = "";
 let hasAutoDispatchedCoiReminder = false;
 let selectedClientId = "";
 let selectedProjectId = "";
+let selectedProjectScheduleProjectId = "";
 let selectedContractId = "";
 let selectedClientDetailsProjectId = "";
 let selectedContactId = "";
@@ -10485,8 +10486,11 @@ function populateProjectForm(project) {
 
 function currentProjectScheduleProjectId() {
   const currentValue = projectScheduleProjectSelect?.value || "";
-  if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return selectedProjectId;
+  if (selectedProjectScheduleProjectId && projects.some((project) => project.id === selectedProjectScheduleProjectId)) {
+    return selectedProjectScheduleProjectId;
+  }
   if (currentValue && projects.some((project) => project.id === currentValue)) return currentValue;
+  if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return selectedProjectId;
   return "";
 }
 
@@ -10625,6 +10629,7 @@ function renderProjectScheduleSection() {
     .map((entry) => {
       const people = scheduleEntryPeopleSummary(entry);
       return `<tr class="${entry.id === selectedProjectScheduleId ? "selected-row" : ""}" data-project-schedule-row="${escapeHtml(entry.id)}">
+        <td><button class="secondary xs-btn" type="button" data-project-schedule-edit="${escapeHtml(entry.id)}">Edit</button></td>
         <td>${escapeHtml(fmtDateOnly(entry.date))}</td>
         <td>${escapeHtml(scheduleEntryLocationLabel(entry))}</td>
         <td>${escapeHtml(scheduleForemanLabel(entry))}</td>
@@ -10637,10 +10642,10 @@ function renderProjectScheduleSection() {
 
   if (projectScheduleTable) {
     mountDataTable(projectScheduleTable, {
-      columns: ["Date", "Location", "Foreman", "Workers", "Sub Contractors", "Description"],
+      columns: ["Edit", "Date", "Location", "Foreman", "Workers", "Sub Contractors", "Description"],
       rowsHtml: rows,
       emptyMessage: activeProject ? "No schedule entries created for this project yet." : "Select a project to view schedule entries.",
-      emptyColspan: 6,
+      emptyColspan: 7,
     });
 
     renderTableContextBar(projectScheduleTable, {
@@ -10650,7 +10655,12 @@ function renderProjectScheduleSection() {
       detail: selectedScheduleEntry
         ? `${scheduleEntryLocationLabel(selectedScheduleEntry)} • ${scheduleForemanLabel(selectedScheduleEntry)}`
         : "Select one schedule row to edit or delete it outside the table.",
-      actions: selectedScheduleEntry ? [{ label: "Delete", tone: "danger", attrs: { "data-project-schedule-delete": selectedScheduleEntry.id } }] : [],
+      actions: selectedScheduleEntry
+        ? [
+            { label: "Edit", tone: "secondary", attrs: { "data-project-schedule-edit": selectedScheduleEntry.id } },
+            { label: "Delete", tone: "danger", attrs: { "data-project-schedule-delete": selectedScheduleEntry.id } },
+          ]
+        : [],
     });
 
     bindSelectableRows(projectScheduleTable, "[data-project-schedule-row]", (row) => {
@@ -10670,12 +10680,13 @@ function renderProjectScheduleSection() {
 function resetProjectScheduleForm({ projectId = "" } = {}) {
   if (!projectScheduleForm) return;
   selectedProjectScheduleId = "";
+  selectedProjectScheduleProjectId = projectId || currentProjectScheduleProjectId() || "";
   projectScheduleForm.reset();
   if (projectScheduleForm.elements.scheduleId) projectScheduleForm.elements.scheduleId.value = "";
   if (projectScheduleProjectSelect) {
     populateProjectSelect(projectScheduleProjectSelect, {
       allowBlankLabel: "Select a project",
-      currentValue: projectId || currentProjectScheduleProjectId(),
+      currentValue: selectedProjectScheduleProjectId,
     });
   }
   if (projectScheduleForm.elements.date) projectScheduleForm.elements.date.value = isoDateFromValue(new Date());
@@ -10688,6 +10699,7 @@ function resetProjectScheduleForm({ projectId = "" } = {}) {
 function populateProjectScheduleForm(project, entry) {
   if (!projectScheduleForm || !project || !entry) return;
   selectedProjectId = project.id;
+  selectedProjectScheduleProjectId = project.id;
   selectedProjectScheduleId = entry.id;
   if (projectScheduleForm.elements.scheduleId) projectScheduleForm.elements.scheduleId.value = entry.id;
   populateProjectSelect(projectScheduleProjectSelect, {
@@ -10979,6 +10991,7 @@ async function deleteProjectScheduleRecord(scheduleId) {
   );
   await loadAll();
   selectedProjectId = savedProject.id;
+  selectedProjectScheduleProjectId = savedProject.id;
   selectedProjectScheduleId = "";
   resetProjectScheduleForm({ projectId: savedProject.id });
   render();
@@ -19460,6 +19473,7 @@ clientFormDeleteBtn?.addEventListener("click", async () => {
 projectFormNewBtn?.addEventListener("click", () => {
   if (!can("manageCatalog")) return;
   selectedProjectId = "";
+  selectedProjectScheduleProjectId = "";
   resetProjectForm({ clientId: selectedClientId || projectClientSelect?.value || "" });
   resetProjectScheduleForm({ projectId: "" });
   render();
@@ -19473,14 +19487,15 @@ projectScheduleResetBtn?.addEventListener("click", () => {
 
 projectScheduleProjectSelect?.addEventListener("change", () => {
   if (!can("manageCatalog")) return;
-  selectedProjectId = projectScheduleProjectSelect.value || "";
-  const targetProject = projectById(selectedProjectId);
+  selectedProjectScheduleProjectId = projectScheduleProjectSelect.value || "";
+  selectedProjectId = selectedProjectScheduleProjectId || selectedProjectId;
+  const targetProject = projectById(selectedProjectScheduleProjectId);
   if (targetProject) {
     selectedClientId = targetProject.clientId || selectedClientId;
     populateProjectForm(targetProject);
   }
   selectedProjectScheduleId = "";
-  resetProjectScheduleForm({ projectId: selectedProjectId });
+  resetProjectScheduleForm({ projectId: selectedProjectScheduleProjectId });
   render();
 });
 
@@ -19708,6 +19723,7 @@ projectScheduleForm?.addEventListener("submit", async (event) => {
   await loadAll();
   selectedClientId = savedProject.clientId || selectedClientId;
   selectedProjectId = savedProject.id;
+  selectedProjectScheduleProjectId = savedProject.id;
   selectedProjectScheduleId = savedEntry.id;
   const refreshedProject = projectById(savedProject.id);
   const refreshedEntry = projectScheduleEntries(refreshedProject).find((entry) => entry.id === savedEntry.id) || null;
@@ -20874,6 +20890,7 @@ appMain?.addEventListener("click", (event) => {
     setClientsWorkspaceMode("projects");
     selectedClientId = project.clientId || selectedClientId;
     selectedProjectId = project.id;
+    selectedProjectScheduleProjectId = project.id;
     populateProjectForm(project);
     resetProjectScheduleForm({ projectId: project.id });
     render();
@@ -20920,6 +20937,23 @@ appMain?.addEventListener("click", (event) => {
   if (deleteMaterialBtn) {
     event.preventDefault();
     void deleteMaterialRecord(deleteMaterialBtn.dataset.delMaterial || "");
+    return;
+  }
+
+  const editProjectScheduleBtn = event.target.closest("[data-project-schedule-edit]");
+  if (editProjectScheduleBtn) {
+    event.preventDefault();
+    const scheduleId = editProjectScheduleBtn.dataset.projectScheduleEdit || "";
+    const targetProject = projects.find((project) => projectScheduleEntries(project).some((entry) => entry.id === scheduleId));
+    const targetEntry = targetProject ? projectScheduleEntries(targetProject).find((entry) => entry.id === scheduleId) || null : null;
+    if (!targetProject || !targetEntry) return;
+    selectedClientId = targetProject.clientId || selectedClientId;
+    selectedProjectId = targetProject.id;
+    selectedProjectScheduleProjectId = targetProject.id;
+    populateProjectForm(targetProject);
+    populateProjectScheduleForm(targetProject, targetEntry);
+    renderProjectScheduleSection();
+    projectScheduleSection?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
 

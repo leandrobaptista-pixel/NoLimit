@@ -1304,8 +1304,8 @@ const AUTH_USER_SELECT = [
   "createdAt:payload->>createdAt",
   "userUpdatedAt:payload->>updatedAt",
 ].join(",");
-const POST_LOGIN_PULL_KINDS = ["user", "project", "timeEntry", "receipt", "payment", "workforcePlan", "history"];
-const AUTO_PULL_KINDS = ["user", "timeEntry", "receipt", "payment", "workforcePlan", "history"];
+const POST_LOGIN_PULL_KINDS = ["project", "timeEntry", "receipt", "payment", "workforcePlan", "history"];
+const AUTO_PULL_KINDS = ["timeEntry", "receipt", "payment", "workforcePlan", "history"];
 let currentView = "home";
 let activeSectionShortcutId = "";
 let lastSectionShortcutSignature = "";
@@ -8782,6 +8782,7 @@ async function pushUserForAuth(user, { timeoutMs = 10000 } = {}) {
 async function finalizeLoginInBackground(userId) {
   try {
     if (syncEndpoint() && navigator.onLine) {
+      await refreshUsersForLogin({ timeoutMs: 8000 });
       await pullCloud({ silent: true, force: true, kinds: POST_LOGIN_PULL_KINDS });
     }
   } catch (error) {
@@ -9410,16 +9411,16 @@ function isRenderableNode(node) {
 
 function autoPullKindsForCurrentView() {
   if (currentView === "sync") {
-    return ["unit", "user", "client", "project", "contact", "contract", "container", "material", "deliverySku", "timeEntry", "receipt", "payment", "workforcePlan", "trash", "history"];
+    return ["unit", "client", "project", "contact", "contract", "container", "material", "deliverySku", "timeEntry", "receipt", "payment", "workforcePlan", "trash", "history"];
   }
   if (currentView === "clients") {
-    return ["user", "client", "project", "contact", "contract", "history"];
+    return ["client", "project", "contact", "contract", "history"];
   }
   if (currentView === "manufacture") {
-    return ["user", "project", "container", "material", "history"];
+    return ["project", "container", "material", "history"];
   }
   if (currentView === "projects") {
-    const kinds = ["user", "project", "timeEntry", "workforcePlan", "history"];
+    const kinds = ["project", "timeEntry", "workforcePlan", "history"];
     if (["warehouse", "delivery", "distribuicao", "instalacao", "punchlist"].includes(currentProjectSector)) kinds.push("unit");
     if (["fabrica", "warehouse"].includes(currentProjectSector)) kinds.push("container", "material");
     if (currentProjectSector === "delivery") kinds.push("deliverySku");
@@ -21418,7 +21419,10 @@ async function runBackgroundCloudRefresh() {
   if (!navigator.onLine) return;
   if (!syncEndpoint()) return;
   try {
-    await pullCloud({ silent: true, force: true });
+    await refreshUsersForLogin({ timeoutMs: 8000 });
+    if (currentUser) {
+      await pullCloud({ silent: true, force: true, kinds: POST_LOGIN_PULL_KINDS });
+    }
     await migrateLegacyUserRoleKey();
     await ensurePrimaryDeveloperBootstrap();
     await ensureDeveloperRolePresence();

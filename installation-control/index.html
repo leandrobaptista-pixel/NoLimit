@@ -164,7 +164,7 @@
           <div class="workday-panel-head">
             <p class="eyebrow">Workday Quick Access</p>
             <h2>
-              Start the day before entering the rest of the app
+              Start of day
               <button
                 class="help-tip"
                 type="button"
@@ -172,17 +172,20 @@
                 aria-label="Workday Quick Access help"
               >?</button>
             </h2>
-            <p class="hint">
-              This page opens automatically right after login so every employee can start the shift correctly, even when working from
-              office, warehouse, or homeworking.
-            </p>
+            <div class="workday-panel-meta">
+              <div class="workday-session-chip" aria-live="polite">
+                <span>Session time</span>
+                <strong id="workdaySessionClock">00:00:00</strong>
+              </div>
+            </div>
             <div class="workday-panel-actions">
               <button id="workdayContinueBtn" class="secondary workday-continue-btn" type="button">Dashboard</button>
             </div>
           </div>
           <article class="subpanel workday-location-card" id="workdayLocationSection">
             <h3>
-              Location and route
+              <span>Location and route</span>
+              <small class="workday-location-caption">Workday Quick Access</small>
               <button
                 class="help-tip"
                 type="button"
@@ -1081,7 +1084,6 @@
           </div>
           <div class="row">
             <button id="adminArchiveWeekBtn" class="secondary" type="button">Archive current week</button>
-            <button id="adminWeeklyReportBtn" class="secondary" type="button">Print weekly report</button>
           </div>
         </div>
 

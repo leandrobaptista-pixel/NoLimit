@@ -23,6 +23,7 @@ const LOCAL_BACKUP_META_KEY = "cc-last-local-backup-at";
 const APP_AUDIT_MAX = 3000;
 const DELETE_RETENTION_MS = 48 * 60 * 60 * 1000;
 const RESTORE_WINDOW_LABEL = "48 hours";
+const WORKDAY_SESSION_TICK_MS = 1000;
 const WORKFORCE_SITE_OPTIONS = [
   { value: "project", label: "Project job site" },
   { value: "office", label: "Office" },
@@ -1385,6 +1386,7 @@ let workforceProjectFilter = "";
 let workforceEmploymentFilter = "all";
 let selectedProjectScheduleId = "";
 let uiHealthMessage = "";
+let workdaySessionClockTimer = 0;
 
 const authView = document.getElementById("authView");
 const bootErrorPanel = document.getElementById("bootErrorPanel");
@@ -1426,6 +1428,7 @@ const workdayMiniMap = document.getElementById("workdayMiniMap");
 const workdayEtaValue = document.getElementById("workdayEtaValue");
 const workdayDistanceValue = document.getElementById("workdayDistanceValue");
 const workdayDestinationValue = document.getElementById("workdayDestinationValue");
+const workdaySessionClock = document.getElementById("workdaySessionClock");
 const workdayGeoStatus = document.getElementById("workdayGeoStatus");
 const workdayTodayScheduleCard = document.getElementById("workdayTodayScheduleCard");
 const workdayWeekScheduleCard = document.getElementById("workdayWeekScheduleCard");
@@ -1944,6 +1947,41 @@ function elapsedFrom(startIso) {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
+function elapsedClockFrom(startIso) {
+  if (!startIso) return "00:00:00";
+  const ms = Date.now() - new Date(startIso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "00:00:00";
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+function updateWorkdaySessionClock() {
+  if (!workdaySessionClock) return;
+  const sessionStartedAt = currentUser?.sessionStartedAt || currentUser?.lastLoginAt || "";
+  workdaySessionClock.textContent = sessionStartedAt ? elapsedClockFrom(sessionStartedAt) : "00:00:00";
+}
+
+function stopWorkdaySessionClockTimer() {
+  if (!workdaySessionClockTimer) return;
+  window.clearInterval(workdaySessionClockTimer);
+  workdaySessionClockTimer = 0;
+}
+
+function ensureWorkdaySessionClockTimer() {
+  updateWorkdaySessionClock();
+  if (!currentUser) {
+    stopWorkdaySessionClockTimer();
+    return;
+  }
+  if (workdaySessionClockTimer) return;
+  workdaySessionClockTimer = window.setInterval(() => {
+    updateWorkdaySessionClock();
+  }, WORKDAY_SESSION_TICK_MS);
+}
+
 function normalizeCoordinateField(value) {
   const raw = String(value ?? "")
     .trim()
@@ -2249,10 +2287,7 @@ function buildWorkspaceShellState() {
       eyebrow: "Administration",
       title: "Payroll and expense operations",
       summary: "Admin pages work better as focused control surfaces: employee data, approvals, payments, and printable reports.",
-      actions: [
-        { label: "Print weekly report", action: "admin", tone: "primary" },
-        { label: "Users", action: "users" },
-      ],
+      actions: [],
       metrics: [
         { label: "Employees", value: visibleUsers.length, note: "Visible in payroll scope" },
         { label: "Pending receipts", value: pendingReceipts, note: "Awaiting approval", tone: pendingReceipts ? "warn" : "ok" },
@@ -3974,6 +4009,15 @@ function normalizeWorkforcePlan(plan) {
     taskDescription: String(plan?.taskDescription || "").trim(),
     description: String(plan?.taskDescription || plan?.description || "").trim(),
     weekOutlook: String(plan?.weekOutlook || "").trim(),
+    taskItems: ensureArray(plan?.taskItems)
+      .map((item, index) => ({
+        id: String(item?.id || `task-${index + 1}`).trim() || `task-${index + 1}`,
+        text: String(item?.text || "").trim(),
+        done: Boolean(item?.done),
+        origin: String(item?.origin || "admin").trim() || "admin",
+      }))
+      .filter((item) => item.text),
+    sourceScheduleId: String(plan?.sourceScheduleId || "").trim(),
     date,
     createdByUserId: String(plan?.createdByUserId || "").trim(),
     createdByName: String(plan?.createdByName || "").trim(),
@@ -3981,6 +4025,219 @@ function normalizeWorkforcePlan(plan) {
     createdAt: String(plan?.createdAt || "").trim() || new Date().toISOString(),
     updatedAt: String(plan?.updatedAt || "").trim() || String(plan?.createdAt || "").trim() || new Date().toISOString(),
   };
+}
+
+function normalizeTaskLookupText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function taskLinesFromText(text) {
+  const raw = String(text || "")
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
+    .filter(Boolean);
+  if (raw.length) return raw;
+  return String(text || "")
+    .split(/[;•]+/)
+    .map((line) => line.replace(/^[-*•\d.)\s]+/, "").trim())
+    .filter(Boolean);
+}
+
+function taskItemId(text, prefix = "task") {
+  const slug = normalizeTaskLookupText(text).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  return `${prefix}:${slug || uid()}`;
+}
+
+function mergeTaskChecklist(baseTexts = [], storedItems = []) {
+  const stored = ensureArray(storedItems)
+    .map((item, index) => ({
+      id: String(item?.id || `task-${index + 1}`).trim() || `task-${index + 1}`,
+      text: String(item?.text || "").trim(),
+      done: Boolean(item?.done),
+      origin: String(item?.origin || "admin").trim() || "admin",
+    }))
+    .filter((item) => item.text);
+
+  const takenStoredIds = new Set();
+  const mergedBase = ensureArray(baseTexts)
+    .map((text) => String(text || "").trim())
+    .filter(Boolean)
+    .map((text) => {
+      const lookup = normalizeTaskLookupText(text);
+      const existing = stored.find((item) => normalizeTaskLookupText(item.text) === lookup && item.origin !== "user");
+      if (existing) {
+        takenStoredIds.add(existing.id);
+        return { ...existing, text, origin: existing.origin || "admin" };
+      }
+      return {
+        id: taskItemId(text, "base"),
+        text,
+        done: false,
+        origin: "admin",
+      };
+    });
+
+  const extras = stored.filter((item) => item.origin === "user" || !takenStoredIds.has(item.id));
+  return [...mergedBase, ...extras];
+}
+
+function scheduleEntryIdentityKey(entry) {
+  return [
+    normalizeDateField(entry?.date),
+    String(entry?.projectId || "").trim(),
+    normalizeTaskLookupText(scheduleEntryLocationLabel(entry)),
+  ].join("::");
+}
+
+function workforcePlanForScheduleEntry(entry, user = currentUser) {
+  if (!entry || !user) return null;
+  if (entry.kind === "workforcePlan") {
+    return workforcePlans.find((plan) => plan.id === entry.id) || normalizeWorkforcePlan(entry);
+  }
+  const targetKey = scheduleEntryIdentityKey(entry);
+  return (
+    workforcePlans.find((plan) => workforcePlanMatchesUser(plan, user) && (plan.sourceScheduleId === entry.id || scheduleEntryIdentityKey(plan) === targetKey)) || null
+  );
+}
+
+function scheduleEntryTaskItems(entry) {
+  const linkedPlan = workforcePlanForScheduleEntry(entry);
+  const baseTexts = taskLinesFromText(entry?.kind === "workforcePlan" ? entry?.taskDescription || entry?.description : entry?.description || "");
+  const taskItems = mergeTaskChecklist(baseTexts, linkedPlan?.taskItems || entry?.taskItems || []);
+  return { linkedPlan, taskItems };
+}
+
+function findScheduleEntryByRef(kind, entryId) {
+  const normalizedKind = String(kind || "").trim();
+  const normalizedId = String(entryId || "").trim();
+  if (!normalizedKind || !normalizedId) return null;
+  if (normalizedKind === "workforcePlan") {
+    const plan = workforcePlans.find((entry) => entry.id === normalizedId);
+    return plan ? normalizeWorkforcePlan(plan) : null;
+  }
+  const scheduleEntry = allProjectScheduleEntries().find((entry) => entry.id === normalizedId);
+  return scheduleEntry ? normalizeProjectScheduleEntry(scheduleEntry, projectById(scheduleEntry.projectId || "")) : null;
+}
+
+async function ensureEditableWorkdayPlan(entry) {
+  if (!entry || !currentUser) return null;
+  if (entry.kind === "workforcePlan") {
+    const existingPlan = workforcePlans.find((plan) => plan.id === entry.id) || null;
+    return existingPlan ? normalizeWorkforcePlan(existingPlan) : normalizeWorkforcePlan(entry);
+  }
+
+  const existingLinkedPlan = workforcePlanForScheduleEntry(entry, currentUser);
+  if (existingLinkedPlan) return normalizeWorkforcePlan(existingLinkedPlan);
+
+  const now = new Date().toISOString();
+  const draftPlan = normalizeWorkforcePlan({
+    id: uid(),
+    userId: currentUser.id,
+    userName: currentUser.name || currentUser.username || "User",
+    userUsername: currentUser.username || "",
+    userEmail: currentUser.email || "",
+    employmentType: currentUser.employmentType || "",
+    companyName: currentUser.companyName || "",
+    jobTitle: currentUser.jobTitle || "",
+    projectId: entry.projectId || "",
+    projectName: entry.projectName || projectById(entry.projectId || "")?.name || "",
+    location: scheduleEntryLocationLabel(entry),
+    foremanName: scheduleForemanLabel(entry),
+    foremanKind: entry.foremanKind || "text",
+    taskDescription: entry.description || "",
+    dailyNeeds: "",
+    weekOutlook: "",
+    taskItems: mergeTaskChecklist(taskLinesFromText(entry.description || ""), []),
+    sourceScheduleId: entry.id,
+    date: normalizeDateField(entry.date) || isoDateFromValue(new Date()),
+    createdByUserId: currentUser.id,
+    createdByName: currentUser.name || currentUser.username || "User",
+    auditLog: recordAuditTrail([], `Workday checklist initialized by ${currentUser.name || currentUser.username || "User"} on ${fmtDate(now)}`),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await persistRecordWithHistory(WORKFORCE_PLAN_STORE, draftPlan, {
+    action: "created",
+    summary: "Workday personal checklist initialized",
+    entryDate: draftPlan.date,
+    relatedUserId: draftPlan.userId || "",
+    relatedProjectId: draftPlan.projectId || "",
+  });
+  pushEntityAudit(
+    "Workforce plans",
+    "created",
+    `${draftPlan.userName} | ${fmtDateOnly(draftPlan.date)} | ${draftPlan.projectName || draftPlan.location || "-"}`,
+    "workforce"
+  );
+  await loadAll();
+  queueAutoSync();
+  return workforcePlans.find((plan) => plan.id === draftPlan.id) || draftPlan;
+}
+
+async function saveWorkdayPlanTaskItems(plan, taskItems, summary = "Workday tasks updated") {
+  if (!plan) return null;
+  const existing = workforcePlans.find((entry) => entry.id === plan.id) || null;
+  const now = new Date().toISOString();
+  const savedPlan = normalizeWorkforcePlan({
+    ...(existing || plan),
+    ...plan,
+    taskItems: ensureArray(taskItems),
+    updatedAt: now,
+    auditLog: recordAuditTrail(existing?.auditLog || plan.auditLog, `${summary} by ${currentUser?.name || currentUser?.username || "User"} on ${fmtDate(now)}`),
+  });
+  await persistRecordWithHistory(WORKFORCE_PLAN_STORE, savedPlan, {
+    previousRecord: existing,
+    action: existing ? "updated" : "created",
+    summary,
+    entryDate: savedPlan.date,
+    relatedUserId: savedPlan.userId || "",
+    relatedProjectId: savedPlan.projectId || "",
+  });
+  await loadAll();
+  queueAutoSync();
+  return workforcePlans.find((entry) => entry.id === savedPlan.id) || savedPlan;
+}
+
+async function toggleWorkdayTaskItem(kind, entryId, taskId) {
+  const entry = findScheduleEntryByRef(kind, entryId);
+  if (!entry) return;
+  const editablePlan = await ensureEditableWorkdayPlan(entry);
+  if (!editablePlan) return;
+  const { taskItems } = scheduleEntryTaskItems({ ...entry, ...editablePlan, kind: "workforcePlan", id: editablePlan.id });
+  const nextItems = taskItems.map((item) => (item.id === taskId ? { ...item, done: !item.done } : item));
+  await saveWorkdayPlanTaskItems(editablePlan, nextItems, "Workday task status updated");
+  renderCurrentUserScheduleBoards();
+  if (currentView === "workday") renderWorkdayPanel();
+  if (currentView === "home") renderHomePanel();
+}
+
+async function promptWorkdayExtraTask(kind, entryId) {
+  const entry = findScheduleEntryByRef(kind, entryId);
+  if (!entry) return;
+  const typed = window.prompt("Add an extra task for this assignment:");
+  const text = String(typed || "").trim();
+  if (!text) return;
+  const editablePlan = await ensureEditableWorkdayPlan(entry);
+  if (!editablePlan) return;
+  const { taskItems } = scheduleEntryTaskItems({ ...entry, ...editablePlan, kind: "workforcePlan", id: editablePlan.id });
+  const nextItems = mergeTaskChecklist([], [
+    ...taskItems,
+    {
+      id: taskItemId(text, "user"),
+      text,
+      done: false,
+      origin: "user",
+    },
+  ]);
+  await saveWorkdayPlanTaskItems(editablePlan, nextItems, "Workday extra task added");
+  renderCurrentUserScheduleBoards();
+  if (currentView === "workday") renderWorkdayPanel();
+  if (currentView === "home") renderHomePanel();
 }
 
 function workforcePlanDateMs(plan) {
@@ -3995,6 +4252,9 @@ function userIdentityTokens(user) {
     String(user.username || "").trim().toLowerCase(),
     String(user.email || "").trim().toLowerCase(),
     String(user.name || "").trim().toLowerCase(),
+    String([user.firstName, user.lastName].filter(Boolean).join(" ") || "").trim().toLowerCase(),
+    String(user.firstName || "").trim().toLowerCase(),
+    String(user.lastName || "").trim().toLowerCase(),
   ]
     .map((value) => String(value || "").trim())
     .filter(Boolean)
@@ -8171,6 +8431,10 @@ function isDeveloper(user = currentUser) {
   return Boolean(user) && (userSystemRole(user) === "developer" || isPrimaryDeveloperUser(user));
 }
 
+function canOpenDeveloperConsole(user = currentUser) {
+  return isDeveloper(user) || isOwner(user);
+}
+
 function normalizeCompanyName(value) {
   return String(value || "")
     .trim()
@@ -8189,6 +8453,10 @@ function isTagAdminUser(user = currentUser) {
 function canViewAllEmployees() {
   if (isDeveloper() || isOwner()) return true;
   return isTagAdminUser(currentUser);
+}
+
+function pushAccessControlAudit(message, scope = "access-control") {
+  pushAppAudit(message, "access-control", scope);
 }
 
 function canAccessEmployeeRecord(targetUser) {
@@ -8306,18 +8574,18 @@ function can(action, stageKey = "") {
 function rolePermissionsSummary(accessProfile) {
   const systemRole = userSystemRole(currentUser);
   if (systemRole === "developer") {
-    return "Developer role: full control of operations, payroll, receipts, approvals, and developer tools.";
+    return "Developer role: full operational control plus approved access to app structure, system settings, monitoring, and recovery tools.";
   }
   if (systemRole === "owner") {
-    return "Director role: full business control of payroll, reimbursements, approvals, reports, and user administration.";
+    return "Director role: can review manipulated data, reports, approvals, and recovery records, but cannot change app structure.";
   }
   if (systemRole === "admin") {
-    return "Admin role: manages employees, approvals, payroll, expenses, and operational records.";
+    return "Admin role: manages employees, approvals, payroll, expenses, and operational records without changing app structure.";
   }
   if (systemRole === "supervisor") {
     return "Supervisor role: monitors workforce, submits and approves weekly payments and expenses, and tracks field progress.";
   }
-  if (accessProfile === "developer") return "Developer access: full control, including system structure and settings.";
+  if (accessProfile === "developer") return "Developer access: authorized structure and system control reserved for the primary developer or approved No Limit personnel.";
   if (accessProfile === "admin") return "Admin access: can modify all project phases and quality control approvals/rejections.";
   if (accessProfile === "project-manager") return "Project Manager access: can modify all project phases and quality control approvals/rejections.";
   if (accessProfile === "warehouse") return "Warehouse access: unit creation, manifest, release/hold, and warehouse dispatch tasks.";
@@ -8960,6 +9228,7 @@ function renderAuth() {
     document.body.classList.remove("auth-mode");
     startAutoPullLoop();
     refreshSharedDeviceIdleGuard({ resetTimer: true });
+    ensureWorkdaySessionClockTimer();
     authView.classList.add("hidden");
     appMain.classList.remove("hidden");
     userBadge.classList.remove("hidden");
@@ -8994,6 +9263,7 @@ function renderAuth() {
   stopAutoPullLoop();
   stopAutoTimeClock({ clearStatus: true });
   stopSharedDeviceIdleGuard();
+  stopWorkdaySessionClockTimer();
   sharedDeviceLogoutInFlight = false;
   pendingTimeClockFocus = false;
   pendingPostLoginLanding = false;
@@ -9141,7 +9411,7 @@ function canOpenView(view) {
   if (!currentUser) return false;
   if (view === "home") return true;
   if (view === "workday") return canUseTimeClock();
-  if (view === "sync") return can("sync");
+  if (view === "sync") return canOpenDeveloperConsole();
   if (view === "users") return true;
   if (view === "admin") return can("accessAdmin");
   if (view === "userEdit") return true;
@@ -9622,6 +9892,11 @@ function openClientsHub() {
   setView("clients");
 }
 
+function denyNavigationAction(action, reason, scope = "navigation") {
+  pushAccessControlAudit(`Denied navigation: ${action}${reason ? ` | ${reason}` : ""}`, scope);
+  setView("home");
+}
+
 function handleQuickNavAction(action) {
   if (action === "home") {
     setUsersViewFilter("all");
@@ -9637,19 +9912,31 @@ function handleQuickNavAction(action) {
 
   if (action === "sync") {
     setUsersViewFilter("all");
-    setView(can("sync") ? "sync" : "home");
+    if (!can("sync")) {
+      denyNavigationAction(action, "Sync settings are restricted to the developer.");
+      return;
+    }
+    setView("sync");
     return;
   }
 
   if (action === "developer") {
     setUsersViewFilter("all");
-    setView(isDeveloper() ? "sync" : "home");
+    if (!canOpenDeveloperConsole()) {
+      denyNavigationAction(action, "Developer console is restricted.");
+      return;
+    }
+    setView("sync");
     return;
   }
 
   if (action === "admin") {
     setUsersViewFilter("all");
-    setView(canOpenView("admin") ? "admin" : "home");
+    if (!canOpenView("admin")) {
+      denyNavigationAction(action, "Admin workspace is restricted.");
+      return;
+    }
+    setView("admin");
     return;
   }
 
@@ -9662,7 +9949,7 @@ function handleQuickNavAction(action) {
 
   if (action === "usersRegistration") {
     if (!can("manageUsers")) {
-      setView("home");
+      denyNavigationAction(action, "Registration folder is restricted.");
       return;
     }
     setUsersViewFilter("all");
@@ -9673,7 +9960,7 @@ function handleQuickNavAction(action) {
 
   if (action === "usersPeople") {
     if (!can("manageUsers")) {
-      setView("home");
+      denyNavigationAction(action, "People folder is restricted.");
       return;
     }
     setUsersViewFilter("all");
@@ -9696,7 +9983,7 @@ function handleQuickNavAction(action) {
 
   if (action === "clientsNew") {
     if (!can("manageCatalog")) {
-      setView("home");
+      denyNavigationAction(action, "Client setup is restricted.");
       return;
     }
     setUsersViewFilter("all");
@@ -9707,7 +9994,7 @@ function handleQuickNavAction(action) {
 
   if (action === "clientsProjects") {
     if (!can("manageCatalog")) {
-      setView("home");
+      denyNavigationAction(action, "Project setup is restricted.");
       return;
     }
     setUsersViewFilter("all");
@@ -9718,7 +10005,7 @@ function handleQuickNavAction(action) {
 
   if (action === "clientsContracts") {
     if (!can("manageCatalog")) {
-      setView("home");
+      denyNavigationAction(action, "Contract setup is restricted.");
       return;
     }
     setUsersViewFilter("all");
@@ -9743,49 +10030,77 @@ function handleQuickNavAction(action) {
   if (action === "subcontractors") {
     setUsersViewFilter("subcontractor");
     setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    if (!can("manageUsers")) {
+      denyNavigationAction(action, "Sub contractor directory is restricted.");
+      return;
+    }
+    setView("users");
     return;
   }
 
   if (action === "partners") {
     setUsersViewFilter("partner");
     setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    if (!can("manageUsers")) {
+      denyNavigationAction(action, "Partners directory is restricted.");
+      return;
+    }
+    setView("users");
     return;
   }
 
   if (action === "partnersManufacturers") {
     setUsersViewFilter("partner-manufacturers");
     setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    if (!can("manageUsers")) {
+      denyNavigationAction(action, "Manufacturers directory is restricted.");
+      return;
+    }
+    setView("users");
     return;
   }
 
   if (action === "partnersConstructionMaterials") {
     setUsersViewFilter("partner-construction-materials");
     setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    if (!can("manageUsers")) {
+      denyNavigationAction(action, "Construction materials directory is restricted.");
+      return;
+    }
+    setView("users");
     return;
   }
 
   if (action === "partnersImporters") {
     setUsersViewFilter("partner-importers");
     setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    if (!can("manageUsers")) {
+      denyNavigationAction(action, "Importers directory is restricted.");
+      return;
+    }
+    setView("users");
     return;
   }
 
   if (action === "partnersCarriers") {
     setUsersViewFilter("partner-carriers");
     setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    if (!can("manageUsers")) {
+      denyNavigationAction(action, "Carriers directory is restricted.");
+      return;
+    }
+    setView("users");
     return;
   }
 
   if (action === "partnersTruckDeliveries") {
     setUsersViewFilter("partner-truck-deliveries");
     setUsersSubView("directory");
-    setView(can("manageUsers") ? "users" : "home");
+    if (!can("manageUsers")) {
+      denyNavigationAction(action, "Truck deliveries directory is restricted.");
+      return;
+    }
+    setView("users");
     return;
   }
 
@@ -10958,9 +11273,13 @@ function bindSelectableRows(container, selector, onSelect) {
   container.querySelectorAll(selector).forEach((row) => {
     row.classList.add("selectable-row");
     row.tabIndex = 0;
-    row.addEventListener("click", () => onSelect(row));
+    row.addEventListener("click", (event) => {
+      if (event.target?.closest("button, a, input, select, textarea, label")) return;
+      onSelect(row);
+    });
     row.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.target?.closest("button, a, input, select, textarea, label")) return;
       event.preventDefault();
       onSelect(row);
     });
@@ -15613,7 +15932,9 @@ function renderAdminPanel() {
           ? `${timeEntryAssignmentLabel(snapshot.active)} • ${elapsedFrom(snapshot.active.checkInAt)}`
           : "Off shift";
         return `<tr class="${user.id === adminSelectedEmployeeId ? "selected-row" : ""}" data-admin-employee-row="${escapeHtml(user.id)}">
-          <td>${escapeHtml(user.name || user.username || "-")}</td>
+          <td><button class="users-name-btn" type="button" data-admin-open-employee-controls="${escapeHtml(user.id)}">${escapeHtml(
+            user.name || user.username || "-"
+          )}<small>${escapeHtml(user.username || user.email || "Open employee controls")}</small></button></td>
           <td>${escapeHtml(user.companyName || "-")}</td>
           <td>${escapeHtml(user.jobTitle || "-")}</td>
           <td>${escapeHtml(systemRoleLabel(userSystemRole(user)))}</td>
@@ -15628,6 +15949,7 @@ function renderAdminPanel() {
       .join("");
     const selectedAdminEmployee = adminSelectedEmployeeId ? users.find((user) => user.id === adminSelectedEmployeeId) || null : null;
     mountDataTable(adminEmployeesTable, {
+      tableId: "adminEmployeesDataTable",
       columns: [
         "Name",
         "Company",
@@ -15651,19 +15973,22 @@ function renderAdminPanel() {
       detail: selectedAdminEmployee
         ? `${systemRoleLabel(userSystemRole(selectedAdminEmployee))} • ${roleLabel(userAccessProfile(selectedAdminEmployee))}`
         : "Select one employee row to keep edit actions outside the table.",
-      actions: selectedAdminEmployee
-        ? [
-            { label: "Edit in controls", attrs: { "data-admin-edit-employee": selectedAdminEmployee.id } },
-            {
-              label: "History",
-              attrs: {
-                "data-open-history": "1",
-                "data-history-kind": "user",
-                "data-history-search": selectedAdminEmployee.name || selectedAdminEmployee.username || "",
+      actions: [
+        { label: "Print table", attrs: { "data-table-print": "adminEmployeesDataTable" } },
+        ...(selectedAdminEmployee
+          ? [
+              { label: "Edit in controls", attrs: { "data-admin-open-employee-controls": selectedAdminEmployee.id } },
+              {
+                label: "History",
+                attrs: {
+                  "data-open-history": "1",
+                  "data-history-kind": "user",
+                  "data-history-search": selectedAdminEmployee.name || selectedAdminEmployee.username || "",
+                },
               },
-            },
-          ]
-        : [],
+            ]
+          : []),
+      ],
     });
     bindSelectableRows(adminEmployeesTable, "[data-admin-employee-row]", (row) => {
       const target = users.find((user) => user.id === row.dataset.adminEmployeeRow);
@@ -16256,8 +16581,8 @@ function generateAdminWeeklyReport() {
 function currentUserAgendaEntries({ startMs = 0, endMs = Number.POSITIVE_INFINITY } = {}) {
   if (!currentUser) return [];
   const personalPlans = workforcePlansForUser(currentUser, { startMs, endMs }).map((plan) => normalizeWorkforcePlan(plan));
-  const plannedDates = new Set(personalPlans.map((plan) => plan.date));
-  const genericSchedules = scheduleEntriesForUser(currentUser, { startMs, endMs }).filter((entry) => !plannedDates.has(entry.date));
+  const plannedKeys = new Set(personalPlans.map((plan) => scheduleEntryIdentityKey(plan)));
+  const genericSchedules = scheduleEntriesForUser(currentUser, { startMs, endMs }).filter((entry) => !plannedKeys.has(scheduleEntryIdentityKey(entry)));
   return [...personalPlans, ...genericSchedules].sort((a, b) => {
     const dateDiff = scheduleEntryDateMs(a) - scheduleEntryDateMs(b);
     if (dateDiff !== 0) return dateDiff;
@@ -16290,12 +16615,69 @@ function schedulePeopleLabel(names = [], emptyLabel = "None assigned") {
   return names.length ? names.join(", ") : emptyLabel;
 }
 
-function scheduleEntryCardHtml(entry) {
+function scheduleTaskItemHtml(entry, task, options = {}) {
+  const interactive = Boolean(options.interactive);
+  const controlHtml = interactive
+    ? `<button
+        class="schedule-task-toggle"
+        type="button"
+        data-workday-task-toggle="1"
+        data-workday-entry-kind="${escapeHtml(entry.kind || "schedule")}"
+        data-workday-entry-id="${escapeHtml(entry.id || "")}"
+        data-workday-task-id="${escapeHtml(task.id || "")}"
+        aria-label="${escapeHtml(task.done ? "Mark task as not completed" : "Mark task as completed")}"
+      >${task.done ? "✓" : ""}</button>`
+    : `<span class="schedule-task-toggle" aria-hidden="true">${task.done ? "✓" : ""}</span>`;
+  return `<li class="schedule-task-item${task.done ? " is-done" : ""}">
+    ${controlHtml}
+    <div class="schedule-task-copy">
+      <strong>${escapeHtml(task.text || "-")}</strong>
+      <span>${escapeHtml(task.origin === "user" ? "Added by you" : "Planned task")}</span>
+    </div>
+  </li>`;
+}
+
+function scheduleEntryCardHtml(entry, options = {}) {
+  const interactive = Boolean(options.interactive);
   const isTaskPlan = entry.kind === "workforcePlan";
   const people = scheduleEntryPeopleSummary(entry);
   const project = scheduleEntryProject(entry);
   const isForeman = entry.foremanKind === "user" && entry.foremanId === currentUser?.id;
   const entryTitle = project?.name || entry.projectName || (isTaskPlan ? entry.location : "") || "Project not linked";
+  const { taskItems } = scheduleEntryTaskItems(entry);
+  const taskList = taskItems.length
+    ? `<ul class="schedule-task-list">${taskItems.map((task) => scheduleTaskItemHtml(entry, task, { interactive })).join("")}</ul>`
+    : `<p class="hint schedule-entry-copy">No tasks were defined yet.</p>`;
+  const noteCards = isTaskPlan
+    ? `
+      <div class="schedule-entry-note-grid">
+        <div class="schedule-entry-note-card">
+          <span>Assignment</span>
+          <strong>${escapeHtml(entry.taskDescription || entry.description || "No task was defined yet.")}</strong>
+        </div>
+        <div class="schedule-entry-note-card">
+          <span>Shift note</span>
+          <strong>${escapeHtml(entry.dailyNeeds || "No daily needs were defined yet.")}</strong>
+        </div>
+        ${
+          entry.weekOutlook
+            ? `<div class="schedule-entry-note-card">
+                <span>Week outlook</span>
+                <strong>${escapeHtml(entry.weekOutlook)}</strong>
+              </div>`
+            : ""
+        }
+      </div>`
+    : `<div class="schedule-entry-note-grid">
+        <div class="schedule-entry-note-card">
+          <span>Project</span>
+          <strong>${escapeHtml(entry.projectName || entryTitle)}</strong>
+        </div>
+        <div class="schedule-entry-note-card">
+          <span>Shift note</span>
+          <strong>${escapeHtml(entry.description || "No work description defined yet.")}</strong>
+        </div>
+      </div>`;
   return `<article class="schedule-entry-card">
     <div class="schedule-entry-head">
       <div>
@@ -16319,28 +16701,16 @@ function scheduleEntryCardHtml(entry) {
           <strong>${escapeHtml(scheduleForemanLabel(entry))}</strong>
         </div>
       </div>
+      ${noteCards}
+      <div class="schedule-entry-actions">
+        ${interactive ? `<button class="secondary xs-btn" type="button" data-workday-task-edit="1" data-workday-entry-kind="${escapeHtml(
+          entry.kind || "schedule"
+        )}" data-workday-entry-id="${escapeHtml(entry.id || "")}">Edit</button>` : ""}
+      </div>
+      ${taskList}
       ${
-        isTaskPlan
-          ? `<div class="schedule-entry-briefs">
-              <div>
-                <span>What to do</span>
-                <strong>${escapeHtml(entry.taskDescription || entry.description || "No task was defined yet.")}</strong>
-              </div>
-              <div>
-                <span>Daily needs</span>
-                <strong>${escapeHtml(entry.dailyNeeds || "No daily needs were defined yet.")}</strong>
-              </div>
-              ${
-                entry.weekOutlook
-                  ? `<div>
-                      <span>Week outlook</span>
-                      <strong>${escapeHtml(entry.weekOutlook)}</strong>
-                    </div>`
-                  : ""
-              }
-            </div>`
-          : `<p class="hint schedule-entry-copy">${escapeHtml(entry.description || "No work description defined yet.")}</p>
-            <div class="schedule-entry-people">
+        !isTaskPlan
+          ? `<div class="schedule-entry-people">
               <div>
                 <span>Workers</span>
                 <strong>${escapeHtml(schedulePeopleLabel(people.workers))}</strong>
@@ -16350,15 +16720,16 @@ function scheduleEntryCardHtml(entry) {
                 <strong>${escapeHtml(schedulePeopleLabel(people.subcontractors))}</strong>
               </div>
             </div>`
+          : ""
       }
     </div>
   </article>`;
 }
 
-function renderScheduleCardList(container, entries, emptyMessage) {
+function renderScheduleCardList(container, entries, emptyMessage, options = {}) {
   if (!container) return;
   container.innerHTML = entries.length
-    ? entries.map((entry) => scheduleEntryCardHtml(entry)).join("")
+    ? entries.map((entry) => scheduleEntryCardHtml(entry, options)).join("")
     : `<p class="hint schedule-empty-state">${escapeHtml(emptyMessage)}</p>`;
 }
 
@@ -16375,8 +16746,8 @@ function renderCurrentUserScheduleBoards() {
 
   renderScheduleCardList(homeScheduleTodayCard, dailyEntries, dailyEmpty);
   renderScheduleCardList(homeScheduleWeekCard, weekEntries, weekEmpty);
-  renderScheduleCardList(workdayTodayScheduleCard, dailyEntries, dailyEmpty);
-  renderScheduleCardList(workdayWeekScheduleCard, weekEntries, weekEmpty);
+  renderScheduleCardList(workdayTodayScheduleCard, dailyEntries, dailyEmpty, { interactive: true, scope: "today" });
+  renderScheduleCardList(workdayWeekScheduleCard, weekEntries, weekEmpty, { interactive: true, scope: "week" });
 }
 
 function workspaceShortcutLabel(view, id) {
@@ -16825,7 +17196,7 @@ function renderHomePanel() {
   const canProjects = canOpenView("projects");
   const canManufacture = canOpenView("manufacture");
   const canReports = can("report");
-  const isDev = isDeveloper();
+  const canDeveloperConsole = canOpenDeveloperConsole();
   const visibleSectors = new Set(allowedProjectSectors());
 
   const toggleNav = (action, visible) => {
@@ -16844,7 +17215,7 @@ function renderHomePanel() {
     el.classList.toggle("single-link", !canManageUsers);
   });
   toggleNav("workday", canUseTimeClock());
-  toggleNav("developer", isDev);
+  toggleNav("developer", canDeveloperConsole);
   toggleNav("admin", can("accessAdmin"));
   toggleNav("users", canAnyUsers);
   toggleNav("usersRegistration", canManageUsers);
@@ -17030,10 +17401,13 @@ function localBackupStatusLabel() {
 
 function renderDeveloperAuditPanel() {
   if (!developerAuditPanel) return;
-  if (!isDeveloper()) {
+  const canOpen = canOpenDeveloperConsole();
+  if (!canOpen) {
     developerAuditPanel.classList.add("hidden");
     return;
   }
+  const structureControlAllowed = isDeveloper();
+  const accessAttemptCount = ensureArray(appAuditLog).filter((entry) => entry.category === "access-control").length;
 
   const categoryLabel = (category) => {
     if (category === "navigation") return "Navigation";
@@ -17041,6 +17415,7 @@ function renderDeveloperAuditPanel() {
     if (category === "unit-change") return "Unit Change";
     if (category === "container-change") return "Container Change";
     if (category === "session") return "Session";
+    if (category === "access-control") return "Access Control";
     return "App";
   };
 
@@ -17075,7 +17450,11 @@ function renderDeveloperAuditPanel() {
         <td>
           <div class="actions-inline">
             <button class="secondary xs-btn" type="button" data-trash-restore="${escapeHtml(entry.id)}">Restore</button>
-            <button class="danger xs-btn" type="button" data-trash-delete="${escapeHtml(entry.id)}">Delete forever</button>
+            ${
+              structureControlAllowed
+                ? `<button class="danger xs-btn" type="button" data-trash-delete="${escapeHtml(entry.id)}">Delete forever</button>`
+                : ""
+            }
           </div>
         </td>
       </tr>`
@@ -17084,8 +17463,22 @@ function renderDeveloperAuditPanel() {
 
   developerAuditPanel.classList.remove("hidden");
   developerAuditPanel.innerHTML = `
-    <h3 id="developerAuditLogSection">Audit Log (Developer)</h3>
-    <p class="hint">Tracks exact field changes and navigation history by user.</p>
+    <h3 id="developerAuditLogSection">Audit Log & Recovery</h3>
+    <p class="hint">Tracks exact field changes, navigation attempts, and recovery records by user.</p>
+    <div class="workspace-detail-list developer-access-summary">
+      <div class="workspace-detail-row">
+        <span>Structure control</span>
+        <strong>${escapeHtml(structureControlAllowed ? "Developer only" : "Read-only for owners")}</strong>
+      </div>
+      <div class="workspace-detail-row">
+        <span>Access attempts logged</span>
+        <strong>${accessAttemptCount}</strong>
+      </div>
+      <div class="workspace-detail-row">
+        <span>Recovery access</span>
+        <strong>${escapeHtml(canOpen ? "Visible here" : "Unavailable")}</strong>
+      </div>
+    </div>
     ${dataTableMarkup({
       columns: ["Date", "User", "Type", "Scope", "Location", "Action"],
       rowsHtml: rows,
@@ -17094,10 +17487,14 @@ function renderDeveloperAuditPanel() {
     })}
     <details id="developerDeletedRecoverySection" class="trash-recovery-box" open>
       <summary><strong>Deleted Records Recovery (${RESTORE_WINDOW_LABEL})</strong></summary>
-      <p class="hint">Hidden recycle area for deletes. Restore window is ${RESTORE_WINDOW_LABEL}.</p>
-      <div class="row">
-        <button class="secondary xs-btn" type="button" data-trash-purge-expired>Purge expired now</button>
-      </div>
+      <p class="hint">Hidden recycle area for deletes. Restore window is ${RESTORE_WINDOW_LABEL}. Owners can restore records, but permanent cleanup remains developer-only.</p>
+      ${
+        structureControlAllowed
+          ? `<div class="row">
+              <button class="secondary xs-btn" type="button" data-trash-purge-expired>Purge expired now</button>
+            </div>`
+          : ""
+      }
       ${dataTableMarkup({
         columns: ["Deleted at", "Deleted by", "Store", "Scope", "Item", "Time left", "Actions"],
         rowsHtml: deletedRows,
@@ -17119,6 +17516,7 @@ function renderDeveloperAuditPanel() {
 
   developerAuditPanel.querySelectorAll("[data-trash-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
+      if (!structureControlAllowed) return;
       const target = trashRecords.find((entry) => entry.id === button.dataset.trashDelete);
       if (!target) return;
       const confirmed = window.confirm(`Delete "${target.label || target.recordId || target.id}" permanently?`);
@@ -17132,6 +17530,7 @@ function renderDeveloperAuditPanel() {
 
   const purgeBtn = developerAuditPanel.querySelector("[data-trash-purge-expired]");
   purgeBtn?.addEventListener("click", async () => {
+    if (!structureControlAllowed) return;
     const purgedCount = await purgeExpiredTrashRecords();
     if (purgedCount) {
       pushEntityAudit("Deleted Records", "purged-expired", `${purgedCount} expired record(s)`, "trash");
@@ -17143,9 +17542,10 @@ function renderDeveloperAuditPanel() {
 }
 
 function renderSyncPanel() {
-  const allowed = can("sync");
+  const allowed = canOpenDeveloperConsole();
   syncPanel.classList.toggle("hidden", !allowed);
   if (!allowed) return;
+  const canEditSync = can("sync");
 
   syncConfigForm.supabaseUrl.value = syncConfig.supabaseUrl;
   syncConfigForm.supabaseAnonKey.value = syncConfig.supabaseAnonKey;
@@ -17154,17 +17554,20 @@ function renderSyncPanel() {
 
   const presetLocked = hasPresetSyncConfig();
   syncConfigForm.querySelectorAll('input[name="supabaseUrl"], input[name="supabaseAnonKey"], input[name="tenant"]').forEach((field) => {
-    field.disabled = presetLocked;
+    field.disabled = presetLocked || !canEditSync;
   });
+  syncConfigForm.autoSync.disabled = !canEditSync;
   const syncSaveBtn = syncConfigForm.querySelector('button[type="submit"]');
-  if (syncSaveBtn) syncSaveBtn.disabled = presetLocked;
+  if (syncSaveBtn) syncSaveBtn.disabled = presetLocked || !canEditSync;
+  syncConfigForm.classList.toggle("read-only-panel", !canEditSync);
+  syncPanel.querySelectorAll(".sync-actions").forEach((node) => node.classList.toggle("hidden", !canEditSync));
 
   const statusText = presetLocked
     ? "Cloud sync is centrally configured for all devices."
     : syncConfig.lastSyncAt
       ? `Last sync: ${fmtDate(syncConfig.lastSyncAt)}`
       : t("Sem sincronizacao");
-  updateSyncStatus(statusText, false);
+  updateSyncStatus(canEditSync ? statusText : `${statusText} Read-only console: structure changes stay restricted to the developer team.`, false);
   renderSharedDevicePanel();
   renderDeveloperAuditPanel();
 }
@@ -21040,6 +21443,24 @@ appMain?.addEventListener("click", (event) => {
     return;
   }
 
+  const workdayTaskToggleBtn = event.target.closest("[data-workday-task-toggle]");
+  if (workdayTaskToggleBtn) {
+    event.preventDefault();
+    void toggleWorkdayTaskItem(
+      workdayTaskToggleBtn.dataset.workdayEntryKind || "",
+      workdayTaskToggleBtn.dataset.workdayEntryId || "",
+      workdayTaskToggleBtn.dataset.workdayTaskId || ""
+    );
+    return;
+  }
+
+  const workdayTaskEditBtn = event.target.closest("[data-workday-task-edit]");
+  if (workdayTaskEditBtn) {
+    event.preventDefault();
+    void promptWorkdayExtraTask(workdayTaskEditBtn.dataset.workdayEntryKind || "", workdayTaskEditBtn.dataset.workdayEntryId || "");
+    return;
+  }
+
   const tablePrintBtn = event.target.closest("[data-table-print]");
   if (tablePrintBtn) {
     event.preventDefault();
@@ -21279,6 +21700,20 @@ document.addEventListener("keydown", (event) => {
 });
 
 adminPanel?.addEventListener("click", (event) => {
+  const openEmployeeControlsBtn = event.target.closest("[data-admin-open-employee-controls]");
+  if (openEmployeeControlsBtn) {
+    const target = users.find((user) => user.id === openEmployeeControlsBtn.dataset.adminOpenEmployeeControls);
+    if (target) {
+      adminSelectedEmployeeId = target.id;
+      populateAdminEmployeeForm(target);
+      setAdminSubView("adminEmployeeControlsSection");
+      syncRouteHash();
+      renderAdminPanel();
+      document.getElementById("adminEmployeeControlsSection")?.scrollIntoView({ behavior: "auto", block: "start" });
+    }
+    return;
+  }
+
   const editEmployeeBtn = event.target.closest("[data-admin-edit-employee]");
   if (editEmployeeBtn) {
     const target = users.find((user) => user.id === editEmployeeBtn.dataset.adminEditEmployee);

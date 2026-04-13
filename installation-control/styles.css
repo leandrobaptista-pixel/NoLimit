@@ -428,6 +428,38 @@ main {
   min-width: 0;
 }
 
+.workday-panel-meta {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.workday-session-chip {
+  display: inline-grid;
+  gap: 0.12rem;
+  min-width: 142px;
+  padding: 0.44rem 0.68rem;
+  border-radius: 14px;
+  border: 1px solid #d9e4ee;
+  background: rgba(246, 250, 255, 0.9);
+}
+
+.workday-session-chip span {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #688399;
+}
+
+.workday-session-chip strong {
+  font-size: 0.96rem;
+  line-height: 1.1;
+  color: #15384b;
+  font-variant-numeric: tabular-nums;
+}
+
 .workday-panel-actions {
   display: flex;
   justify-content: flex-start;
@@ -443,6 +475,27 @@ main {
 
 .workday-location-card {
   min-height: 100%;
+}
+
+.workday-location-card h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.workday-location-caption {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.46rem;
+  border-radius: 999px;
+  background: #eef4fb;
+  border: 1px solid #d7e3f0;
+  color: #4c6b82;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .workday-location-shell {
@@ -829,6 +882,109 @@ label {
 .schedule-entry-body {
   display: grid;
   gap: 0.54rem;
+}
+
+.schedule-entry-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+}
+
+.schedule-task-list {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.schedule-task-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.48rem;
+  align-items: start;
+  padding: 0.56rem 0.62rem;
+  border-radius: 14px;
+  background: rgba(243, 248, 253, 0.82);
+  border: 1px solid rgba(216, 227, 239, 0.92);
+}
+
+.schedule-task-item.is-done {
+  background: rgba(241, 247, 243, 0.88);
+  border-color: rgba(176, 205, 189, 0.95);
+}
+
+.schedule-task-toggle {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid #c2d3e5;
+  background: #fff;
+  color: #40627a;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.schedule-task-item.is-done .schedule-task-toggle {
+  background: #1f724d;
+  border-color: #1f724d;
+  color: #fff;
+}
+
+.schedule-task-copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.schedule-task-copy strong {
+  font-size: 0.82rem;
+  line-height: 1.36;
+  color: #17384a;
+}
+
+.schedule-task-item.is-done .schedule-task-copy strong {
+  color: #55726a;
+  text-decoration: line-through;
+}
+
+.schedule-task-copy small,
+.schedule-task-copy span {
+  color: #70899d;
+  font-size: 0.7rem;
+}
+
+.schedule-entry-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem;
+}
+
+.schedule-entry-note-card {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.58rem 0.62rem;
+  border-radius: 14px;
+  background: rgba(248, 251, 255, 0.92);
+  border: 1px solid rgba(221, 232, 243, 0.96);
+}
+
+.schedule-entry-note-card span {
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #688399;
+}
+
+.schedule-entry-note-card strong {
+  font-size: 0.8rem;
+  line-height: 1.38;
+  color: #17384a;
 }
 
 .schedule-entry-copy {
@@ -2894,6 +3050,10 @@ table.data-table tbody tr.is-selected td:first-child {
   justify-content: flex-end;
 }
 
+.read-only-panel {
+  opacity: 0.92;
+}
+
 .shared-device-panel {
   margin-top: 0.7rem;
   display: grid;
@@ -2920,6 +3080,10 @@ table.data-table tbody tr.is-selected td:first-child {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 0.45rem;
+}
+
+.developer-access-summary {
+  margin: 0.55rem 0 0.8rem;
 }
 
 .section-shortcut-panel {
@@ -3769,6 +3933,7 @@ body[data-app-view="projects"] .container-card > .subpanel {
     grid-template-columns: 1fr;
   }
 
+  .workday-panel-meta,
   .workday-panel-actions {
     width: 100%;
     justify-content: flex-start;

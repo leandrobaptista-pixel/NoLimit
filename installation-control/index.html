@@ -1129,9 +1129,10 @@
 
         <div id="adminSummaryCards" class="admin-summary-grid"></div>
         <article id="adminViewLead" class="workspace-view-lead workspace-view-lead-admin"></article>
+        <div id="adminCommandBar" class="table-context-bar admin-command-bar"></div>
 
-        <div class="admin-primary-grid">
-          <article id="adminEmployeeListSection" class="subpanel admin-directory-card table-page-section">
+        <div id="adminPrimaryPages" class="admin-primary-grid" data-admin-page-group>
+          <article id="adminEmployeeListSection" class="subpanel admin-directory-card table-page-section hidden-view">
             <div class="row admin-section-head">
               <div>
                 <h3>Complete Employee List</h3>
@@ -1142,7 +1143,7 @@
             <div id="adminEmployeesTable" class="table-wrap page-table-wrap"></div>
           </article>
 
-          <article id="adminEmployeeControlsSection" class="subpanel admin-editor-card table-page-section">
+          <article id="adminEmployeeControlsSection" class="subpanel admin-editor-card table-page-section hidden-view">
             <h3>Employee Controls</h3>
             <p id="adminEmployeeEditorStatus" class="hint">Select an employee to edit role, rates, and payment details.</p>
             <form id="adminEmployeeForm" class="grid-form compact">
@@ -1210,8 +1211,8 @@
           </article>
         </div>
 
-        <div class="admin-secondary-grid">
-          <article id="adminWeeklyPaymentSection" class="subpanel table-page-section">
+        <div id="adminSecondaryPages" class="admin-secondary-grid" data-admin-page-group>
+          <article id="adminWeeklyPaymentSection" class="subpanel table-page-section hidden-view">
             <h3>
               Weekly Payment Control
               <button
@@ -1225,7 +1226,7 @@
             <div id="adminPaymentsTable" class="table-wrap page-table-wrap"></div>
           </article>
 
-          <article id="adminHistorySection" class="subpanel table-page-section">
+          <article id="adminHistorySection" class="subpanel table-page-section hidden-view">
             <div class="row admin-section-head">
               <div>
                 <h3>History / Archive</h3>
@@ -1274,7 +1275,7 @@
             <div id="adminHistoryTable" class="table-wrap page-table-wrap"></div>
           </article>
 
-          <article id="adminReceiptSection" class="subpanel table-page-section">
+          <article id="adminReceiptSection" class="subpanel table-page-section hidden-view">
             <div class="row admin-section-head">
               <div>
                 <h3>Receipt Upload & Expense Management</h3>
@@ -1323,7 +1324,7 @@
                 <textarea name="description" rows="3" placeholder="What was paid and why it should be reimbursed"></textarea>
               </label>
               <div class="row full">
-                <button class="primary" type="submit">Save</button>
+                <button id="receiptFormSaveBtn" class="primary" type="submit">Save</button>
                 <button id="receiptFormDeleteBtn" class="danger" type="button">Delete</button>
                 <button id="receiptFormCancelBtn" class="secondary" type="button">Cancel</button>
               </div>
@@ -1332,15 +1333,15 @@
           </article>
         </div>
 
-        <div class="admin-tertiary-grid">
-          <article id="adminSubcontractorSection" class="subpanel table-page-section">
+        <div id="adminTertiaryPages" class="admin-tertiary-grid" data-admin-page-group>
+          <article id="adminSubcontractorSection" class="subpanel table-page-section hidden-view">
             <h3>Sub Contractor Presence</h3>
             <p class="hint">Weekly list by project for Sub Contractors who worked with the company.</p>
             <div id="adminSubcontractorTable" class="table-wrap page-table-wrap"></div>
           </article>
         </div>
 
-        <article id="workforceAdminPanel" class="subpanel workforce-admin-panel table-page-section">
+        <article id="workforceAdminPanel" class="subpanel workforce-admin-panel table-page-section hidden-view">
           <div class="row workforce-admin-head">
             <div>
               <h3>
@@ -1378,7 +1379,7 @@
           </form>
           <p id="workforceAdminStatus" class="hint"></p>
           <div id="workforceSummaryCards" class="workforce-summary-grid"></div>
-          <article id="workforceTaskPlanSection" class="subpanel table-page-section workforce-planner-section">
+          <article id="workforceTaskPlanSection" class="subpanel table-page-section workforce-planner-section hidden-view">
             <div class="row admin-section-head">
               <div>
                 <h4>Worker task planner</h4>
@@ -1417,14 +1418,14 @@
                 <textarea name="weekOutlook" rows="3" placeholder="Optional weekly projection or next steps if the rest of the week is already planned."></textarea>
               </label>
               <div class="row full">
-                <button class="primary" type="submit">Save</button>
+                <button id="workforceTaskPlanSaveBtn" class="primary" type="submit">Save</button>
                 <button id="workforceTaskPlanDeleteBtn" class="danger" type="button">Delete</button>
                 <button id="workforceTaskPlanResetBtn" class="secondary" type="button">Cancel</button>
               </div>
             </form>
             <div id="workforceTaskPlanTable" class="table-wrap page-table-wrap"></div>
           </article>
-          <article id="workforceWeeklyPlannerSection" class="subpanel table-page-section workforce-planner-section">
+          <article id="workforceWeeklyPlannerSection" class="subpanel table-page-section workforce-planner-section hidden-view">
             <div class="row admin-section-head">
               <div>
                 <h4>Weekly team planning board</h4>
@@ -1434,15 +1435,15 @@
             <div id="workforceWeeklyPlannerBoard" class="workforce-week-board"></div>
           </article>
           <div class="workforce-admin-sections">
-            <article id="adminCheckedInSection" class="subpanel table-page-section">
+            <article id="adminCheckedInSection" class="subpanel table-page-section hidden-view">
               <h4>People currently checked in</h4>
               <div id="workforceActiveTable" class="table-wrap page-table-wrap"></div>
             </article>
-            <article id="adminPayrollHoursSection" class="subpanel table-page-section">
+            <article id="adminPayrollHoursSection" class="subpanel table-page-section hidden-view">
               <h4>Weekly payroll hours</h4>
               <div id="workforceWeeklyTable" class="table-wrap page-table-wrap"></div>
             </article>
-            <article id="adminSubcontractorPresenceSection" class="subpanel table-page-section">
+            <article id="adminSubcontractorPresenceSection" class="subpanel table-page-section hidden-view">
               <h4>Sub Contractor list by project / location</h4>
               <div id="workforceSubcontractorTable" class="table-wrap page-table-wrap"></div>
             </article>

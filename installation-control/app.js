@@ -1663,6 +1663,7 @@ const workforceTaskPlanEmployeeSelect = document.getElementById("workforceTaskPl
 const workforceTaskPlanProjectSelect = document.getElementById("workforceTaskPlanProjectSelect");
 const workforceTaskPlanLocationInput = document.getElementById("workforceTaskPlanLocationInput");
 const workforceTaskPlanForemanInput = document.getElementById("workforceTaskPlanForemanInput");
+const workforceTaskPlanSaveBtn = document.getElementById("workforceTaskPlanSaveBtn");
 const workforceTaskPlanDeleteBtn = document.getElementById("workforceTaskPlanDeleteBtn");
 const workforceTaskPlanResetBtn = document.getElementById("workforceTaskPlanResetBtn");
 const workforceTaskPlanTable = document.getElementById("workforceTaskPlanTable");
@@ -1682,11 +1683,13 @@ const adminApprovalFilterSelect = document.getElementById("adminApprovalFilterSe
 const adminSortSelect = document.getElementById("adminSortSelect");
 const adminSummaryCards = document.getElementById("adminSummaryCards");
 const adminViewLead = document.getElementById("adminViewLead");
+const adminCommandBar = document.getElementById("adminCommandBar");
 const adminArchiveWeekBtn = document.getElementById("adminArchiveWeekBtn");
 const adminEmployeesTable = document.getElementById("adminEmployeesTable");
 const adminEmployeeForm = document.getElementById("adminEmployeeForm");
 const adminEmployeeSelect = document.getElementById("adminEmployeeSelect");
 const adminEmployeeEditorStatus = document.getElementById("adminEmployeeEditorStatus");
+const adminEmployeeSaveBtn = document.getElementById("adminEmployeeSaveBtn");
 const adminEmployeeCancelBtn = document.getElementById("adminEmployeeCancelBtn");
 const adminOpenUserRegistrationBtn = document.getElementById("adminOpenUserRegistrationBtn");
 const adminPaymentsTable = document.getElementById("adminPaymentsTable");
@@ -1709,6 +1712,7 @@ const receiptAttachmentInput = document.getElementById("receiptAttachmentInput")
 const receiptFileStatus = document.getElementById("receiptFileStatus");
 const openReceiptFileBtn = document.getElementById("openReceiptFileBtn");
 const receiptFormNewBtn = document.getElementById("receiptFormNewBtn");
+const receiptFormSaveBtn = document.getElementById("receiptFormSaveBtn");
 const receiptFormDeleteBtn = document.getElementById("receiptFormDeleteBtn");
 const receiptFormCancelBtn = document.getElementById("receiptFormCancelBtn");
 const adminReceiptsTable = document.getElementById("adminReceiptsTable");
@@ -15548,10 +15552,8 @@ function openAdminHistoryBrowser({ kind = "all", searchTerm = "", weekStart = ""
   adminHistoryDayFilter = normalizeDateField(entryDate) || "";
   adminHistoryYearFilter = year ? String(year) : adminHistoryWeekFilter ? String(new Date(`${adminHistoryWeekFilter}T12:00:00`).getFullYear()) : "all";
   selectedAdminHistoryId = "";
-  setAdminSubView("adminHistorySection");
   setView("admin");
-  render();
-  adminHistorySection?.scrollIntoView({ behavior: "auto", block: "start" });
+  navigateAdminSubView("adminHistorySection", { focusSearch: true });
 }
 
 function selectedAdminHistoryRecord() {
@@ -15715,10 +15717,8 @@ function loadArchivedWeekIntoAdmin(historyId) {
   if (!record) return;
   const weekStart = normalizeDateField(record.weekStart) || weekStartIso(record.entryDate || new Date());
   adminWeekAnchor = weekStart;
-  adminSubView = "adminWeeklyPaymentSection";
   setView("admin");
-  render();
-  document.getElementById("adminWeeklyPaymentSection")?.scrollIntoView({ behavior: "auto", block: "start" });
+  navigateAdminSubView("adminWeeklyPaymentSection");
 }
 
 function renderAdminHistorySection() {
@@ -15847,6 +15847,7 @@ function renderAdminPanel() {
   const allowed = can("accessAdmin");
   adminPanel.classList.toggle("hidden", !allowed);
   adminViewLead?.classList.toggle("hidden", !allowed);
+  adminCommandBar?.classList.toggle("hidden-view", !allowed);
   if (!allowed) return;
   const activeAdminView = normalizeAdminSubView(adminSubView);
   adminSubView = activeAdminView;
@@ -15911,6 +15912,7 @@ function renderAdminPanel() {
   }
 
   renderWorkspaceViewLead(adminViewLead, adminViewLeadConfig(activeAdminView, { range, payrollRows, receiptRows, subcontractorRows, activeNow }));
+  renderAdminCommandBar(activeAdminView);
 
   if (adminOpenUserRegistrationBtn) adminOpenUserRegistrationBtn.disabled = !can("manageUsers");
   if (receiptFormNewBtn) receiptFormNewBtn.disabled = !can("managePayroll");
@@ -16873,6 +16875,154 @@ function adminViewLeadConfig(activeView, context = {}) {
     summary: "Workforce pages now act like focused operational views: task plans, planning board, live attendance, weekly hours, and Sub Contractor presence.",
     chips: [fmtDateOnly(range.startIso), `${activeNow} checked in now`],
   };
+}
+
+function adminPageSequence() {
+  return ADMIN_SHORTCUT_SECTION_IDS.slice();
+}
+
+function adminNavigationStep(targetId, direction = 0) {
+  const sequence = adminPageSequence();
+  const currentId = normalizeAdminSubView(targetId);
+  const currentIndex = Math.max(sequence.indexOf(currentId), 0);
+  const nextIndex = currentIndex + direction;
+  if (nextIndex < 0 || nextIndex >= sequence.length) return "";
+  return sequence[nextIndex] || "";
+}
+
+function adminPageSearchTarget(activeView = adminSubView) {
+  const resolved = normalizeAdminSubView(activeView);
+  if (resolved === "adminHistorySection") return adminHistorySearchInput;
+  if (resolved === "adminEmployeeControlsSection") return adminEmployeeSelect;
+  if (resolved === "adminReceiptSection") return receiptUserSelect;
+  if (resolved === "workforceTaskPlanSection") return workforceTaskPlanEmployeeSelect;
+  if (resolved === "workforceWeeklyPlannerSection") return workforceProjectFilterSelect;
+  if (resolved === "adminCheckedInSection") return workforceProjectFilterSelect;
+  if (resolved === "adminPayrollHoursSection") return workforceProjectFilterSelect;
+  if (resolved === "adminSubcontractorPresenceSection") return workforceProjectFilterSelect;
+  if (resolved === "workforceAdminPanel") return workforceProjectFilterSelect;
+  return adminSearchInput;
+}
+
+function focusAdminSearchTarget(activeView = adminSubView) {
+  const target = adminPageSearchTarget(activeView);
+  if (!target || target.disabled) return;
+  target.focus({ preventScroll: true });
+  if (typeof target.select === "function" && !["select-one", "select-multiple"].includes(target.type || "")) {
+    target.select();
+  }
+}
+
+function triggerAdminCommandTarget(targetId = "") {
+  const target = document.getElementById(targetId);
+  if (!target || target.disabled) return false;
+  target.click();
+  return true;
+}
+
+function adminCommandActionsForView(activeView = adminSubView) {
+  const resolved = normalizeAdminSubView(activeView);
+  const baseActions = [];
+  if (resolved === "adminEmployeeListSection") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "Add employee", attrs: { "data-admin-command-trigger": "adminOpenUserRegistrationBtn" } }
+    );
+  } else if (resolved === "adminEmployeeControlsSection") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "Save", tone: "primary", attrs: { "data-admin-command-trigger": "adminEmployeeSaveBtn" } },
+      { label: "Cancel", attrs: { "data-admin-command-trigger": "adminEmployeeCancelBtn" } }
+    );
+  } else if (resolved === "adminWeeklyPaymentSection") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "Archive week", tone: "primary", attrs: { "data-admin-command-trigger": "adminArchiveWeekBtn" } }
+    );
+  } else if (resolved === "adminHistorySection") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "Clear", attrs: { "data-admin-command-trigger": "adminHistoryClearBtn" } }
+    );
+  } else if (resolved === "adminReceiptSection") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "New", attrs: { "data-admin-command-trigger": "receiptFormNewBtn" } },
+      { label: "Save", tone: "primary", attrs: { "data-admin-command-trigger": "receiptFormSaveBtn" } },
+      { label: "Delete", tone: "danger", attrs: { "data-admin-command-trigger": "receiptFormDeleteBtn" } },
+      { label: "Cancel", attrs: { "data-admin-command-trigger": "receiptFormCancelBtn" } }
+    );
+  } else if (resolved === "adminSubcontractorSection") {
+    baseActions.push({ label: "Search", attrs: { "data-admin-command": "search" } });
+  } else if (resolved === "workforceTaskPlanSection") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "Save", tone: "primary", attrs: { "data-admin-command-trigger": "workforceTaskPlanSaveBtn" } },
+      { label: "Delete", tone: "danger", attrs: { "data-admin-command-trigger": "workforceTaskPlanDeleteBtn" } },
+      { label: "Cancel", attrs: { "data-admin-command-trigger": "workforceTaskPlanResetBtn" } }
+    );
+  } else if (resolved === "workforceWeeklyPlannerSection") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "Open report", attrs: { "data-admin-command-trigger": "workforceWeeklyReportBtn" } }
+    );
+  } else if (resolved === "adminCheckedInSection" || resolved === "adminPayrollHoursSection" || resolved === "adminSubcontractorPresenceSection" || resolved === "workforceAdminPanel") {
+    baseActions.push(
+      { label: "Search", attrs: { "data-admin-command": "search" } },
+      { label: "Open report", attrs: { "data-admin-command-trigger": "workforceWeeklyReportBtn" } }
+    );
+  }
+
+  const previousId = adminNavigationStep(resolved, -1);
+  const nextId = adminNavigationStep(resolved, 1);
+
+  return [
+    ...baseActions,
+    { label: "Previous", attrs: { "data-admin-command-nav": previousId }, disabled: !previousId },
+    { label: "Next", attrs: { "data-admin-command-nav": nextId }, disabled: !nextId },
+  ];
+}
+
+function renderAdminCommandBar(activeView = adminSubView) {
+  if (!adminCommandBar) return;
+  const resolved = normalizeAdminSubView(activeView);
+  const sequence = adminPageSequence();
+  const pageIndex = Math.max(sequence.indexOf(resolved), 0) + 1;
+  const actions = adminCommandActionsForView(resolved);
+  const pageLabel = workspaceShortcutLabel("admin", resolved) || "Admin page";
+  adminCommandBar.innerHTML = `
+    <div class="table-context-bar-copy">
+      <span>Admin page ${pageIndex} of ${sequence.length}</span>
+      <p>${escapeHtml(pageLabel)} is isolated in the central area so only one main table or control surface stays visible at a time.</p>
+    </div>
+    <div class="admin-command-actions">
+      ${actions
+        .map((action) => {
+          const toneClass =
+            action.tone === "primary" ? "primary" : action.tone === "danger" ? "danger" : "secondary";
+          const attrs = Object.entries(action.attrs || {})
+            .map(([key, value]) => `${key}="${escapeHtml(String(value))}"`)
+            .join(" ");
+          return `<button class="${toneClass}" type="button" ${attrs} ${action.disabled ? "disabled" : ""}>${escapeHtml(action.label)}</button>`;
+        })
+        .join("")}
+    </div>
+  `;
+  adminCommandBar.classList.toggle("hidden-view", false);
+}
+
+function navigateAdminSubView(targetId = "", { focusSearch = false } = {}) {
+  const normalizedTarget = normalizeAdminSubView(targetId);
+  setAdminSubView(normalizedTarget);
+  syncRouteHash();
+  renderAdminPanel();
+  renderSectionShortcutPanel();
+  scheduleTablePrintButtons();
+  applyLanguageToUi();
+  adminPanel?.scrollIntoView({ behavior: "auto", block: "start" });
+  if (focusSearch) {
+    window.requestAnimationFrame(() => focusAdminSearchTarget(normalizedTarget));
+  }
 }
 
 function renderUsersSelfService() {
@@ -21639,22 +21789,7 @@ appMain?.addEventListener("click", (event) => {
     event.preventDefault();
     const targetId = sectionShortcutTrigger.dataset.sectionShortcut || "";
     if (currentView === "admin") {
-      const normalizedTarget = normalizeAdminSubView(targetId);
-      const targetChanged = normalizeAdminSubView(adminSubView) !== normalizedTarget;
-      setAdminSubView(normalizedTarget);
-      syncRouteHash();
-      if (targetChanged || !isVisibleSectionShortcutTarget(normalizedTarget)) {
-        renderAdminPanel();
-        renderSectionShortcutPanel();
-        scheduleTablePrintButtons();
-        applyLanguageToUi();
-      }
-      setActiveSectionShortcut(normalizedTarget);
-      const targetSectionId = adminUsesWorkforceShell(normalizedTarget)
-        ? activeWorkforceAdminSection(normalizedTarget) || "workforceAdminPanel"
-        : normalizedTarget;
-      const targetSection = document.getElementById(targetSectionId) || document.getElementById("adminPanel");
-      targetSection?.scrollIntoView({ behavior: "auto", block: "start" });
+      navigateAdminSubView(targetId);
       return;
     }
     setActiveSectionShortcut(targetId);
@@ -21700,16 +21835,31 @@ document.addEventListener("keydown", (event) => {
 });
 
 adminPanel?.addEventListener("click", (event) => {
+  const commandNavBtn = event.target.closest("[data-admin-command-nav]");
+  if (commandNavBtn) {
+    navigateAdminSubView(commandNavBtn.dataset.adminCommandNav || "");
+    return;
+  }
+
+  const commandSearchBtn = event.target.closest("[data-admin-command='search']");
+  if (commandSearchBtn) {
+    focusAdminSearchTarget();
+    return;
+  }
+
+  const commandTriggerBtn = event.target.closest("[data-admin-command-trigger]");
+  if (commandTriggerBtn) {
+    triggerAdminCommandTarget(commandTriggerBtn.dataset.adminCommandTrigger || "");
+    return;
+  }
+
   const openEmployeeControlsBtn = event.target.closest("[data-admin-open-employee-controls]");
   if (openEmployeeControlsBtn) {
     const target = users.find((user) => user.id === openEmployeeControlsBtn.dataset.adminOpenEmployeeControls);
     if (target) {
       adminSelectedEmployeeId = target.id;
       populateAdminEmployeeForm(target);
-      setAdminSubView("adminEmployeeControlsSection");
-      syncRouteHash();
-      renderAdminPanel();
-      document.getElementById("adminEmployeeControlsSection")?.scrollIntoView({ behavior: "auto", block: "start" });
+      navigateAdminSubView("adminEmployeeControlsSection");
     }
     return;
   }

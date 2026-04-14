@@ -2862,8 +2862,7 @@ table.data-table tbody tr.is-selected td:first-child {
 }
 
 .workforce-admin-sections {
-  display: grid;
-  gap: 0.55rem;
+  display: contents;
 }
 
 #adminPanel {
@@ -2891,10 +2890,34 @@ table.data-table tbody tr.is-selected td:first-child {
 .admin-primary-grid,
 .admin-secondary-grid,
 .admin-tertiary-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.85rem;
-  align-items: start;
+  display: contents;
+}
+
+.admin-command-bar {
+  margin: 0.08rem 0 0.45rem;
+  align-items: stretch;
+}
+
+.admin-command-bar .table-context-bar-copy {
+  min-width: 0;
+}
+
+.admin-command-bar .table-context-bar-copy p {
+  margin-top: 0.16rem;
+}
+
+.admin-command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.38rem;
+}
+
+.admin-command-actions .secondary,
+.admin-command-actions .primary,
+.admin-command-actions .danger {
+  min-height: 34px;
+  padding: 0.42rem 0.64rem;
 }
 
 .admin-editor-card,

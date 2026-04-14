@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Launch entry | No Limit</title>
+    <meta
+      name="description"
+      content="Individual launch entry page with one table, real navigation, save, cancel, OK, and back actions."
+    />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/launches.css" />
+  </head>
+  <body class="launch-shell">
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="../index.html#home">
+          <img class="logo" src="../assets/brand.png" onerror="this.src='../assets/logo.svg'" alt="No Limit logo" />
+          <span>No Limit Carpentry</span>
+        </a>
+        <nav>
+          <a data-launch-list-link href="../lancamentos/">Launch index</a>
+          <a href="../media-studio.html">Gallery Control</a>
+          <a href="../installation-control/">Installation Control</a>
+          <a class="btn btn-small" href="../index.html#visit">Request a Visit</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="launch-main">
+      <div class="container">
+        <section class="launch-page-header">
+          <div>
+            <p class="launch-kicker">Individual record page</p>
+            <h1 id="launchDetailTitle" class="launch-title">Launch entry</h1>
+            <p id="launchDetailSubtitle" class="launch-lead">Loading launch metadata...</p>
+          </div>
+
+          <aside class="launch-toolbar">
+            <section class="launch-search-card">
+              <p class="launch-kicker">Global search</p>
+              <form class="launch-search-form" action="#" method="get" novalidate>
+                <label class="launch-field">
+                  <span>Jump to another launch</span>
+                  <input
+                    id="launchGlobalSearch"
+                    type="search"
+                    placeholder="Search by name, date, category, client, or ID"
+                    autocomplete="off"
+                  />
+                </label>
+              </form>
+              <div id="launchSearchResults" class="launch-search-results" hidden></div>
+              <p id="launchSearchEmpty" class="hint" hidden>No matching launch entry was found.</p>
+            </section>
+
+            <section class="launch-summary-card">
+              <p class="launch-kicker">Record summary</p>
+              <h3>Current launch</h3>
+              <div class="launch-summary-grid">
+                <article class="launch-summary-item">
+                  <span>Status</span>
+                  <strong id="launchDetailStatus">-</strong>
+                </article>
+                <article class="launch-summary-item">
+                  <span>Amount</span>
+                  <strong id="launchDetailAmount">$0.00</strong>
+                </article>
+                <article class="launch-summary-item">
+                  <span>Route</span>
+                  <strong>Individual</strong>
+                </article>
+              </div>
+            </section>
+          </aside>
+        </section>
+
+        <section id="launchDetail" class="launch-detail-layout" hidden>
+          <article class="launch-detail-card">
+            <div class="launch-detail-head">
+              <div>
+                <p class="launch-kicker">Editable header</p>
+                <h3>Launch data</h3>
+                <p>Update the record header fields here. The page still contains only one table for this launch.</p>
+              </div>
+              <div class="launch-detail-actions">
+                <button id="launchSaveButton" class="btn" type="button">Save</button>
+                <button id="launchCancelButton" class="btn btn-secondary" type="button">Cancel</button>
+                <button id="launchOkButton" class="btn btn-secondary" type="button">OK</button>
+                <button id="launchBackButton" class="btn btn-secondary" type="button">Back</button>
+              </div>
+            </div>
+
+            <p id="launchDetailMessage" class="launch-message" hidden></p>
+
+            <form class="launch-detail-form" action="#" method="post" novalidate>
+              <div class="launch-field-grid">
+                <label class="launch-field">
+                  <span>Title</span>
+                  <input id="launchTitleInput" data-sync-launch type="text" />
+                </label>
+                <label class="launch-field">
+                  <span>Date</span>
+                  <input id="launchDateInput" data-sync-launch type="date" />
+                </label>
+                <label class="launch-field">
+                  <span>Category</span>
+                  <input id="launchCategoryInput" data-sync-launch type="text" />
+                </label>
+                <label class="launch-field">
+                  <span>Client</span>
+                  <input id="launchClientInput" data-sync-launch type="text" />
+                </label>
+                <label class="launch-field">
+                  <span>Location</span>
+                  <input id="launchLocationInput" data-sync-launch type="text" />
+                </label>
+                <label class="launch-field">
+                  <span>Status</span>
+                  <select id="launchStatusInput" data-sync-launch>
+                    <option value="Open">Open</option>
+                    <option value="Ready">Ready</option>
+                    <option value="In review">In review</option>
+                    <option value="Closed">Closed</option>
+                  </select>
+                </label>
+                <label class="launch-field">
+                  <span>Amount</span>
+                  <input id="launchAmountInput" data-sync-launch type="number" min="0" step="0.01" />
+                </label>
+                <label class="launch-field launch-field-full">
+                  <span>Summary</span>
+                  <textarea id="launchSummaryInput" data-sync-launch></textarea>
+                </label>
+                <label class="launch-field launch-field-full">
+                  <span>Notes</span>
+                  <textarea id="launchNotesInput" data-sync-launch></textarea>
+                </label>
+              </div>
+            </form>
+
+            <div id="table" class="launch-table-wrap">
+              <table class="launch-table">
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th>Owner</th>
+                    <th>Quantity</th>
+                    <th>Unit price</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody id="launchTableBody"></tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="4">Grand total</td>
+                    <td id="launchTableGrandTotal">$0.00</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </article>
+
+          <aside class="launch-nav-card">
+            <section class="launch-nav-block">
+              <p class="launch-kicker">Navigation</p>
+              <h3>Move through entries</h3>
+              <p>Use the logical sequence by date and ID to jump to the previous or next launch.</p>
+              <div class="launch-inline-list">
+                <a id="launchPreviousLink" class="launch-inline-link" href="#" hidden></a>
+                <a id="launchNextLink" class="launch-inline-link" href="#" hidden></a>
+              </div>
+            </section>
+
+            <section class="launch-nav-block">
+              <p class="launch-kicker">Index access</p>
+              <h4>Return to the list</h4>
+              <p>Go back to the clean main directory without loading full launch tables there.</p>
+              <div class="launch-nav-actions" style="margin-top: 14px;">
+                <a data-launch-list-link class="btn btn-secondary" href="../lancamentos/">Back to launch index</a>
+                <a class="btn btn-secondary" href="../index.html#home">Back to website</a>
+              </div>
+            </section>
+          </aside>
+        </section>
+
+        <section id="launchNotFound" class="launch-board" hidden>
+          <article class="launch-list-card">
+            <p class="launch-kicker">Route not found</p>
+            <h3>This launch does not exist in the centralized store.</h3>
+            <p class="launch-subcopy">
+              Use the global search or return to the launch index to pick another record.
+            </p>
+            <div class="launch-nav-actions" style="margin-top: 16px;">
+              <a data-launch-list-link class="btn" href="../lancamentos/">Open launch index</a>
+              <a class="btn btn-secondary" href="../index.html#home">Back to website</a>
+            </div>
+          </article>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="../assets/launches-detail.js"></script>
+  </body>
+</html>

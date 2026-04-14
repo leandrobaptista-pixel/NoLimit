@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Launch entries | No Limit</title>
+    <meta
+      name="description"
+      content="Central index of launch entries with filters, search, and direct links to each individual launch page."
+    />
+    <link rel="stylesheet" href="../assets/styles.css" />
+    <link rel="stylesheet" href="../assets/launches.css" />
+  </head>
+  <body class="launch-shell">
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="../index.html#home">
+          <img class="logo" src="../assets/brand.png" onerror="this.src='../assets/logo.svg'" alt="No Limit logo" />
+          <span>No Limit Carpentry</span>
+        </a>
+        <nav>
+          <a href="../index.html#gallery">Gallery</a>
+          <a href="../media-studio.html">Gallery Control</a>
+          <a href="../installation-control/">Installation Control</a>
+          <a class="btn btn-small" href="../index.html#visit">Request a Visit</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="launch-main">
+      <div class="container">
+        <section class="launch-page-header">
+          <div>
+            <p class="launch-kicker">QuickBooks-style records</p>
+            <h1 class="launch-title">Launch entries</h1>
+            <p class="launch-lead">
+              This index keeps the main page clean: only summaries live here. Each launch opens in its own
+              real route with a dedicated record page and a single table for that entry.
+            </p>
+          </div>
+
+          <aside class="launch-toolbar">
+            <section class="launch-search-card">
+              <p class="launch-kicker">Global search</p>
+              <form class="launch-search-form" action="#" method="get" novalidate>
+                <label class="launch-field">
+                  <span>Find any launch</span>
+                  <input
+                    id="launchGlobalSearch"
+                    type="search"
+                    placeholder="Search by name, date, category, client, or ID"
+                    autocomplete="off"
+                  />
+                </label>
+              </form>
+              <div id="launchSearchResults" class="launch-search-results" hidden></div>
+              <p id="launchSearchEmpty" class="hint" hidden>No matching launch entry was found.</p>
+            </section>
+
+            <section class="launch-summary-card">
+              <p class="launch-kicker">Current data set</p>
+              <h3>Centralized launch store</h3>
+              <div class="launch-summary-grid">
+                <article class="launch-summary-item">
+                  <span>Visible launches</span>
+                  <strong id="launchSummaryTotal">0</strong>
+                </article>
+                <article class="launch-summary-item">
+                  <span>Total value</span>
+                  <strong id="launchSummaryAmount">$0.00</strong>
+                </article>
+                <article class="launch-summary-item">
+                  <span>Categories</span>
+                  <strong id="launchSummaryCategories">0</strong>
+                </article>
+              </div>
+            </section>
+          </aside>
+        </section>
+
+        <section class="launch-board">
+          <div class="launch-list-card">
+            <p class="launch-kicker">Index filters</p>
+            <h3>Open one record at a time</h3>
+            <p class="launch-subcopy">
+              The index does not render full launch tables. It keeps a single directory of entries so each record can
+              open in its own route.
+            </p>
+            <div class="launch-list-filter">
+              <label class="launch-field">
+                <span>Search in index</span>
+                <input id="launchFilterQuery" type="search" placeholder="Filter cards by any visible field" />
+              </label>
+              <label class="launch-field">
+                <span>Category</span>
+                <select id="launchFilterCategory"></select>
+              </label>
+              <label class="launch-field">
+                <span>Date</span>
+                <input id="launchFilterDate" type="date" />
+              </label>
+            </div>
+            <div class="launch-card-actions" style="margin-top: 16px;">
+              <button id="launchFilterReset" class="btn btn-secondary" type="button">Clear filters</button>
+              <a id="launchBackHome" class="btn btn-secondary" href="../index.html#home">Back to website</a>
+            </div>
+          </div>
+
+          <div id="launchCards" class="launch-list-grid"></div>
+        </section>
+      </div>
+    </main>
+
+    <script type="module" src="../assets/launches-index.js"></script>
+  </body>
+</html>

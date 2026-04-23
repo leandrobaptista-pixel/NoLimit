@@ -93,27 +93,34 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 
 /* Form */
 .form{
-  margin-top:24px;
+  margin-top:20px;
   background:rgba(255,248,243,.94);
   border:1px solid rgba(154,116,72,.22);
-  border-radius:22px;
-  padding:24px;
+  border-radius:20px;
+  padding:18px;
   box-shadow:0 20px 45px rgba(107,47,47,.08);
 }
 .form-shell{
   display:grid;
-  grid-template-columns:minmax(260px,.82fr) minmax(0,1.3fr);
-  gap:22px;
+  grid-template-columns:1fr;
+  gap:16px;
   align-items:start;
 }
 .form-side{
   background:linear-gradient(180deg,rgba(107,47,47,.08),rgba(236,217,207,.9));
   border:1px solid rgba(154,116,72,.18);
-  border-radius:20px;
-  padding:24px;
+  border-radius:18px;
+  padding:18px;
+  display:grid;
+  grid-template-columns:minmax(0,.92fr) minmax(0,1.25fr);
+  gap:18px;
+  align-items:start;
+}
+.form-side > :not(.form-points){
+  grid-column:1;
 }
 .form-kicker{
-  margin:0 0 10px;
+  margin:0 0 8px;
   font-size:.82rem;
   font-weight:800;
   letter-spacing:.12em;
@@ -122,56 +129,73 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 }
 .form-title{
   margin:0;
-  font-size:clamp(1.35rem,2.1vw,1.85rem);
-  line-height:1.15;
+  font-size:clamp(1.2rem,1.8vw,1.65rem);
+  line-height:1.12;
 }
 .form-copy{
-  margin:14px 0 0;
+  margin:10px 0 0;
   color:var(--muted);
+  font-size:.94rem;
+  line-height:1.5;
+  max-width:42ch;
 }
 .form-points{
   display:grid;
-  gap:12px;
-  margin-top:20px;
+  grid-column:2;
+  grid-row:1 / span 3;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  margin-top:0;
+  padding-top:0;
+  border-top:0;
+  align-self:stretch;
 }
 .form-point{
-  padding:14px 16px;
+  padding:11px 13px;
   background:rgba(255,255,255,.72);
   border:1px solid rgba(154,116,72,.16);
-  border-radius:16px;
+  border-radius:14px;
+  min-height:100%;
 }
 .form-point strong{
   display:block;
-  margin-bottom:4px;
-  font-size:.98rem;
+  margin-bottom:2px;
+  font-size:.92rem;
 }
 .form-point span{
   display:block;
   color:var(--muted);
-  font-size:.94rem;
+  font-size:.87rem;
+  line-height:1.45;
 }
 .form-main{
   display:grid;
-  gap:18px;
+  grid-template-columns:1fr;
+  gap:14px;
+  align-items:start;
 }
 .form-section{
   background:rgba(255,255,255,.56);
   border:1px solid rgba(154,116,72,.16);
-  border-radius:20px;
-  padding:20px;
+  border-radius:18px;
+  padding:16px;
+  height:100%;
 }
 .form-section-head{
   display:grid;
-  gap:6px;
-  margin-bottom:16px;
+  gap:4px;
+  margin-bottom:12px;
+  min-height:0;
 }
 .form-section-head h3{
   margin:0;
-  font-size:1.18rem;
+  font-size:1.08rem;
 }
 .form-section-head p{
   margin:0;
   color:var(--muted);
+  font-size:.92rem;
+  line-height:1.45;
 }
 .form-section-kicker{
   font-size:.76rem;
@@ -180,16 +204,16 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   text-transform:uppercase;
   color:var(--brand-2);
 }
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 16px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
 .grid .full{grid-column:1/-1}
-.field{display:flex;flex-direction:column;gap:8px}
+.field{display:flex;flex-direction:column;gap:5px}
 .field-label{
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:10px;
   flex-wrap:wrap;
-  font-size:.84rem;
+  font-size:.77rem;
   font-weight:700;
   letter-spacing:.04em;
   text-transform:uppercase;
@@ -197,7 +221,7 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 }
 .field-label em{
   font-style:normal;
-  font-size:.7rem;
+  font-size:.63rem;
   font-weight:800;
   letter-spacing:.08em;
   text-transform:uppercase;
@@ -205,41 +229,55 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   background:rgba(197,154,106,.14);
   border:1px solid rgba(154,116,72,.16);
   border-radius:999px;
-  padding:4px 8px;
+  padding:3px 7px;
 }
 .form input,
 .form select,
 .form textarea{
   width:100%;
-  min-height:52px;
+  min-height:44px;
   background:#ffffff;
   color:var(--text);
   border:1px solid rgba(154,116,72,.28);
-  border-radius:14px;
-  padding:14px 16px;
+  border-radius:12px;
+  padding:10px 12px;
   font:inherit;
+  font-size:.95rem;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.55);
   transition:border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 .form textarea{
-  min-height:160px;
+  min-height:118px;
   resize:vertical;
 }
 .field-help{
   color:var(--muted);
-  font-size:.88rem;
+  font-size:.8rem;
+  line-height:1.35;
+  max-height:0;
+  opacity:0;
+  overflow:hidden;
+  transform:translateY(-2px);
+  transition:max-height .18s ease, opacity .18s ease, transform .18s ease;
+}
+.field:focus-within .field-help,
+.field.is-invalid .field-help{
+  max-height:48px;
+  opacity:1;
+  transform:translateY(0);
 }
 .field-card{
   justify-content:stretch;
 }
 .field-card-body{
   min-height:100%;
-  padding:16px;
+  padding:13px;
   background:linear-gradient(180deg,rgba(236,217,207,.72),rgba(255,255,255,.86));
   border:1px dashed rgba(154,116,72,.3);
-  border-radius:14px;
+  border-radius:12px;
   color:var(--muted);
-  font-size:.94rem;
+  font-size:.87rem;
+  line-height:1.45;
 }
 .form input::placeholder,
 .form textarea::placeholder{color:#b28a7c}
@@ -273,12 +311,12 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 }
 .check{
   flex-direction:row;
-  align-items:flex-start;
-  gap:12px;
-  padding:14px 16px;
+  align-items:center;
+  gap:10px;
+  padding:11px 13px;
   background:#fffdf9;
   border:1px solid rgba(154,116,72,.18);
-  border-radius:14px;
+  border-radius:12px;
 }
 .check input{
   width:18px;
@@ -290,18 +328,20 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 }
 .check-copy{
   display:grid;
-  gap:4px;
+  gap:2px;
   flex:1;
 }
 .check-copy strong{
-  font-size:.95rem;
+  font-size:.9rem;
+  line-height:1.35;
 }
 .check-copy small{
   color:var(--muted);
-  font-size:.88rem;
+  font-size:.8rem;
+  line-height:1.35;
 }
 .check span{
-  font-size:.95rem;
+  font-size:.9rem;
   font-weight:600;
   letter-spacing:0;
   text-transform:none;
@@ -311,29 +351,34 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   width:100%;
   margin-left:30px;
 }
+.form-main > .check,
+.form-main > .form-actions,
+.form-main > .form-note{
+  grid-column:1/-1;
+}
 .form-actions{
   display:flex;
   align-items:center;
   justify-content:flex-end;
-  gap:14px;
-  margin-top:18px;
+  gap:10px;
+  margin-top:14px;
   padding-top:4px;
 }
 .form-action-copy{
   display:grid;
-  gap:4px;
+  gap:2px;
   text-align:right;
 }
 .form-action-copy strong{
-  font-size:.98rem;
+  font-size:.92rem;
 }
 .form-actions .btn{
-  min-height:38px;
-  padding:9px 12px;
+  min-height:36px;
+  padding:8px 11px;
 }
 .hint{color:var(--muted)}
 .form-note{
-  margin-top:14px;
+  margin-top:10px;
   min-height:1.5em;
   border-radius:14px;
   padding:0;
@@ -401,6 +446,15 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   .catalogs-grid{grid-template-columns:repeat(2,1fr)}
   .catalog{grid-template-columns:120px 1fr}
   .form-shell{grid-template-columns:1fr}
+  .form-side{grid-template-columns:1fr}
+  .form-side > :not(.form-points){grid-column:auto}
+  .form-points{
+    grid-column:auto;
+    grid-row:auto;
+    grid-template-columns:1fr;
+    margin-top:8px;
+  }
+  .form-main{grid-template-columns:1fr}
   .studio-summary-grid{grid-template-columns:1fr}
 }
 @media (max-width:600px){
@@ -417,9 +471,11 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   .catalogs-grid{grid-template-columns:1fr}
   .catalog{grid-template-columns:1fr}
   .about-grid{grid-template-columns:1fr}
-  .form{padding:18px}
-  .form-side,.form-section{padding:18px}
+  .form{padding:14px}
+  .form-side,.form-section{padding:14px}
   .form-title{font-size:1.45rem}
+  .form-copy{max-width:none}
+  .form-section-head{min-height:0}
   .form-actions{flex-direction:column;align-items:stretch}
   .form-actions .btn{width:100%;justify-content:center}
   .form-action-copy{text-align:left}

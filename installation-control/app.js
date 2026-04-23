@@ -14307,7 +14307,7 @@ function renderWorkforceTaskPlanSection(range = weekRangeFromAnchor(workforceWee
 
 function renderTimeClockPanel() {
   if (!timeClockPanel) return;
-  const allowed = canUseTimeClock();
+  const allowed = canUseTimeClock() && currentView !== "ocrImporter";
   timeClockPanel.classList.toggle("hidden", !allowed);
   if (!allowed) return;
 

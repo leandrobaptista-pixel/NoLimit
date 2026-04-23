@@ -449,7 +449,7 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   .services-grid{grid-template-columns:repeat(2,1fr)}
   .process{grid-template-columns:repeat(2,1fr)}
   .gallery-grid{grid-template-columns:repeat(2,1fr)}
-  .catalogs-grid{grid-template-columns:repeat(2,1fr)}
+  .catalogs-grid{grid-template-columns:1fr}
   .catalog{grid-template-columns:120px 1fr}
   .form-shell{grid-template-columns:1fr}
   .form-side{grid-template-columns:1fr}

@@ -23,6 +23,8 @@ const galleryMoreButton = document.getElementById('galleryMoreBtn');
 const featuredMetrics = document.getElementById('featuredMetrics');
 const featuredLead = document.getElementById('featuredLead');
 const featuredRail = document.getElementById('featuredRail');
+const categorySpotlights = document.getElementById('categorySpotlights');
+const catalogsPreview = document.getElementById('catalogsPreview');
 const footerCompany = document.getElementById('footerCompany');
 const footerPhoneLink = document.getElementById('footerPhoneLink');
 const footerEmailLink = document.getElementById('footerEmailLink');
@@ -48,49 +50,7 @@ const DEFAULT_WEBSITE_CONTENT_TABLES = {
   categoriesTables: ['website_categories', 'categories'],
   galleryItemsTables: ['website_gallery_items', 'gallery_items', 'portfolio_items']
 };
-
-const LOCAL_IMAGE_VARIANTS = {
-  'assets/00-Trim/IMG_7031.jpg': {
-    thumb: 'assets/optimized/thumb/00-Trim/IMG_7031.jpg',
-    feature: 'assets/optimized/feature/00-Trim/IMG_7031.jpg'
-  },
-  'assets/00-Wainscoting/IMG_1663.JPG': {
-    thumb: 'assets/optimized/thumb/00-Wainscoting/IMG_1663.jpg',
-    feature: 'assets/optimized/feature/00-Wainscoting/IMG_1663.jpg'
-  },
-  'assets/00-Stairs/IMG_9268.JPG': {
-    thumb: 'assets/optimized/thumb/00-Stairs/IMG_9268.jpg',
-    feature: 'assets/optimized/feature/00-Stairs/IMG_9268.jpg'
-  },
-  'assets/00-Ceiling/IMG_6650.jpg': {
-    thumb: 'assets/optimized/thumb/00-Ceiling/IMG_6650.jpg',
-    feature: 'assets/optimized/feature/00-Ceiling/IMG_6650.jpg'
-  },
-  'assets/00-Decks/IMG_4694.jpg': {
-    thumb: 'assets/optimized/thumb/00-Decks/IMG_4694.jpg',
-    feature: 'assets/optimized/feature/00-Decks/IMG_4694.jpg'
-  },
-  'assets/00-kitchen & Vanities/IMG_5865.JPG': {
-    thumb: 'assets/optimized/thumb/00-kitchen & Vanities/IMG_5865.jpg',
-    feature: 'assets/optimized/feature/00-kitchen & Vanities/IMG_5865.jpg'
-  },
-  'assets/00-Fireplaces & Bars/IMG_1816.JPG': {
-    thumb: 'assets/optimized/thumb/00-Fireplaces & Bars/IMG_1816.jpg',
-    feature: 'assets/optimized/feature/00-Fireplaces & Bars/IMG_1816.jpg'
-  },
-  'assets/00-Outside Doors & Windows/IMG_3311.JPG': {
-    thumb: 'assets/optimized/thumb/00-Outside Doors & Windows/IMG_3311.jpg',
-    feature: 'assets/optimized/feature/00-Outside Doors & Windows/IMG_3311.jpg'
-  },
-  'assets/00-Pergola/IMG_2744.jpg': {
-    thumb: 'assets/optimized/thumb/00-Pergola/IMG_2744.jpg',
-    feature: 'assets/optimized/feature/00-Pergola/IMG_2744.jpg'
-  },
-  'assets/00-Port & Portal/IMG_5811.JPG': {
-    thumb: 'assets/optimized/thumb/00-Port & Portal/IMG_5811.jpg',
-    feature: 'assets/optimized/feature/00-Port & Portal/IMG_5811.jpg'
-  }
-};
+const IMAGE_VARIANTS = window.OPTIMIZED_IMAGE_VARIANTS || {};
 
 function syncHeaderHeight() {
   if (!header) return;
@@ -155,11 +115,15 @@ function normalizeAssetPath(value) {
 
 function resolveImageVariants(imageUrl) {
   const normalizedPath = normalizeAssetPath(imageUrl);
-  const localVariants = LOCAL_IMAGE_VARIANTS[normalizedPath];
+  const localVariants = IMAGE_VARIANTS[normalizedPath];
   return {
     thumbUrl: localVariants?.thumb || '',
     featureUrl: localVariants?.feature || localVariants?.thumb || ''
   };
+}
+
+function getCatalogLibrary() {
+  return Array.isArray(window.CATALOG_LIBRARY) ? window.CATALOG_LIBRARY : [];
 }
 
 function formatPhoneHref(phone) {
@@ -785,6 +749,10 @@ function buildViewerHref(imageUrl, categorySlug, index = 0) {
   return `viewer.html?img=${encodeURIComponent(imageUrl)}&cat=${encodeURIComponent(categorySlug)}&i=${index}`;
 }
 
+function buildCategoryHref(categorySlug) {
+  return `?cat=${encodeURIComponent(categorySlug)}#gallery`;
+}
+
 function flattenGalleryItems(galleryData) {
   const items = [];
   let sequence = 0;
@@ -955,6 +923,134 @@ function renderFeaturedWork(galleryData) {
   });
 }
 
+function renderCategorySpotlights(galleryData) {
+  if (!categorySpotlights) return;
+
+  const cards = galleryData.categories
+    .map((category) => {
+      const list = Array.isArray(galleryData.itemsBySlug[category.slug]) ? galleryData.itemsBySlug[category.slug] : [];
+      return {
+        category,
+        count: list.length,
+        cover: list[0] || null
+      };
+    })
+    .filter((entry) => entry.cover)
+    .sort((a, b) => b.count - a.count || a.category.name.localeCompare(b.category.name))
+    .slice(0, 6);
+
+  if (!cards.length) {
+    categorySpotlights.innerHTML = '<p class="hint">Category previews will appear here as soon as published gallery items are available.</p>';
+    return;
+  }
+
+  categorySpotlights.innerHTML = '';
+  cards.forEach(({ category, count, cover }) => {
+    const article = document.createElement('article');
+    article.className = 'spotlight-card card';
+
+    const link = document.createElement('a');
+    link.className = 'spotlight-card-link';
+    link.href = buildCategoryHref(category.slug);
+
+    const media = document.createElement('div');
+    media.className = 'spotlight-card-media';
+    media.appendChild(
+      createFeaturedImage(
+        cover.featureUrl || cover.thumbUrl || cover.imageUrl,
+        cover.title || `${category.name} project`,
+        '(max-width: 600px) 100vw, (max-width: 900px) 50vw, 28vw'
+      )
+    );
+
+    const copy = document.createElement('div');
+    copy.className = 'spotlight-card-copy';
+
+    const meta = document.createElement('div');
+    meta.className = 'spotlight-card-meta';
+    const badge = document.createElement('span');
+    badge.className = 'spotlight-card-badge';
+    badge.textContent = category.name;
+    const total = document.createElement('span');
+    total.className = 'spotlight-card-count';
+    total.textContent = `${count} photos`;
+    meta.append(badge, total);
+
+    const title = document.createElement('h3');
+    title.textContent = cover.title || humanizePhotoTitle(cover.imageUrl);
+
+    const description = document.createElement('p');
+    description.textContent = `Open ${category.name} and jump directly into a curated set of published project photos.`;
+
+    copy.append(meta, title, description);
+    link.append(media, copy);
+    article.appendChild(link);
+    categorySpotlights.appendChild(article);
+  });
+}
+
+function renderHomepageCatalogPreview() {
+  if (!catalogsPreview) return;
+
+  const library = getCatalogLibrary();
+  if (!library.length) {
+    catalogsPreview.innerHTML = '<p class="hint">Catalog groups will appear here once the catalog library data is connected.</p>';
+    return;
+  }
+
+  catalogsPreview.innerHTML = '';
+  library.forEach((group) => {
+    const card = document.createElement('article');
+    card.className = 'catalog-preview-card card';
+
+    const head = document.createElement('div');
+    head.className = 'catalog-preview-head';
+
+    const brand = document.createElement('div');
+    brand.className = 'catalog-preview-brand';
+
+    const logo = document.createElement('div');
+    logo.className = 'catalog-preview-logo';
+    logo.textContent = String(group.mark || group.title || 'C').slice(0, 2).toUpperCase();
+
+    const nameWrap = document.createElement('div');
+    const title = document.createElement('h3');
+    title.className = 'catalog-preview-title';
+    title.textContent = group.title;
+    const text = document.createElement('p');
+    text.className = 'catalog-preview-text';
+    text.textContent = group.description || '';
+    nameWrap.append(title, text);
+
+    brand.append(logo, nameWrap);
+
+    const count = document.createElement('span');
+    count.className = 'catalog-preview-count';
+    count.textContent = `${Array.isArray(group.documents) ? group.documents.length : 0} files`;
+
+    head.append(brand, count);
+
+    const links = document.createElement('div');
+    links.className = 'catalog-preview-links';
+    (Array.isArray(group.documents) ? group.documents.slice(0, 2) : []).forEach((doc) => {
+      const docLink = document.createElement('a');
+      docLink.href = doc.href;
+      docLink.target = '_blank';
+      docLink.rel = 'noopener';
+      docLink.textContent = doc.label;
+      links.appendChild(docLink);
+    });
+
+    const openGroup = document.createElement('a');
+    openGroup.className = 'btn btn-secondary';
+    openGroup.href = `./catalogs.html#${encodeURIComponent(group.id)}`;
+    openGroup.textContent = 'Open Group';
+
+    card.append(head, links, openGroup);
+    catalogsPreview.appendChild(card);
+  });
+}
+
 function renderGallery(categorySlug, galleryData) {
   const container = document.getElementById('galleryContent');
   if (!container) return;
@@ -1053,6 +1149,7 @@ async function initGallery() {
 
   renderGalleryControls(galleryData.categories, currentCategory, handleCategoryChange);
   renderFeaturedWork(galleryData);
+  renderCategorySpotlights(galleryData);
   renderGallery(currentCategory, galleryData);
 
   galleryMoreButton?.addEventListener('click', () => {
@@ -1087,9 +1184,12 @@ async function initGallery() {
     }
     renderGalleryControls(nextGalleryData.categories, galleryUiState.categorySlug, handleCategoryChange);
     renderFeaturedWork(nextGalleryData);
+    renderCategorySpotlights(nextGalleryData);
     renderGallery(galleryUiState.categorySlug, nextGalleryData);
   });
 }
+
+renderHomepageCatalogPreview();
 
 syncHeaderHeight();
 window.addEventListener('resize', syncHeaderHeight);

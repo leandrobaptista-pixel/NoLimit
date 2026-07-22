@@ -25,7 +25,7 @@
           <a href="#gallery">Gallery</a>
           <a href="#launches">Launches</a>
           <a href="#media-studio">Gallery Control</a>
-          <a href="#catalogs">Catalogs</a>
+          <a href="./catalogs.html">Catalogs</a>
           <a href="./installation-control/">Installation Control</a>
           <a href="#process">Process</a>
           <a class="btn btn-small" href="#visit" data-default-cta>Request a Visit</a>
@@ -170,6 +170,26 @@
         </div>
       </section>
 
+      <section id="project-spotlights" class="section">
+        <div class="container">
+          <div class="spotlight-intro">
+            <div>
+              <p class="section-kicker">Category previews</p>
+              <h2>Browse the main segments quickly with cleaner visual anchors.</h2>
+              <p class="hint">
+                Each card below highlights a live category from the gallery, so the homepage can show more work without
+                dumping the entire gallery into one long block.
+              </p>
+            </div>
+            <div class="spotlight-actions">
+              <a class="btn" href="#gallery">Open Full Gallery</a>
+              <a class="btn btn-secondary" href="#visit">Request a Visit</a>
+            </div>
+          </div>
+          <div id="categorySpotlights" class="spotlight-grid" aria-live="polite"></div>
+        </div>
+      </section>
+
       <section id="media-studio" class="section section-muted">
         <div class="container">
           <div class="studio-intro">
@@ -260,47 +280,21 @@
 
       <section id="catalogs" class="section section-muted">
         <div class="container">
-          <h2>Catalogs</h2>
-          <p class="hint">Partner catalogs for moldings, doors, and windows. Replace placeholders with your partner logos and links.</p>
-          <div class="catalogs-grid">
-            <article class="card catalog">
-              <img src="assets/placeholder.svg" alt="Moldings partner" loading="lazy">
-              <div class="catalog-info">
-                <h3>Moldings Partner</h3>
-                <p>Premium profiles, crown, baseboard, and casings.</p>
-                <div class="catalog-links">
-                  <a href="./assets/00-Catalog/Elite%20Mouldings%20Cornice%202010.pdf" target="_blank" rel="noopener">Elite Mouldings Cornice (PDF)</a>
-                  <a href="./assets/00-Catalog/garden-state-lumber-full-line-catalog-spring-2017-01-26.pdf" target="_blank" rel="noopener">Garden State Lumber - Part 1 (PDF)</a>
-                  <a href="./assets/00-Catalog/garden-state-lumber-full-line-catalog-spring-2017-01-26%20-%20part2.pdf" target="_blank" rel="noopener">Garden State Lumber - Part 2 (PDF)</a>
-                  <a href="./assets/00-Catalog/garden-state-lumber-full-line-catalog-spring-2017-01-26%20-%20part3%20copy.pdf" target="_blank" rel="noopener">Garden State Lumber - Part 3 (PDF)</a>
-                  <a href="./assets/00-Catalog/wainscoting_ideas_2010.pdf" target="_blank" rel="noopener">Wainscoting Ideas (PDF)</a>
-                </div>
-              </div>
-            </article>
-            <article class="card catalog">
-              <img src="assets/placeholder.svg" alt="Doors partner" loading="lazy">
-              <div class="catalog-info">
-                <h3>Doors Partner</h3>
-                <p>Interior doors, jambs, hardware sets, and accessories.</p>
-                <div class="catalog-links">
-                  <a href="./assets/00-Catalog/Massonite_Palazzo_SNS_%26_Molded_Panel_Interior_Doors_Catalog.pdf" target="_blank" rel="noopener">Masonite Palazzo &amp; Molded Panel (PDF)</a>
-                  <a href="./assets/00-Catalog/masonite_Stile_and_Rail_Interior_Doors_Catalog.pdf" target="_blank" rel="noopener">Masonite Stile &amp; Rail (PDF)</a>
-                </div>
-              </div>
-            </article>
-            <article class="card catalog">
-              <img src="assets/placeholder.svg" alt="Windows partner" loading="lazy">
-              <div class="catalog-info">
-                <h3>Windows Partner</h3>
-                <p>Energy‑efficient windows and trim packages.</p>
-                <div class="catalog-links">
-                  <a href="./assets/00-Catalog/garden-state-lumber-full-line-catalog-spring-2017-01-26.pdf" target="_blank" rel="noopener">Garden State Lumber - Part 1 (PDF)</a>
-                  <a href="./assets/00-Catalog/garden-state-lumber-full-line-catalog-spring-2017-01-26%20-%20part2.pdf" target="_blank" rel="noopener">Garden State Lumber - Part 2 (PDF)</a>
-                  <a href="./assets/00-Catalog/garden-state-lumber-full-line-catalog-spring-2017-01-26%20-%20part3%20copy.pdf" target="_blank" rel="noopener">Garden State Lumber - Part 3 (PDF)</a>
-                </div>
-              </div>
-            </article>
+          <div class="catalog-home-intro">
+            <div>
+              <p class="section-kicker">Catalog library</p>
+              <h2>Keep the homepage cleaner and move full PDF browsing into its own library.</h2>
+              <p class="hint">
+                The website homepage now previews only the partner groups. Full PDF browsing lives in a dedicated catalog page,
+                which keeps navigation lighter and easier to scan.
+              </p>
+            </div>
+            <div class="catalog-home-actions">
+              <a class="btn" href="./catalogs.html">Open Catalog Library</a>
+              <a class="btn btn-secondary" href="#visit">Talk About Materials</a>
+            </div>
           </div>
+          <div id="catalogsPreview" class="catalog-preview-grid" aria-live="polite"></div>
         </div>
       </section>
 
@@ -501,7 +495,9 @@
       Please enable JavaScript for the best experience.
     </noscript>
     <script src="assets/gallery-manifest.js" defer></script>
+    <script src="assets/optimized/variants-manifest.js" defer></script>
+    <script src="assets/catalogs-data.js" defer></script>
     <script src="assets/contact-config.js" defer></script>
-    <script src="assets/script.js?v=20260324-gallerycontrol1" defer></script>
+    <script src="assets/script.js?v=20260722-homepage2" defer></script>
   </body>
   </html>

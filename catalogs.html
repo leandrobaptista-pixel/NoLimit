@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>No Limit | Catalog Library</title>
+    <meta
+      name="description"
+      content="Browse No Limit partner catalogs for moldings, doors, windows, and finish carpentry references in one organized library."
+    />
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body class="catalog-library-page">
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="./index.html#home">
+          <img class="logo" src="assets/brand.png" onerror="this.src='assets/logo.svg'" alt="No Limit Carpentry logo" />
+          <span>No Limit Carpentry</span>
+        </a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primaryNav" aria-label="Toggle navigation">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <nav id="primaryNav">
+          <a href="./index.html#gallery">Gallery</a>
+          <a href="./index.html#media-studio">Gallery Control</a>
+          <a href="./installation-control/">Installation Control</a>
+          <a href="./index.html#visit">Request a Visit</a>
+          <a class="btn btn-small" href="./index.html">Back to Website</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="library-hero">
+        <div class="container library-hero-shell">
+          <div class="library-hero-copy">
+            <p class="section-kicker">Dedicated library</p>
+            <h1>Catalogs organized in one cleaner place.</h1>
+            <p class="hint">
+              Use this library to browse moldings, doors, and window-related references without overcrowding the homepage.
+              Search by supplier, material type, or document name.
+            </p>
+          </div>
+          <aside class="library-search-card card">
+            <label for="catalogSearch">Search the library</label>
+            <input id="catalogSearch" type="search" placeholder="Search by name, type, or partner..." autocomplete="off" />
+            <p id="catalogResultsCount">Loading files...</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div id="catalogLibraryGroups" class="library-groups" aria-live="polite"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div class="footer-meta">
+          <span>© <span id="catalogYear"></span> No Limit Carpentry. Catalog library for internal planning and client reference.</span>
+        </div>
+        <a href="./index.html" class="to-top">Return to website ↑</a>
+      </div>
+    </footer>
+
+    <noscript>Please enable JavaScript for the best experience.</noscript>
+    <script src="assets/catalogs-data.js" defer></script>
+    <script src="assets/catalogs-page.js" defer></script>
+  </body>
+  </html>

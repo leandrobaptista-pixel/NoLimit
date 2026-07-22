@@ -49,6 +49,49 @@ const DEFAULT_WEBSITE_CONTENT_TABLES = {
   galleryItemsTables: ['website_gallery_items', 'gallery_items', 'portfolio_items']
 };
 
+const LOCAL_IMAGE_VARIANTS = {
+  'assets/00-Trim/IMG_7031.jpg': {
+    thumb: 'assets/optimized/thumb/00-Trim/IMG_7031.jpg',
+    feature: 'assets/optimized/feature/00-Trim/IMG_7031.jpg'
+  },
+  'assets/00-Wainscoting/IMG_1663.JPG': {
+    thumb: 'assets/optimized/thumb/00-Wainscoting/IMG_1663.jpg',
+    feature: 'assets/optimized/feature/00-Wainscoting/IMG_1663.jpg'
+  },
+  'assets/00-Stairs/IMG_9268.JPG': {
+    thumb: 'assets/optimized/thumb/00-Stairs/IMG_9268.jpg',
+    feature: 'assets/optimized/feature/00-Stairs/IMG_9268.jpg'
+  },
+  'assets/00-Ceiling/IMG_6650.jpg': {
+    thumb: 'assets/optimized/thumb/00-Ceiling/IMG_6650.jpg',
+    feature: 'assets/optimized/feature/00-Ceiling/IMG_6650.jpg'
+  },
+  'assets/00-Decks/IMG_4694.jpg': {
+    thumb: 'assets/optimized/thumb/00-Decks/IMG_4694.jpg',
+    feature: 'assets/optimized/feature/00-Decks/IMG_4694.jpg'
+  },
+  'assets/00-kitchen & Vanities/IMG_5865.JPG': {
+    thumb: 'assets/optimized/thumb/00-kitchen & Vanities/IMG_5865.jpg',
+    feature: 'assets/optimized/feature/00-kitchen & Vanities/IMG_5865.jpg'
+  },
+  'assets/00-Fireplaces & Bars/IMG_1816.JPG': {
+    thumb: 'assets/optimized/thumb/00-Fireplaces & Bars/IMG_1816.jpg',
+    feature: 'assets/optimized/feature/00-Fireplaces & Bars/IMG_1816.jpg'
+  },
+  'assets/00-Outside Doors & Windows/IMG_3311.JPG': {
+    thumb: 'assets/optimized/thumb/00-Outside Doors & Windows/IMG_3311.jpg',
+    feature: 'assets/optimized/feature/00-Outside Doors & Windows/IMG_3311.jpg'
+  },
+  'assets/00-Pergola/IMG_2744.jpg': {
+    thumb: 'assets/optimized/thumb/00-Pergola/IMG_2744.jpg',
+    feature: 'assets/optimized/feature/00-Pergola/IMG_2744.jpg'
+  },
+  'assets/00-Port & Portal/IMG_5811.JPG': {
+    thumb: 'assets/optimized/thumb/00-Port & Portal/IMG_5811.jpg',
+    feature: 'assets/optimized/feature/00-Port & Portal/IMG_5811.jpg'
+  }
+};
+
 function syncHeaderHeight() {
   if (!header) return;
   const height = Math.ceil(header.getBoundingClientRect().height);
@@ -102,6 +145,21 @@ function humanizePhotoTitle(source) {
   const fileName = decodeURIComponent(String(source || '').split('/').pop() || 'photo');
   const baseName = fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   return baseName || 'Project photo';
+}
+
+function normalizeAssetPath(value) {
+  return decodeURIComponent(String(value || '').trim())
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '');
+}
+
+function resolveImageVariants(imageUrl) {
+  const normalizedPath = normalizeAssetPath(imageUrl);
+  const localVariants = LOCAL_IMAGE_VARIANTS[normalizedPath];
+  return {
+    thumbUrl: localVariants?.thumb || '',
+    featureUrl: localVariants?.feature || localVariants?.thumb || ''
+  };
 }
 
 function formatPhoneHref(phone) {
@@ -292,6 +350,7 @@ function buildStaticGalleryData(manifest) {
 
     categories.push({ id: slug, name, slug });
     itemsBySlug[slug] = uniqueList.map((imageUrl, index) => ({
+      ...resolveImageVariants(imageUrl),
       id: `${slug}-${index}`,
       title: humanizePhotoTitle(imageUrl),
       imageUrl,
@@ -354,7 +413,9 @@ function buildDynamicGalleryData(categoryRows, galleryRows) {
     if (!targetCategory) return;
 
     if (!itemsBySlug[targetCategory.slug]) itemsBySlug[targetCategory.slug] = [];
+    const variants = resolveImageVariants(imageUrl);
     itemsBySlug[targetCategory.slug].push({
+      ...variants,
       id: row.id ?? `${targetCategory.slug}-${index}`,
       title: String(row.title || humanizePhotoTitle(imageUrl)).trim() || humanizePhotoTitle(imageUrl),
       imageUrl,
@@ -705,7 +766,7 @@ function buildGalleryItem(item, category, index) {
   img.decoding = 'async';
   img.fetchPriority = 'low';
   img.sizes = '(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw';
-  img.src = toURL(item.imageUrl);
+  img.src = toURL(item.thumbUrl || item.imageUrl);
   img.alt = item.title || `${category.name} project`;
   img.onerror = () => {
     img.src = 'assets/placeholder.svg';
@@ -826,7 +887,7 @@ function renderFeaturedWork(galleryData) {
   leadMedia.appendChild(leadChip);
   leadMedia.appendChild(
     createFeaturedImage(
-      lead.imageUrl,
+      lead.featureUrl || lead.thumbUrl || lead.imageUrl,
       lead.title || `${lead.categoryName} featured project`,
       '(max-width: 900px) 100vw, 40vw'
     )
@@ -862,7 +923,7 @@ function renderFeaturedWork(galleryData) {
     media.className = 'featured-card-media';
     media.appendChild(
       createFeaturedImage(
-        item.imageUrl,
+        item.thumbUrl || item.imageUrl,
         item.title || `${item.categoryName} project`,
         '(max-width: 600px) 100vw, (max-width: 900px) 50vw, 18vw'
       )

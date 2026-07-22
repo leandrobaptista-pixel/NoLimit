@@ -25,6 +25,15 @@ const featuredLead = document.getElementById('featuredLead');
 const featuredRail = document.getElementById('featuredRail');
 const categorySpotlights = document.getElementById('categorySpotlights');
 const catalogsPreview = document.getElementById('catalogsPreview');
+const galleryLightbox = document.getElementById('galleryLightbox');
+const galleryLightboxImage = document.getElementById('galleryLightboxImage');
+const galleryLightboxTitle = document.getElementById('galleryLightboxTitle');
+const galleryLightboxEyebrow = document.getElementById('galleryLightboxEyebrow');
+const galleryLightboxMeta = document.getElementById('galleryLightboxMeta');
+const galleryLightboxPrev = document.getElementById('galleryLightboxPrev');
+const galleryLightboxNext = document.getElementById('galleryLightboxNext');
+const galleryLightboxClose = document.getElementById('galleryLightboxClose');
+const galleryLightboxBack = document.getElementById('galleryLightboxBack');
 const footerCompany = document.getElementById('footerCompany');
 const footerPhoneLink = document.getElementById('footerPhoneLink');
 const footerEmailLink = document.getElementById('footerEmailLink');
@@ -34,6 +43,11 @@ const galleryUiState = {
   data: null,
   categorySlug: '',
   visibleBySlug: {}
+};
+const galleryLightboxState = {
+  items: [],
+  index: 0,
+  opener: null
 };
 
 const DEFAULT_SITE_PROFILE = {
@@ -722,8 +736,6 @@ function buildGalleryItem(item, category, index) {
   const fig = document.createElement('figure');
   const link = document.createElement('a');
   link.href = buildViewerHref(item.imageUrl, category.slug, index);
-  link.target = '_blank';
-  link.rel = 'noopener';
 
   const img = document.createElement('img');
   img.loading = 'lazy';
@@ -740,6 +752,7 @@ function buildGalleryItem(item, category, index) {
   cap.textContent = item.title || humanizePhotoTitle(item.imageUrl);
 
   link.appendChild(img);
+  bindLightboxTrigger(link, category.items || [], index);
   fig.appendChild(link);
   fig.appendChild(cap);
   return fig;
@@ -751,6 +764,88 @@ function buildViewerHref(imageUrl, categorySlug, index = 0) {
 
 function buildCategoryHref(categorySlug) {
   return `?cat=${encodeURIComponent(categorySlug)}#gallery`;
+}
+
+function canUseInlineLightbox(event) {
+  return Boolean(
+    event &&
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey &&
+      !event.altKey
+  );
+}
+
+function closeGalleryLightbox({ returnFocus = true } = {}) {
+  if (!galleryLightbox || galleryLightbox.hidden) return;
+  galleryLightbox.hidden = true;
+  galleryLightbox.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('lightbox-open');
+
+  if (returnFocus && galleryLightboxState.opener instanceof HTMLElement) {
+    galleryLightboxState.opener.focus({ preventScroll: true });
+  }
+}
+
+function renderGalleryLightbox() {
+  if (!galleryLightbox || !galleryLightboxImage || !galleryLightboxTitle || !galleryLightboxMeta) return;
+  const item = galleryLightboxState.items[galleryLightboxState.index];
+  if (!item) return;
+
+  const positionText = galleryLightboxState.items.length > 1 ? ` · ${galleryLightboxState.index + 1} of ${galleryLightboxState.items.length}` : '';
+  const categoryText = item.categoryName || 'Gallery photo';
+
+  galleryLightboxImage.src = toURL(item.featureUrl || item.imageUrl || item.thumbUrl);
+  galleryLightboxImage.alt = item.title || humanizePhotoTitle(item.imageUrl);
+  galleryLightboxTitle.textContent = item.title || humanizePhotoTitle(item.imageUrl);
+  galleryLightboxEyebrow.textContent = categoryText;
+  galleryLightboxMeta.textContent = `${formatPublishedDate(item.createdAt)}${positionText} · Tap the image, click outside, or use X to return.`;
+
+  if (galleryLightboxPrev) {
+    const hasMultiple = galleryLightboxState.items.length > 1;
+    galleryLightboxPrev.disabled = !hasMultiple;
+    galleryLightboxPrev.hidden = !hasMultiple;
+  }
+
+  if (galleryLightboxNext) {
+    const hasMultiple = galleryLightboxState.items.length > 1;
+    galleryLightboxNext.disabled = !hasMultiple;
+    galleryLightboxNext.hidden = !hasMultiple;
+  }
+}
+
+function stepGalleryLightbox(direction) {
+  if (galleryLightboxState.items.length <= 1) return;
+  const total = galleryLightboxState.items.length;
+  galleryLightboxState.index = (galleryLightboxState.index + direction + total) % total;
+  renderGalleryLightbox();
+}
+
+function openGalleryLightbox(items, index = 0, opener = null) {
+  if (!galleryLightbox) return;
+  const normalizedItems = (Array.isArray(items) ? items : []).filter((item) => item?.imageUrl);
+  if (!normalizedItems.length) return;
+
+  galleryLightboxState.items = normalizedItems;
+  galleryLightboxState.index = Math.max(0, Math.min(index, normalizedItems.length - 1));
+  galleryLightboxState.opener = opener instanceof HTMLElement ? opener : null;
+
+  renderGalleryLightbox();
+  galleryLightbox.hidden = false;
+  galleryLightbox.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('lightbox-open');
+  galleryLightboxClose?.focus({ preventScroll: true });
+}
+
+function bindLightboxTrigger(trigger, items, index) {
+  if (!trigger || !galleryLightbox) return;
+
+  trigger.addEventListener('click', (event) => {
+    if (!canUseInlineLightbox(event)) return;
+    event.preventDefault();
+    openGalleryLightbox(items, index, trigger);
+  });
 }
 
 function flattenGalleryItems(galleryData) {
@@ -844,8 +939,7 @@ function renderFeaturedWork(galleryData) {
   const leadLink = document.createElement('a');
   leadLink.className = 'featured-lead-link';
   leadLink.href = buildViewerHref(lead.imageUrl, lead.categorySlug, lead.categoryIndex);
-  leadLink.target = '_blank';
-  leadLink.rel = 'noopener';
+  bindLightboxTrigger(leadLink, items, 0);
 
   const leadMedia = document.createElement('div');
   leadMedia.className = 'featured-lead-media';
@@ -884,8 +978,7 @@ function renderFeaturedWork(galleryData) {
     const link = document.createElement('a');
     link.className = 'featured-card-link';
     link.href = buildViewerHref(item.imageUrl, item.categorySlug, item.categoryIndex);
-    link.target = '_blank';
-    link.rel = 'noopener';
+    bindLightboxTrigger(link, items, index + 1);
 
     const media = document.createElement('div');
     media.className = 'featured-card-media';
@@ -1064,8 +1157,13 @@ function renderGallery(categorySlug, galleryData) {
   }
 
   const list = Array.isArray(galleryData.itemsBySlug[category.slug]) ? galleryData.itemsBySlug[category.slug] : [];
+  const scopedItems = list.map((entry) => ({
+    ...entry,
+    categoryName: category.name,
+    categorySlug: category.slug
+  }));
   const visibleCount = Math.min(
-    list.length,
+    scopedItems.length,
     galleryUiState.visibleBySlug[category.slug] || GALLERY_BATCH_SIZE
   );
 
@@ -1076,26 +1174,26 @@ function renderGallery(categorySlug, galleryData) {
     // Ignore storage errors and continue with regular links.
   }
 
-  if (!list.length) {
+  if (!scopedItems.length) {
     container.innerHTML = '<p class="hint">No published photos in this segment yet.</p>';
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  list.slice(0, visibleCount).forEach((item, index) => {
-    fragment.appendChild(buildGalleryItem(item, category, index));
+  scopedItems.slice(0, visibleCount).forEach((item, index) => {
+    fragment.appendChild(buildGalleryItem(item, { ...category, items: scopedItems }, index));
   });
   container.appendChild(fragment);
 
   if (galleryCount) {
     galleryCount.textContent =
-      list.length > visibleCount
-        ? `Showing ${visibleCount} of ${list.length} photos in ${category.name}.`
-        : `Showing all ${list.length} photos in ${category.name}.`;
+      scopedItems.length > visibleCount
+        ? `Showing ${visibleCount} of ${scopedItems.length} photos in ${category.name}.`
+        : `Showing all ${scopedItems.length} photos in ${category.name}.`;
   }
 
   if (galleryMoreButton) {
-    const hasMore = list.length > visibleCount;
+    const hasMore = scopedItems.length > visibleCount;
     galleryMoreButton.hidden = !hasMore;
     galleryMoreButton.disabled = !hasMore;
   }
@@ -1194,6 +1292,18 @@ renderHomepageCatalogPreview();
 syncHeaderHeight();
 window.addEventListener('resize', syncHeaderHeight);
 
+if (galleryLightbox) {
+  galleryLightbox.querySelectorAll('[data-lightbox-close]').forEach((element) => {
+    element.addEventListener('click', () => closeGalleryLightbox());
+  });
+
+  galleryLightboxClose?.addEventListener('click', () => closeGalleryLightbox());
+  galleryLightboxBack?.addEventListener('click', () => closeGalleryLightbox());
+  galleryLightboxImage?.addEventListener('click', () => closeGalleryLightbox());
+  galleryLightboxPrev?.addEventListener('click', () => stepGalleryLightbox(-1));
+  galleryLightboxNext?.addEventListener('click', () => stepGalleryLightbox(1));
+}
+
 navToggle?.addEventListener('click', () => {
   const expanded = navToggle.getAttribute('aria-expanded') === 'true';
   navToggle.setAttribute('aria-expanded', String(!expanded));
@@ -1219,6 +1329,24 @@ document.querySelectorAll('a[href^="#"]').forEach((link) => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (!galleryLightbox?.hidden) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeGalleryLightbox();
+      return;
+    }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      stepGalleryLightbox(-1);
+      return;
+    }
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      stepGalleryLightbox(1);
+      return;
+    }
+  }
+
   if (event.key !== 'Escape') return;
   closeMobileNav();
 });

@@ -478,6 +478,53 @@
       </section>
     </main>
 
+    <div id="galleryLightbox" class="gallery-lightbox" hidden aria-hidden="true">
+      <div class="gallery-lightbox-backdrop" data-lightbox-close></div>
+      <div class="gallery-lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="galleryLightboxTitle">
+        <button
+          id="galleryLightboxClose"
+          class="gallery-lightbox-close"
+          type="button"
+          aria-label="Close photo viewer"
+        >
+          ×
+        </button>
+
+        <div class="gallery-lightbox-stage">
+          <button
+            id="galleryLightboxPrev"
+            class="gallery-lightbox-nav gallery-lightbox-nav-prev"
+            type="button"
+            aria-label="Previous photo"
+          >
+            ‹
+          </button>
+
+          <img id="galleryLightboxImage" src="assets/placeholder.svg" alt="Project photo" />
+
+          <button
+            id="galleryLightboxNext"
+            class="gallery-lightbox-nav gallery-lightbox-nav-next"
+            type="button"
+            aria-label="Next photo"
+          >
+            ›
+          </button>
+        </div>
+
+        <div class="gallery-lightbox-footer">
+          <div class="gallery-lightbox-copy">
+            <p id="galleryLightboxEyebrow" class="gallery-lightbox-eyebrow">Gallery photo</p>
+            <h3 id="galleryLightboxTitle">Project photo</h3>
+            <p id="galleryLightboxMeta" class="hint">Tap the photo, click outside, or use X to return to the website.</p>
+          </div>
+          <div class="gallery-lightbox-actions">
+            <button id="galleryLightboxBack" class="btn btn-secondary" type="button">Back to gallery</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <footer class="site-footer">
       <div class="container footer-inner">
         <div class="footer-meta">

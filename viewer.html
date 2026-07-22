@@ -8,20 +8,44 @@
     <style>
       body { background: var(--bg); color: var(--text); }
       .viewer-wrap { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
-      .viewer-header { display: flex; justify-content: center; align-items: center; padding: 12px; border-bottom: 1px solid var(--border); background: rgba(247, 238, 231, .85); }
+      .viewer-header { display: flex; justify-content: center; align-items: center; padding: 12px 64px 12px 12px; border-bottom: 1px solid var(--border); background: rgba(247, 238, 231, .85); }
       .viewer-header .brand { display: flex; align-items: center; gap: 10px; }
       .viewer-header img { height: 40px; }
       .viewer-main { display: grid; place-items: center; padding: 16px; }
-      .viewer-main img { max-width: 95vw; max-height: 75vh; border-radius: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); }
+      .viewer-main img { max-width: 95vw; max-height: 75vh; border-radius: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); cursor: zoom-out; }
       .viewer-footer { display: flex; justify-content: center; align-items: center; padding: 10px; color: var(--muted); }
       .viewer-actions { position: fixed; bottom: 16px; right: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       .viewer-actions a,
       .viewer-actions button { background: var(--brand); color: #fff; border: 1px solid var(--brand-2); padding: 8px 12px; border-radius: 10px; cursor: pointer; }
       .viewer-actions button[disabled] { opacity: .45; cursor: default; }
+      .viewer-close {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(18, 21, 27, .88);
+        color: #fff;
+        font-size: 1.5rem;
+        line-height: 1;
+        cursor: pointer;
+        z-index: 3;
+      }
+      @media (max-width: 720px) {
+        .viewer-header { padding-right: 56px; }
+        .viewer-actions { left: 16px; right: 16px; }
+        .viewer-actions a,
+        .viewer-actions button { flex: 1 1 140px; justify-content: center; }
+      }
     </style>
   </head>
   <body>
     <div class="viewer-wrap">
+      <button id="closeViewerBtn" class="viewer-close" type="button" aria-label="Close viewer">×</button>
       <header class="viewer-header">
         <a class="brand" href="index.html">
           <img id="viewerBrandLogo" src="assets/brand.png" alt="No Limit Carpentry" />
@@ -37,8 +61,8 @@
       <div class="viewer-actions">
         <button id="prevBtn" type="button">Previous</button>
         <button id="nextBtn" type="button">Next</button>
-        <a id="openRaw" target="_blank" rel="noopener">Open original</a>
-        <a id="backLink">Back to site</a>
+        <a id="backLink">Back to gallery</a>
+        <button id="closeViewerAction" type="button">Close</button>
       </div>
     </div>
     <script src="assets/gallery-manifest.js"></script>
@@ -50,12 +74,13 @@
 
       const photo = document.getElementById('photo');
       const meta = document.getElementById('meta');
-      const openRaw = document.getElementById('openRaw');
       const backLink = document.getElementById('backLink');
       const prevBtn = document.getElementById('prevBtn');
       const nextBtn = document.getElementById('nextBtn');
       const viewerBrandLogo = document.getElementById('viewerBrandLogo');
       const viewerBrandName = document.getElementById('viewerBrandName');
+      const closeViewerBtn = document.getElementById('closeViewerBtn');
+      const closeViewerAction = document.getElementById('closeViewerAction');
 
       const toURL = (p) => {
         const value = String(p || '').trim();
@@ -128,6 +153,14 @@
         backLink.href = url.toString();
       }
 
+      function closeViewer() {
+        if (window.history.length > 1) {
+          window.history.back();
+          return;
+        }
+        window.location.href = backLink.href;
+      }
+
       function render(list, index) {
         const safeIndex = Math.max(0, Math.min(index, list.length - 1));
         const current = list[safeIndex] || raw;
@@ -135,10 +168,9 @@
 
         photo.src = toURL(current);
         photo.onerror = () => { photo.src = 'assets/placeholder.svg'; };
-        openRaw.href = toURL(current);
 
         const posText = list.length ? ` (${safeIndex + 1}/${list.length})` : '';
-        meta.textContent = categoryLabel ? `Segment: ${categoryLabel}${posText}` : `Photo${posText}`;
+        meta.textContent = categoryLabel ? `Segment: ${categoryLabel}${posText} · Tap the photo or use X to return.` : `Photo${posText} · Tap the photo or use X to return.`;
         document.title = `Photo Viewer - ${categoryLabel || 'A No Limit'}`;
 
         prevBtn.disabled = list.length <= 1;
@@ -181,7 +213,15 @@
           currentIndex = render(list, currentIndex);
         });
 
+        closeViewerBtn.addEventListener('click', closeViewer);
+        closeViewerAction.addEventListener('click', closeViewer);
+        photo.addEventListener('click', closeViewer);
+
         document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            closeViewer();
+            return;
+          }
           if (event.key === 'ArrowLeft') prevBtn.click();
           if (event.key === 'ArrowRight') nextBtn.click();
         });

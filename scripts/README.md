@@ -6,6 +6,43 @@
 python3 scripts/check_links.py
 ```
 
+## 1.5) Sincronizar novas fotos da galeria automaticamente
+
+Se voce colocar novas fotos diretamente dentro das pastas reais da galeria, este comando:
+
+- escaneia cada categoria
+- atualiza `assets/gallery-manifest.json`
+- atualiza `assets/gallery-manifest.js`
+- regenera as imagens otimizadas da homepage
+- valida links e referencias locais
+- mostra quais arquivos novos entraram e qual sera o link hospedado
+
+```bash
+python3 scripts/gallery_sync_pipeline.py
+```
+
+Publicar automaticamente depois da sincronizacao:
+
+```bash
+python3 scripts/gallery_sync_pipeline.py --publish
+```
+
+Opcoes uteis:
+
+```bash
+# so ver o que mudou, sem escrever arquivos
+python3 scripts/gallery_sync_pipeline.py --dry-run
+
+# sincronizar sem regenerar thumbs/features
+python3 scripts/gallery_sync_pipeline.py --skip-optimize
+
+# sincronizar sem rodar verificacao final
+python3 scripts/gallery_sync_pipeline.py --skip-check
+
+# sincronizar e tambem rodar a checagem ampla do site inteiro
+python3 scripts/gallery_sync_pipeline.py --full-site-check
+```
+
 ## 2) Gerar plano semanal de conteudo (Facebook, YouTube e outros canais)
 
 ```bash

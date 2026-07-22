@@ -35,6 +35,8 @@ FEATURE_QUALITY = "72"
 manifest = json.loads(MANIFEST_JSON.read_text())
 
 selected: dict[str, dict[str, str]] = {}
+expected_thumb_paths: set[Path] = set()
+expected_feature_paths: set[Path] = set()
 
 for _category, items in manifest.items():
     items = [str(item).strip() for item in items if str(item).strip()]
@@ -50,6 +52,8 @@ for _category, items in manifest.items():
 
         if index < THUMB_LIMIT:
           thumb_path = THUMB_DIR / parent / stem
+          if thumb_path.exists():
+              thumb_path.unlink()
           thumb_path.parent.mkdir(parents=True, exist_ok=True)
           subprocess.run(
               [
@@ -70,10 +74,13 @@ for _category, items in manifest.items():
               stdout=subprocess.DEVNULL,
               stderr=subprocess.DEVNULL,
           )
+          expected_thumb_paths.add(thumb_path)
           entry["thumb"] = str(thumb_path.relative_to(ROOT)).replace("\\", "/")
 
         if index < FEATURE_LIMIT:
           feature_path = FEATURE_DIR / parent / stem
+          if feature_path.exists():
+              feature_path.unlink()
           feature_path.parent.mkdir(parents=True, exist_ok=True)
           subprocess.run(
               [
@@ -94,9 +101,17 @@ for _category, items in manifest.items():
               stdout=subprocess.DEVNULL,
               stderr=subprocess.DEVNULL,
           )
+          expected_feature_paths.add(feature_path)
           entry["feature"] = str(feature_path.relative_to(ROOT)).replace("\\", "/")
 
 serializable = {key: value for key, value in sorted(selected.items()) if value}
+
+for directory, expected_paths in ((THUMB_DIR, expected_thumb_paths), (FEATURE_DIR, expected_feature_paths)):
+    if not directory.exists():
+        continue
+    for generated in directory.rglob("*.jpg"):
+        if generated not in expected_paths:
+            generated.unlink()
 
 VARIANTS_JS.parent.mkdir(parents=True, exist_ok=True)
 VARIANTS_JS.write_text(

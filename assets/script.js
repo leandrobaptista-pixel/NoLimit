@@ -20,6 +20,9 @@ const galleryHint = document.getElementById('galleryHint');
 const galleryControls = document.getElementById('galleryControls');
 const galleryCount = document.getElementById('galleryCount');
 const galleryMoreButton = document.getElementById('galleryMoreBtn');
+const featuredMetrics = document.getElementById('featuredMetrics');
+const featuredLead = document.getElementById('featuredLead');
+const featuredRail = document.getElementById('featuredRail');
 const footerCompany = document.getElementById('footerCompany');
 const footerPhoneLink = document.getElementById('footerPhoneLink');
 const footerEmailLink = document.getElementById('footerEmailLink');
@@ -448,15 +451,15 @@ async function loadWebsiteContent() {
   try {
     const [settingsRows, categoryRows, galleryRows] = await Promise.all([
       fetchSupabaseRows(config.settingsTables, [
-        ['select', '*'],
+        ['select', 'company_name,phone,email,logo_url,logo_18_years_url,default_cta'],
         ['limit', '1']
       ]),
       fetchSupabaseRows(config.categoriesTables, [
-        ['select', '*'],
+        ['select', 'id,name,slug'],
         ['order', 'name.asc']
       ]),
       fetchSupabaseRows(config.galleryItemsTables, [
-        ['select', '*'],
+        ['select', 'id,title,category,image_url,created_at,published,used_in_social'],
         ['order', 'created_at.desc']
       ])
     ]);
@@ -693,7 +696,7 @@ function renderGalleryControls(categories, activeSlug, onChange) {
 function buildGalleryItem(item, category, index) {
   const fig = document.createElement('figure');
   const link = document.createElement('a');
-  link.href = `viewer.html?img=${encodeURIComponent(item.imageUrl)}&cat=${encodeURIComponent(category.slug)}&i=${index}`;
+  link.href = buildViewerHref(item.imageUrl, category.slug, index);
   link.target = '_blank';
   link.rel = 'noopener';
 
@@ -701,6 +704,7 @@ function buildGalleryItem(item, category, index) {
   img.loading = 'lazy';
   img.decoding = 'async';
   img.fetchPriority = 'low';
+  img.sizes = '(max-width: 600px) 100vw, (max-width: 900px) 50vw, 33vw';
   img.src = toURL(item.imageUrl);
   img.alt = item.title || `${category.name} project`;
   img.onerror = () => {
@@ -714,6 +718,180 @@ function buildGalleryItem(item, category, index) {
   fig.appendChild(link);
   fig.appendChild(cap);
   return fig;
+}
+
+function buildViewerHref(imageUrl, categorySlug, index = 0) {
+  return `viewer.html?img=${encodeURIComponent(imageUrl)}&cat=${encodeURIComponent(categorySlug)}&i=${index}`;
+}
+
+function flattenGalleryItems(galleryData) {
+  const items = [];
+  let sequence = 0;
+
+  galleryData.categories.forEach((category) => {
+    const list = Array.isArray(galleryData.itemsBySlug[category.slug]) ? galleryData.itemsBySlug[category.slug] : [];
+    list.forEach((item, categoryIndex) => {
+      items.push({
+        ...item,
+        categoryName: category.name,
+        categorySlug: category.slug,
+        categoryIndex,
+        sequence: sequence++
+      });
+    });
+  });
+
+  return items.sort(
+    (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || a.sequence - b.sequence
+  );
+}
+
+function formatPublishedDate(value) {
+  if (!value) return 'Published gallery item';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Published gallery item';
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function createFeaturedImage(imageUrl, alt, sizes) {
+  const image = document.createElement('img');
+  image.loading = 'lazy';
+  image.decoding = 'async';
+  image.fetchPriority = 'low';
+  image.sizes = sizes;
+  image.src = toURL(imageUrl);
+  image.alt = alt;
+  image.onerror = () => {
+    image.src = 'assets/placeholder.svg';
+  };
+  return image;
+}
+
+function renderFeaturedWork(galleryData) {
+  if (!featuredMetrics || !featuredLead || !featuredRail) return;
+
+  const items = flattenGalleryItems(galleryData);
+  if (!items.length) {
+    featuredMetrics.innerHTML = '';
+    featuredLead.innerHTML = `
+      <div class="featured-lead-copy">
+        <p class="featured-eyebrow">Selected project</p>
+        <h3>No published highlights yet</h3>
+        <p class="hint">As soon as new gallery items are published, this area will update automatically.</p>
+      </div>
+    `;
+    featuredRail.innerHTML = '';
+    return;
+  }
+
+  const lead = items[0];
+  const railItems = items.slice(1, 5);
+  const totalPhotos = items.length;
+  const totalSegments = galleryData.categories.length;
+
+  featuredMetrics.innerHTML = '';
+  [
+    { label: 'Published photos', value: String(totalPhotos) },
+    { label: 'Active segments', value: String(totalSegments) },
+    { label: 'Current focus', value: lead.categoryName }
+  ].forEach((entry) => {
+    const metric = document.createElement('article');
+    metric.className = 'featured-metric card';
+
+    const label = document.createElement('span');
+    label.textContent = entry.label;
+    const value = document.createElement('strong');
+    value.textContent = entry.value;
+
+    metric.append(label, value);
+    featuredMetrics.appendChild(metric);
+  });
+
+  featuredLead.innerHTML = '';
+  const leadLink = document.createElement('a');
+  leadLink.className = 'featured-lead-link';
+  leadLink.href = buildViewerHref(lead.imageUrl, lead.categorySlug, lead.categoryIndex);
+  leadLink.target = '_blank';
+  leadLink.rel = 'noopener';
+
+  const leadMedia = document.createElement('div');
+  leadMedia.className = 'featured-lead-media';
+  const leadChip = document.createElement('span');
+  leadChip.className = 'featured-chip';
+  leadChip.textContent = lead.categoryName;
+  leadMedia.appendChild(leadChip);
+  leadMedia.appendChild(
+    createFeaturedImage(
+      lead.imageUrl,
+      lead.title || `${lead.categoryName} featured project`,
+      '(max-width: 900px) 100vw, 40vw'
+    )
+  );
+
+  const leadCopy = document.createElement('div');
+  leadCopy.className = 'featured-lead-copy';
+  const leadEyebrow = document.createElement('p');
+  leadEyebrow.className = 'featured-eyebrow';
+  leadEyebrow.textContent = 'Most recent published highlight';
+  const leadTitle = document.createElement('h3');
+  leadTitle.textContent = lead.title || humanizePhotoTitle(lead.imageUrl);
+  const leadMeta = document.createElement('p');
+  leadMeta.className = 'hint';
+  leadMeta.textContent = `${formatPublishedDate(lead.createdAt)} · ${lead.categoryName}`;
+
+  leadCopy.append(leadEyebrow, leadTitle, leadMeta);
+  leadLink.append(leadMedia, leadCopy);
+  featuredLead.appendChild(leadLink);
+
+  featuredRail.innerHTML = '';
+  railItems.forEach((item, index) => {
+    const card = document.createElement('article');
+    card.className = 'featured-card card';
+
+    const link = document.createElement('a');
+    link.className = 'featured-card-link';
+    link.href = buildViewerHref(item.imageUrl, item.categorySlug, item.categoryIndex);
+    link.target = '_blank';
+    link.rel = 'noopener';
+
+    const media = document.createElement('div');
+    media.className = 'featured-card-media';
+    media.appendChild(
+      createFeaturedImage(
+        item.imageUrl,
+        item.title || `${item.categoryName} project`,
+        '(max-width: 600px) 100vw, (max-width: 900px) 50vw, 18vw'
+      )
+    );
+
+    const copy = document.createElement('div');
+    copy.className = 'featured-card-copy';
+
+    const meta = document.createElement('div');
+    meta.className = 'featured-card-meta';
+    const category = document.createElement('span');
+    category.className = 'featured-card-category';
+    category.textContent = item.categoryName;
+    const position = document.createElement('span');
+    position.className = 'featured-card-index';
+    position.textContent = `Highlight ${index + 1}`;
+    meta.append(category, position);
+
+    const title = document.createElement('h3');
+    title.textContent = item.title || humanizePhotoTitle(item.imageUrl);
+
+    const detail = document.createElement('p');
+    detail.textContent = formatPublishedDate(item.createdAt);
+
+    copy.append(meta, title, detail);
+    link.append(media, copy);
+    card.appendChild(link);
+    featuredRail.appendChild(card);
+  });
 }
 
 function renderGallery(categorySlug, galleryData) {
@@ -813,6 +991,7 @@ async function initGallery() {
   if (!galleryUiState.visibleBySlug[currentCategory]) galleryUiState.visibleBySlug[currentCategory] = GALLERY_BATCH_SIZE;
 
   renderGalleryControls(galleryData.categories, currentCategory, handleCategoryChange);
+  renderFeaturedWork(galleryData);
   renderGallery(currentCategory, galleryData);
 
   galleryMoreButton?.addEventListener('click', () => {
@@ -846,6 +1025,7 @@ async function initGallery() {
       galleryUiState.categorySlug = nextGalleryData.categories[0]?.slug || '';
     }
     renderGalleryControls(nextGalleryData.categories, galleryUiState.categorySlug, handleCategoryChange);
+    renderFeaturedWork(nextGalleryData);
     renderGallery(galleryUiState.categorySlug, nextGalleryData);
   });
 }

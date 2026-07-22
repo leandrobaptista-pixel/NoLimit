@@ -18,9 +18,18 @@ const aboutHeading = document.getElementById('aboutHeading');
 const anniversaryLogo = document.getElementById('anniversaryLogo');
 const galleryHint = document.getElementById('galleryHint');
 const galleryControls = document.getElementById('galleryControls');
+const galleryCount = document.getElementById('galleryCount');
+const galleryMoreButton = document.getElementById('galleryMoreBtn');
 const footerCompany = document.getElementById('footerCompany');
 const footerPhoneLink = document.getElementById('footerPhoneLink');
 const footerEmailLink = document.getElementById('footerEmailLink');
+const WEBSITE_CONTENT_CACHE_KEY = 'websiteContentCache:v1';
+const GALLERY_BATCH_SIZE = 12;
+const galleryUiState = {
+  data: null,
+  categorySlug: '',
+  visibleBySlug: {}
+};
 
 const DEFAULT_SITE_PROFILE = {
   companyName: 'No Limit Carpentry',
@@ -95,6 +104,54 @@ function humanizePhotoTitle(source) {
 function formatPhoneHref(phone) {
   const digits = String(phone || '').replace(/[^\d+]/g, '');
   return digits ? `tel:${digits}` : '';
+}
+
+function scheduleNonCriticalTask(callback) {
+  if (typeof callback !== 'function') return;
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(() => callback(), { timeout: 1500 });
+    return;
+  }
+  window.setTimeout(() => callback(), 120);
+}
+
+function readStoredJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function readCachedSiteSettings() {
+  const cached = readStoredJson('websiteSiteSettings');
+  return cached && typeof cached === 'object' ? cached : null;
+}
+
+function readWebsiteContentCache() {
+  const cached = readStoredJson(WEBSITE_CONTENT_CACHE_KEY);
+  return cached && typeof cached === 'object' ? cached : null;
+}
+
+function writeWebsiteContentCache(content) {
+  try {
+    localStorage.setItem(
+      WEBSITE_CONTENT_CACHE_KEY,
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        settings: content?.settings || null,
+        gallery: content?.gallery || null
+      })
+    );
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function hasRenderableGallery(gallery) {
+  return Boolean(gallery?.categories?.length && Object.keys(gallery.itemsBySlug || {}).length);
 }
 
 function setGalleryHint(message) {
@@ -672,6 +729,10 @@ function renderGallery(categorySlug, galleryData) {
   }
 
   const list = Array.isArray(galleryData.itemsBySlug[category.slug]) ? galleryData.itemsBySlug[category.slug] : [];
+  const visibleCount = Math.min(
+    list.length,
+    galleryUiState.visibleBySlug[category.slug] || GALLERY_BATCH_SIZE
+  );
 
   try {
     localStorage.setItem(`galleryList:${category.slug}`, JSON.stringify(list.map((item) => item.imageUrl)));
@@ -686,10 +747,23 @@ function renderGallery(categorySlug, galleryData) {
   }
 
   const fragment = document.createDocumentFragment();
-  list.forEach((item, index) => {
+  list.slice(0, visibleCount).forEach((item, index) => {
     fragment.appendChild(buildGalleryItem(item, category, index));
   });
   container.appendChild(fragment);
+
+  if (galleryCount) {
+    galleryCount.textContent =
+      list.length > visibleCount
+        ? `Showing ${visibleCount} of ${list.length} photos in ${category.name}.`
+        : `Showing all ${list.length} photos in ${category.name}.`;
+  }
+
+  if (galleryMoreButton) {
+    const hasMore = list.length > visibleCount;
+    galleryMoreButton.hidden = !hasMore;
+    galleryMoreButton.disabled = !hasMore;
+  }
 }
 
 function updateGalleryHistory(categorySlug) {
@@ -699,39 +773,81 @@ function updateGalleryHistory(categorySlug) {
 }
 
 async function initGallery() {
-  const [manifest, dynamicContent] = await Promise.all([loadManifest(), loadWebsiteContent()]);
-  if (dynamicContent?.settings) applySiteSettings(dynamicContent.settings);
+  const cachedContent = readWebsiteContentCache();
+  const cachedSettings = cachedContent?.settings || readCachedSiteSettings();
+  if (cachedSettings) applySiteSettings(cachedSettings);
+
+  const manifest = await loadManifest();
 
   const fallbackGalleryData = buildStaticGalleryData(manifest);
-  const galleryData =
-    dynamicContent?.gallery?.categories?.length && Object.keys(dynamicContent.gallery.itemsBySlug || {}).length
-      ? dynamicContent.gallery
-      : fallbackGalleryData;
+  const galleryData = hasRenderableGallery(cachedContent?.gallery) ? cachedContent.gallery : fallbackGalleryData;
 
   if (!galleryData.categories.length) {
     setGalleryHint('No published gallery items are available yet.');
     const container = document.getElementById('galleryContent');
     if (container) container.innerHTML = '<p class="hint">No published photos are available yet.</p>';
     if (galleryControls) galleryControls.innerHTML = '';
+    if (galleryCount) galleryCount.textContent = '';
+    if (galleryMoreButton) galleryMoreButton.hidden = true;
     return;
   }
 
   if (galleryData.source === 'supabase') {
     setGalleryHint('Browse by segment. Showing published gallery items from your website content tables.');
   } else {
-    setGalleryHint('Browse by segment. Static gallery fallback is active while dynamic website content is unavailable.');
+    setGalleryHint('Browse by segment. Static gallery is shown first so the page opens faster while dynamic content updates in the background.');
   }
 
   let currentCategory = getInitialCategory(galleryData.categories);
   const handleCategoryChange = (nextCategory) => {
     currentCategory = nextCategory;
+    galleryUiState.categorySlug = currentCategory;
+    if (!galleryUiState.visibleBySlug[currentCategory]) galleryUiState.visibleBySlug[currentCategory] = GALLERY_BATCH_SIZE;
     renderGalleryControls(galleryData.categories, currentCategory, handleCategoryChange);
     updateGalleryHistory(currentCategory);
     renderGallery(currentCategory, galleryData);
   };
 
+  galleryUiState.data = galleryData;
+  galleryUiState.categorySlug = currentCategory;
+  if (!galleryUiState.visibleBySlug[currentCategory]) galleryUiState.visibleBySlug[currentCategory] = GALLERY_BATCH_SIZE;
+
   renderGalleryControls(galleryData.categories, currentCategory, handleCategoryChange);
   renderGallery(currentCategory, galleryData);
+
+  galleryMoreButton?.addEventListener('click', () => {
+    const activeGallery = galleryUiState.data;
+    const activeSlug = galleryUiState.categorySlug;
+    if (!activeGallery || !activeSlug) return;
+    const list = Array.isArray(activeGallery.itemsBySlug[activeSlug]) ? activeGallery.itemsBySlug[activeSlug] : [];
+    if (!list.length) return;
+    const nextVisible = Math.min(
+      list.length,
+      (galleryUiState.visibleBySlug[activeSlug] || GALLERY_BATCH_SIZE) + GALLERY_BATCH_SIZE
+    );
+    galleryUiState.visibleBySlug[activeSlug] = nextVisible;
+    renderGallery(activeSlug, activeGallery);
+  });
+
+  scheduleNonCriticalTask(async () => {
+    const dynamicContent = await loadWebsiteContent();
+    if (!dynamicContent) return;
+    if (dynamicContent.settings) applySiteSettings(dynamicContent.settings);
+
+    const nextGalleryData = hasRenderableGallery(dynamicContent.gallery) ? dynamicContent.gallery : fallbackGalleryData;
+    writeWebsiteContentCache({
+      settings: dynamicContent.settings || cachedSettings || null,
+      gallery: nextGalleryData
+    });
+
+    if (!hasRenderableGallery(nextGalleryData)) return;
+    galleryUiState.data = nextGalleryData;
+    if (!nextGalleryData.categories.some((category) => category.slug === galleryUiState.categorySlug)) {
+      galleryUiState.categorySlug = nextGalleryData.categories[0]?.slug || '';
+    }
+    renderGalleryControls(nextGalleryData.categories, galleryUiState.categorySlug, handleCategoryChange);
+    renderGallery(galleryUiState.categorySlug, nextGalleryData);
+  });
 }
 
 syncHeaderHeight();

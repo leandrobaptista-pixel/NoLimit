@@ -69,6 +69,15 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 .gallery-grid figure{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:0}
 .gallery-grid img{width:100%;height:clamp(190px,24vw,250px);object-fit:cover;display:block}
 .gallery-grid figcaption{padding:10px 12px;color:var(--muted);font-size:.95rem;border-top:1px solid var(--border)}
+.gallery-footer{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:16px;
+  flex-wrap:wrap;
+}
+.gallery-count{margin:0}
 
 .gallery-controls{
   display:flex;

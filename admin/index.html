@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>No Limit | Admin Portal</title>
+    <meta
+      name="description"
+      content="Restricted admin portal for registered No Limit Contractor users to access Gallery Control and Installation Control."
+    />
+    <link rel="stylesheet" href="../assets/styles.css" />
+  </head>
+  <body class="admin-portal-page">
+    <header class="site-header">
+      <div class="container nav">
+        <a class="brand" href="../index.html#home">
+          <img class="logo" src="../assets/brand.png" onerror="this.src='../assets/logo.svg'" alt="No Limit Carpentry logo" />
+          <span>No Limit Carpentry</span>
+        </a>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primaryNav" aria-label="Toggle navigation">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <nav id="primaryNav">
+          <a href="../index.html#gallery">Gallery</a>
+          <a href="../catalogs.html">Catalogs</a>
+          <a href="../index.html#visit">Request a Visit</a>
+          <a class="btn btn-small" href="../index.html">Back to Website</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="section admin-hero">
+        <div class="container admin-shell">
+          <div class="admin-copy">
+            <p class="section-kicker">Restricted access</p>
+            <h1>Admin tools for registered No Limit Contractor users.</h1>
+            <p class="hint">
+              Sign in with the same username and password stored in the central No Limit directory. After validation,
+              this portal unlocks the secure entry points for Gallery Control and Installation Control.
+            </p>
+
+            <div class="admin-meta-grid">
+              <article class="card admin-meta-card">
+                <strong>One entry point</strong>
+                <p>Public navigation stays cleaner while operational tools live in one dedicated portal.</p>
+              </article>
+              <article class="card admin-meta-card">
+                <strong>Central directory check</strong>
+                <p>Credentials are validated against the shared No Limit Contractor user directory already used by the app.</p>
+              </article>
+              <article class="card admin-meta-card">
+                <strong>Gallery operations</strong>
+                <p>Reach the photo upload, artwork, publishing, and tracking workspace from one controlled access point.</p>
+              </article>
+              <article class="card admin-meta-card">
+                <strong>Field operations</strong>
+                <p>Open the workforce, delivery, installation, and check-in system without exposing the link in the public header.</p>
+              </article>
+            </div>
+          </div>
+
+          <aside class="card admin-auth-card" aria-labelledby="adminAuthTitle">
+            <div>
+              <p class="section-kicker">Sign in</p>
+              <h2 id="adminAuthTitle">Admin Portal access</h2>
+            </div>
+            <p class="admin-auth-copy">
+              Only users registered under No Limit Contractor can unlock this portal.
+            </p>
+            <form id="adminPortalLoginForm" class="admin-auth-form" autocomplete="on">
+              <label class="admin-field">
+                <span>Username</span>
+                <input id="adminPortalUsername" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required />
+              </label>
+              <label class="admin-field">
+                <span>Password</span>
+                <input id="adminPortalPassword" type="password" name="password" autocomplete="current-password" required />
+              </label>
+              <div class="admin-auth-actions">
+                <button class="btn" type="submit">Access Admin Portal</button>
+                <a class="btn btn-secondary" href="../index.html#visit">Return to website</a>
+              </div>
+            </form>
+            <p id="adminPortalStatus" class="admin-status hint" aria-live="polite"></p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="adminToolsSection" class="section admin-tools-section" hidden>
+        <div class="container admin-tools-shell">
+          <div class="admin-tools-head">
+            <div>
+              <p class="section-kicker">Authorized session</p>
+              <h2>Admin tools unlocked</h2>
+              <p id="adminSessionMeta" class="admin-session-meta hint"></p>
+            </div>
+            <button id="adminPortalLogout" class="btn btn-secondary" type="button">Sign out</button>
+          </div>
+
+          <div class="admin-tools-grid">
+            <article class="card admin-tool-card" data-tool="gallery">
+              <span class="admin-tool-badge">Content operations</span>
+              <div>
+                <h3>Gallery Control</h3>
+                <p class="hint">
+                  Upload project photos, organize categories, generate artwork, and review publishing status from the gallery workspace.
+                </p>
+              </div>
+              <ul>
+                <li>Upload and categorize new project photos</li>
+                <li>Review daily social publishing flow</li>
+                <li>Manage publish status and gallery visibility</li>
+              </ul>
+              <div class="admin-tool-actions">
+                <a class="btn" href="../media-studio.html">Open Gallery Control</a>
+              </div>
+            </article>
+
+            <article class="card admin-tool-card" data-tool="installation">
+              <span class="admin-tool-badge">Operations</span>
+              <div>
+                <h3>Installation Control</h3>
+                <p class="hint">
+                  Open the workday, check-in, project planning, delivery, installation, and workforce control system.
+                </p>
+              </div>
+              <ul>
+                <li>Secure workforce and project access</li>
+                <li>Check-in, scheduling, and operational reporting</li>
+                <li>Admin, supervisor, and developer controls</li>
+              </ul>
+              <div class="admin-tool-actions">
+                <a class="btn" href="../installation-control/">Open Installation Control</a>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="../installation-control/cloud-sync-config.js"></script>
+    <script src="../assets/admin-portal.js"></script>
+  </body>
+</html>

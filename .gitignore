@@ -10,3 +10,4 @@ media-admin/server/storage/uploads/*
 !media-admin/server/storage/uploads/.gitkeep
 media-admin/server/storage/generated/*
 !media-admin/server/storage/generated/.gitkeep
+scripts/logs/

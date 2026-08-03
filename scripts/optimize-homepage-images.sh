@@ -1,7 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 
-ROOT="/Users/lemacbook/Desktop/WebSite 2"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ASSETS_DIR="$ROOT/assets"
 MANIFEST_JSON="$ASSETS_DIR/gallery-manifest.json"
 THUMB_DIR="$ASSETS_DIR/optimized/thumb"

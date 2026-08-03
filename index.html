@@ -10,8 +10,8 @@
   <body>
     <header class="site-header">
       <div class="container nav">
-        <a class="brand" href="#home">
-          <img id="brandLogo" class="logo" src="assets/brand.png" onerror="this.src='assets/logo.svg'" alt="No Limit Carpentry logo">
+        <a class="brand" href="#home" aria-label="No Limit Carpentry home">
+          <img id="brandLogo" class="logo" data-fixed-brand="true" src="assets/brand-kit/nl-symbol-flat-transparent.png" alt="No Limit Carpentry logo">
           <span id="brandName">No Limit Carpentry</span>
         </a>
         <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="primaryNav" aria-label="Toggle navigation">
@@ -23,7 +23,6 @@
           <a href="#about">About</a>
           <a href="#services">Services</a>
           <a href="#gallery">Gallery</a>
-          <a href="#launches">Launches</a>
           <a href="./catalogs.html">Catalogs</a>
           <a href="#process">Process</a>
           <a class="btn-small" href="./admin/">Admin</a>
@@ -34,17 +33,27 @@
 
     <main>
       <section id="home" class="hero">
+        <div class="container hero-marquee-wrap">
+          <figure class="hero-marquee">
+            <img id="heroLogo" data-fixed-brand="true" src="assets/brand-kit/nolimit-wall-wordmark.png" alt="No Limit Carpentry" fetchpriority="high" decoding="async">
+          </figure>
+        </div>
         <div class="container hero-inner">
-          <div class="hero-brand">
-            <img id="heroLogo" src="assets/brand-hero.png" alt="No Limit Carpentry" fetchpriority="high" decoding="async">
+          <div class="hero-copy">
+            <p class="hero-kicker">Fine Carpentry & Millwork</p>
+            <h1>Premium Finish Carpentry, Built to Last</h1>
+            <p>
+              High-quality trim, custom built-ins, crown molding, wall paneling, interior doors, and more — crafted with precision for a refined, lasting look.
+            </p>
+            <div class="hero-ctas">
+              <a class="btn" href="#visit" data-default-cta>Request a Free On‑Site Visit</a>
+              <a class="btn btn-secondary" href="#services">Explore Services</a>
+            </div>
           </div>
-          <h1>Premium Finish Carpentry, Built to Last</h1>
-          <p>
-            High-quality trim, custom built-ins, crown molding, wall paneling, interior doors, and more — crafted with precision for a refined, lasting look.
-          </p>
-          <div class="hero-ctas">
-            <a class="btn" href="#visit" data-default-cta>Request a Free On‑Site Visit</a>
-            <a class="btn btn-secondary" href="#services">Explore Services</a>
+          <div class="hero-visual">
+            <figure class="hero-symbol-panel">
+              <img src="assets/brand-kit/nl-symbol-flat-transparent.png" alt="NL signature mark" loading="lazy" decoding="async">
+            </figure>
           </div>
         </div>
       </section>
@@ -62,7 +71,7 @@
               </p>
             </div>
             <figure class="badge">
-              <img id="anniversaryLogo" src="assets/anniversary-18.png" alt="No Limit Carpentry — 18 Years" loading="lazy" />
+              <img id="anniversaryLogo" data-fixed-brand="true" src="assets/brand-kit/nl-18-years-badge-dark.png" alt="No Limit Carpentry — 18 Years" loading="lazy" />
               <figcaption>NJ, NY and FL</figcaption>
             </figure>
           </div>
@@ -73,29 +82,65 @@
         <div class="container">
           <h2>Services</h2>
           <div class="services-grid">
-            <article class="card">
-              <h3>Custom Built‑ins & Cabinetry</h3>
-              <p>Tailored storage, entertainment centers, mudrooms, and closet systems that fit perfectly and look seamless.</p>
+            <article class="card service-card">
+              <figure class="service-card-media">
+                <img src="assets/optimized/thumb/00-kitchen%20%26%20Vanities/IMG_1176.jpg" alt="Custom built-in cabinetry detail" loading="lazy" />
+              </figure>
+              <div class="service-card-copy">
+                <span class="service-card-tag">Tailored millwork</span>
+                <h3>Custom Built‑ins & Cabinetry</h3>
+                <p>Tailored storage, entertainment centers, mudrooms, and closet systems that fit perfectly and look seamless.</p>
+              </div>
             </article>
-            <article class="card">
-              <h3>Crown Molding & Trim</h3>
-              <p>Clean, crisp profiles and tight corners that add definition and character to any room.</p>
+            <article class="card service-card">
+              <figure class="service-card-media">
+                <img src="assets/optimized/thumb/00-Trim/IMG_1306.jpg" alt="Crown molding and trim detail" loading="lazy" />
+              </figure>
+              <div class="service-card-copy">
+                <span class="service-card-tag">Refined lines</span>
+                <h3>Crown Molding & Trim</h3>
+                <p>Clean, crisp profiles and tight corners that add definition and character to any room.</p>
+              </div>
             </article>
-            <article class="card">
-              <h3>Wainscoting & Wall Paneling</h3>
-              <p>Shiplap, beadboard, picture-frame, and custom panel details to transform flat walls into features.</p>
+            <article class="card service-card">
+              <figure class="service-card-media">
+                <img src="assets/optimized/thumb/00-Wainscoting/IMG_1586.jpg" alt="Wainscoting and wall paneling detail" loading="lazy" />
+              </figure>
+              <div class="service-card-copy">
+                <span class="service-card-tag">Architectural depth</span>
+                <h3>Wainscoting & Wall Paneling</h3>
+                <p>Shiplap, beadboard, picture-frame, and custom panel details to transform flat walls into features.</p>
+              </div>
             </article>
-            <article class="card">
-              <h3>Interior Doors & Casings</h3>
-              <p>Door installations, jambs, and casings with precise reveals and premium hardware alignment.</p>
+            <article class="card service-card">
+              <figure class="service-card-media">
+                <img src="assets/optimized/thumb/00-Outside%20Doors%20%26%20Windows/IMG_3311.jpg" alt="Door and casing finish detail" loading="lazy" />
+              </figure>
+              <div class="service-card-copy">
+                <span class="service-card-tag">Precise framing</span>
+                <h3>Interior Doors & Casings</h3>
+                <p>Door installations, jambs, and casings with precise reveals and premium hardware alignment.</p>
+              </div>
             </article>
-            <article class="card">
-              <h3>Stairs & Railings</h3>
-              <p>Stair finish upgrades, newel posts, treads, and handrails that are solid, safe, and stunning.</p>
+            <article class="card service-card">
+              <figure class="service-card-media">
+                <img src="assets/optimized/thumb/00-Stairs/IMG_1900.jpg" alt="Stair and railing detail" loading="lazy" />
+              </figure>
+              <div class="service-card-copy">
+                <span class="service-card-tag">Statement movement</span>
+                <h3>Stairs & Railings</h3>
+                <p>Stair finish upgrades, newel posts, treads, and handrails that are solid, safe, and stunning.</p>
+              </div>
             </article>
-            <article class="card">
-              <h3>Mantels & Feature Walls</h3>
-              <p>Statement mantels and accent walls that anchor the space with craftsmanship and style.</p>
+            <article class="card service-card">
+              <figure class="service-card-media">
+                <img src="assets/optimized/thumb/00-Fireplaces%20%26%20Bars/IMG_1816.jpg" alt="Mantel and feature wall detail" loading="lazy" />
+              </figure>
+              <div class="service-card-copy">
+                <span class="service-card-tag">Signature finishes</span>
+                <h3>Mantels & Feature Walls</h3>
+                <p>Statement mantels and accent walls that anchor the space with craftsmanship and style.</p>
+              </div>
             </article>
           </div>
         </div>
@@ -125,78 +170,37 @@
         </div>
       </section>
 
-      <section id="launches" class="section">
-        <div class="container">
-          <div class="studio-intro">
-            <div>
-              <h2>Launch Entries</h2>
-              <p class="hint">
-                Open a clean launch index with centralized data, real entry routes, global search, and one-table detail pages.
-                The home page stays lightweight and does not render full launch tables.
-              </p>
-            </div>
-            <div class="studio-cta-group">
-              <a class="btn" href="./lancamentos/">Open Launch Index</a>
-              <a class="btn btn-secondary" href="./lancamento/LN-2026-001">Open sample entry</a>
-            </div>
-          </div>
-
-          <div class="studio-summary-grid">
-            <article class="card studio-card">
-              <span class="studio-card-kicker">Clean index</span>
-              <h3>One directory page</h3>
-              <p>
-                The main launch page lists records with search and filters, but it does not embed the detailed tables for every record.
-              </p>
-            </article>
-            <article class="card studio-card">
-              <span class="studio-card-kicker">Individual record route</span>
-              <h3>One table per launch</h3>
-              <p>
-                Each launch opens in its own route with a dedicated detail page, one editable table, and record navigation.
-              </p>
-            </article>
-            <article class="card studio-card">
-              <span class="studio-card-kicker">Centralized data</span>
-              <h3>Search and persist locally</h3>
-              <p>
-                Data lives in one shared store, making search, filtering, next/previous navigation, and local persistence consistent.
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
-
       <section id="catalogs" class="section section-muted">
         <div class="container">
-          <div class="catalog-home-intro">
-            <div>
-              <p class="section-kicker">Catalog library</p>
-              <h2>Keep the homepage cleaner and move full PDF browsing into its own library.</h2>
+          <div class="resource-shell">
+            <div class="resource-copy">
+              <p class="section-kicker">Project resources</p>
+              <h2>Keep material references and protected operations close, without crowding the homepage.</h2>
               <p class="hint">
-                The website homepage now previews only the partner groups. Full PDF browsing lives in a dedicated catalog page,
-                which keeps navigation lighter and easier to scan.
+                Public catalogs stay easy to browse for clients and partners, while Installation Control remains protected
+                inside the Admin portal for registered No Limit Contractor users.
               </p>
+              <div class="resource-actions">
+                <a class="btn" href="./catalogs.html">Open Catalog Library</a>
+              </div>
             </div>
-            <div class="catalog-home-actions">
-              <a class="btn" href="./catalogs.html">Open Catalog Library</a>
-              <a class="btn btn-secondary" href="#visit">Talk About Materials</a>
-            </div>
-          </div>
-          <div id="catalogsPreview" class="catalog-preview-grid" aria-live="polite"></div>
-        </div>
-      </section>
 
-      <section id="installation-control" class="section">
-        <div class="container">
-          <h2>Installation Control</h2>
-          <p class="hint">
-            Operate warehouse, transportation, quality, installation, and container schedule in a dedicated window.
-            Access is now available through the Admin portal for registered No Limit Contractor users.
-          </p>
-          <p>
-            <a class="btn" href="./admin/?tool=installation">Open Admin Portal</a>
-          </p>
+            <aside class="card resource-aside">
+              <span class="studio-card-kicker">Protected operations</span>
+              <h3>Installation Control</h3>
+              <p class="hint">
+                Central access for warehouse coordination, transportation, quality checkpoints, installation flow, and container schedule.
+              </p>
+              <ul class="resource-list">
+                <li>Warehouse and receiving coordination</li>
+                <li>Transportation and delivery visibility</li>
+                <li>Quality and installation checkpoints</li>
+                <li>Admin-only operational access</li>
+              </ul>
+            </aside>
+          </div>
+
+          <div id="catalogsPreview" class="catalog-preview-grid" aria-live="polite"></div>
         </div>
       </section>
 
@@ -204,21 +208,45 @@
         <div class="container">
           <h2>Our Process</h2>
           <ol class="process">
-            <li>
-              <strong>Consultation & Measurement</strong>
-              <span>We listen to your goals, assess the site, and capture precise dimensions.</span>
+            <li class="process-card">
+              <figure class="process-card-media">
+                <img src="assets/optimized/thumb/00-Trim/IMG_1046.jpg" alt="Consultation and measurement detail" loading="lazy" />
+              </figure>
+              <div class="process-card-copy">
+                <span class="process-step-index">01</span>
+                <strong>Consultation & Measurement</strong>
+                <span>We listen to your goals, assess the site, and capture precise dimensions.</span>
+              </div>
             </li>
-            <li>
-              <strong>Design & Estimate</strong>
-              <span>Clear options and itemized pricing — no surprises.</span>
+            <li class="process-card">
+              <figure class="process-card-media">
+                <img src="assets/optimized/thumb/00-kitchen%20%26%20Vanities/IMG_0499.jpg" alt="Design and estimate detail" loading="lazy" />
+              </figure>
+              <div class="process-card-copy">
+                <span class="process-step-index">02</span>
+                <strong>Design & Estimate</strong>
+                <span>Clear options and itemized pricing — no surprises.</span>
+              </div>
             </li>
-            <li>
-              <strong>Craft & Install</strong>
-              <span>Careful fabrication and clean, on‑time installation.</span>
+            <li class="process-card">
+              <figure class="process-card-media">
+                <img src="assets/optimized/thumb/00-Ceiling/IMG_1241.jpg" alt="Craft and install detail" loading="lazy" />
+              </figure>
+              <div class="process-card-copy">
+                <span class="process-step-index">03</span>
+                <strong>Craft & Install</strong>
+                <span>Careful fabrication and clean, on‑time installation.</span>
+              </div>
             </li>
-            <li>
-              <strong>Final Walkthrough</strong>
-              <span>We review details with you and ensure everything is perfect.</span>
+            <li class="process-card">
+              <figure class="process-card-media">
+                <img src="assets/optimized/thumb/00-Wainscoting/IMG_7578.jpg" alt="Final walkthrough detail" loading="lazy" />
+              </figure>
+              <div class="process-card-copy">
+                <span class="process-step-index">04</span>
+                <strong>Final Walkthrough</strong>
+                <span>We review details with you and ensure everything is perfect.</span>
+              </div>
             </li>
           </ol>
         </div>

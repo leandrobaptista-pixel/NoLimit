@@ -43,6 +43,65 @@ python3 scripts/gallery_sync_pipeline.py --skip-check
 python3 scripts/gallery_sync_pipeline.py --full-site-check
 ```
 
+## 1.6) Watcher automatico da galeria
+
+Se voce quiser que o sistema detecte novas fotos sozinho assim que elas entrarem nas pastas, use o watcher:
+
+```bash
+python3 scripts/gallery_watch.py
+```
+
+Comportamento:
+
+- vigia continuamente as pastas reais da galeria
+- espera os arquivos terminarem de copiar antes de processar
+- roda o pipeline automaticamente quando detectar mudancas
+- regenera manifest, links e imagens otimizadas
+
+Opcoes uteis:
+
+```bash
+# tambem publicar automaticamente no GitHub/Cloudflare
+python3 scripts/gallery_watch.py --publish
+
+# rodar uma sincronizacao imediata ao iniciar o watcher
+python3 scripts/gallery_watch.py --run-on-start
+
+# modo de teste rapido por 15 segundos
+python3 scripts/gallery_watch.py --max-runtime 15
+```
+
+### Instalar no Mac para rodar sozinho em segundo plano
+
+Modo recomendado:
+
+```bash
+./scripts/install_gallery_watcher.sh --run-on-start
+```
+
+Se quiser que ele tambem publique automaticamente ao detectar novas fotos:
+
+```bash
+./scripts/install_gallery_watcher.sh --run-on-start --publish
+```
+
+Para remover depois:
+
+```bash
+./scripts/remove_gallery_watcher.sh
+```
+
+Observacao importante:
+
+- se o projeto estiver dentro de `Desktop`, `Documents` ou `Downloads`, o macOS pode bloquear o `launchd`
+- para o modo realmente automatico em segundo plano, o ideal e manter o projeto em uma pasta como `~/Projects/WebSite 2`
+
+Logs:
+
+- `scripts/logs/gallery-watch.log`
+- `scripts/logs/gallery-watch-launchd.out.log`
+- `scripts/logs/gallery-watch-launchd.err.log`
+
 ## 2) Gerar plano semanal de conteudo (Facebook, YouTube e outros canais)
 
 ```bash

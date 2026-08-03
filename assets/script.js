@@ -419,18 +419,21 @@ function buildDynamicGalleryData(categoryRows, galleryRows) {
 
 function applySiteSettings(settings) {
   const profile = { ...DEFAULT_SITE_PROFILE, ...(settings || {}) };
+  const keepFixedBrandLogo = brandLogo?.hasAttribute('data-fixed-brand');
+  const keepFixedHeroLogo = heroLogo?.hasAttribute('data-fixed-brand');
+  const keepFixedAnniversaryLogo = anniversaryLogo?.hasAttribute('data-fixed-brand');
 
-  if (brandLogo && profile.logoUrl) {
+  if (brandLogo && profile.logoUrl && !keepFixedBrandLogo) {
     brandLogo.src = profile.logoUrl;
     brandLogo.alt = `${profile.companyName} logo`;
   }
 
-  if (heroLogo && profile.logoUrl) {
+  if (heroLogo && profile.logoUrl && !keepFixedHeroLogo) {
     heroLogo.src = profile.logoUrl;
     heroLogo.alt = profile.companyName;
   }
 
-  if (anniversaryLogo && profile.anniversaryLogoUrl) {
+  if (anniversaryLogo && profile.anniversaryLogoUrl && !keepFixedAnniversaryLogo) {
     anniversaryLogo.src = profile.anniversaryLogoUrl;
     anniversaryLogo.alt = `${profile.companyName} anniversary badge`;
   }
@@ -736,6 +739,10 @@ function buildGalleryItem(item, category, index) {
   const fig = document.createElement('figure');
   const link = document.createElement('a');
   link.href = buildViewerHref(item.imageUrl, category.slug, index);
+  link.className = 'gallery-media-link';
+
+  const media = document.createElement('span');
+  media.className = 'gallery-media-frame';
 
   const img = document.createElement('img');
   img.loading = 'lazy';
@@ -751,7 +758,8 @@ function buildGalleryItem(item, category, index) {
   const cap = document.createElement('figcaption');
   cap.textContent = item.title || humanizePhotoTitle(item.imageUrl);
 
-  link.appendChild(img);
+  media.appendChild(img);
+  link.appendChild(media);
   bindLightboxTrigger(link, category.items || [], index);
   fig.appendChild(link);
   fig.appendChild(cap);

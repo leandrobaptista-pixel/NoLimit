@@ -521,28 +521,9 @@ async function loadWebsiteContent() {
   }
 }
 
-function encodeMailto(fields) {
-  const to = form?.dataset?.to || DEFAULT_SITE_PROFILE.email;
-  const subject = encodeURIComponent('New Visit Request - A No Limit');
-  const lines = [
-    `Name: ${fields.name || ''}`,
-    `Email: ${fields.email || ''}`,
-    `Phone: ${fields.phone || ''}`,
-    `Address: ${fields.address || ''}`,
-    `City: ${fields.city || ''}`,
-    `Preferred Date: ${fields.date || ''}`,
-    `Project Type: ${fields.type || ''}`,
-    '',
-    'Details:',
-    fields.details || ''
-  ];
-  const body = encodeURIComponent(lines.join('\n'));
-  return `mailto:${to}?subject=${subject}&body=${body}`;
-}
-
 async function submitVisitRequest(fields) {
   const config = getContactFormConfig();
-  if (!config) return { mode: 'mailto' };
+  if (!config) throw new Error('Visit request service is not configured.');
 
   const response = await fetch(`${config.supabaseUrl}/rest/v1/${config.table}`, {
     method: 'POST',
@@ -550,7 +531,7 @@ async function submitVisitRequest(fields) {
       'Content-Type': 'application/json',
       apikey: config.supabaseAnonKey,
       Authorization: `Bearer ${config.supabaseAnonKey}`,
-      Prefer: 'return=representation'
+      Prefer: 'return=minimal'
     },
     body: JSON.stringify({
       source: 'website',
@@ -571,7 +552,7 @@ async function submitVisitRequest(fields) {
     throw new Error(errorText || 'Could not submit request.');
   }
 
-  return { mode: 'supabase' };
+  return { mode: 'saved' };
 }
 
 function getFields() {
@@ -1421,17 +1402,12 @@ form?.addEventListener('submit', async (event) => {
   try {
     const result = await submitVisitRequest(fields);
 
-    if (result.mode === 'mailto') {
-      window.location.href = encodeMailto(fields);
-      setFormNote('Opening your email client...', 'success');
-    } else {
-      resetVisitForm();
-      setFormNote('Request sent successfully. We will get back to you shortly.', 'success');
-    }
+    if (result.mode !== 'saved') throw new Error('Could not submit request.');
+    resetVisitForm();
+    setFormNote('Thank you — your on-site visit request has been received successfully. Our team will be in touch as soon as possible.', 'success');
   } catch (error) {
     console.error(error);
-    window.location.href = encodeMailto(fields);
-    setFormNote('Could not reach the server. Opening your email client instead.', 'error');
+    setFormNote('We could not submit your request at this time. Please try again shortly.', 'error');
   } finally {
     if (submitButton) {
       submitButton.disabled = false;

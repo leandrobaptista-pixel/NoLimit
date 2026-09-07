@@ -720,6 +720,10 @@ function getInitialCategory(categories) {
   return categories[0]?.slug || 'trim';
 }
 
+const GALLERY_CATEGORY_LABELS = {
+  ceiling: 'Crown Molding · Ceiling · Coffered Ceiling'
+};
+
 function renderGalleryControls(categories, activeSlug, onChange) {
   if (!galleryControls) return;
   galleryControls.innerHTML = '';
@@ -729,7 +733,9 @@ function renderGalleryControls(categories, activeSlug, onChange) {
     button.type = 'button';
     button.className = `filter-btn${category.slug === activeSlug ? ' active' : ''}`;
     button.dataset.cat = category.slug;
-    button.textContent = category.name;
+    const displayLabel = GALLERY_CATEGORY_LABELS[category.slug] || category.name;
+    button.textContent = displayLabel;
+    if (displayLabel !== category.name) button.setAttribute('aria-label', displayLabel);
     button.addEventListener('click', () => onChange(category.slug));
     galleryControls.appendChild(button);
   });

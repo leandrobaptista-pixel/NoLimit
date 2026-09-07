@@ -4,51 +4,60 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Photo Viewer - A No Limit Carpentry</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="assets/styles.css" />
+    <link rel="stylesheet" href="assets/homepage-preview.css?v=20260907-viewer" />
     <style>
-      body { background: var(--bg); color: var(--text); }
+      body.viewer-page { background: var(--paper); color: var(--ink); font-family: "DM Sans", sans-serif; }
       .viewer-wrap { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
-      .viewer-header { display: flex; justify-content: center; align-items: center; padding: 12px 64px 12px 12px; border-bottom: 1px solid var(--border); background: rgba(247, 238, 231, .85); }
+      .viewer-header { display: flex; justify-content: center; align-items: center; min-height: 88px; padding: 8px 72px 8px 22px; border-bottom: 1px solid var(--line); background: rgba(255,253,249,.95); }
       .viewer-header .brand { display: flex; align-items: center; gap: 10px; }
-      .viewer-header img { height: 40px; }
-      .viewer-main { display: grid; place-items: center; padding: 16px; }
-      .viewer-main img { max-width: 95vw; max-height: 75vh; border-radius: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); cursor: zoom-out; }
-      .viewer-footer { display: flex; justify-content: center; align-items: center; padding: 10px; color: var(--muted); }
-      .viewer-actions { position: fixed; bottom: 16px; right: 16px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      .viewer-header img { width:76px; height:54px; object-fit:contain; }
+      .viewer-header strong { font:300 1.55rem/1 "Newsreader", Georgia, serif; letter-spacing:-.04em; }
+      .viewer-main { display: grid; place-items: center; padding: 34px 22px 96px; background: var(--ivory); }
+      .viewer-main img { max-width: min(1100px,94vw); max-height: calc(100vh - 224px); border-radius: 0; box-shadow: none; cursor: zoom-out; }
+      .viewer-footer { display: flex; justify-content: center; align-items: center; padding: 15px 22px 22px; color: var(--soft); font-weight:300; background:var(--ivory); }
+      .viewer-actions { position: fixed; bottom: 22px; right: 22px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
       .viewer-actions a,
-      .viewer-actions button { background: var(--brand); color: #fff; border: 1px solid var(--brand-2); padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+      .viewer-actions button { background: var(--paper); color: var(--ink); border: 1px solid var(--bronze); padding: 10px 14px; border-radius: 0; cursor: pointer; font:400 .95rem/1 "Newsreader",Georgia,serif; }
+      .viewer-actions a:hover,.viewer-actions button:hover { background:var(--ink); border-color:var(--ink); color:#fff; }
       .viewer-actions button[disabled] { opacity: .45; cursor: default; }
       .viewer-close {
         position: fixed;
-        top: 14px;
-        right: 14px;
+        top: 20px;
+        right: 22px;
         width: 42px;
         height: 42px;
         display: grid;
         place-items: center;
-        border: 1px solid var(--border);
-        border-radius: 999px;
-        background: rgba(18, 21, 27, .88);
-        color: #fff;
+        border: 1px solid var(--line);
+        border-radius:0;
+        background: var(--paper);
+        color: var(--ink);
         font-size: 1.5rem;
         line-height: 1;
         cursor: pointer;
         z-index: 3;
       }
       @media (max-width: 720px) {
-        .viewer-header { padding-right: 56px; }
-        .viewer-actions { left: 16px; right: 16px; }
+        .viewer-header { min-height:76px; padding-right:64px; }
+        .viewer-header img{width:66px;height:48px}.viewer-header strong{font-size:1.3rem}
+        .viewer-main{padding:20px 14px 132px}.viewer-main img{max-width:100%;max-height:calc(100vh - 238px)}
+        .viewer-actions { left: 14px; right: 14px; bottom:14px; gap:8px; }
         .viewer-actions a,
         .viewer-actions button { flex: 1 1 140px; justify-content: center; }
+        .viewer-close{top:17px;right:14px}
       }
     </style>
   </head>
-  <body>
+  <body class="viewer-page">
     <div class="viewer-wrap">
       <button id="closeViewerBtn" class="viewer-close" type="button" aria-label="Close viewer">×</button>
       <header class="viewer-header">
         <a class="brand" href="index.html">
-          <img id="viewerBrandLogo" src="assets/brand.png" alt="No Limit Carpentry" />
+          <img id="viewerBrandLogo" src="assets/brand-kit/no-limit-carpentry-nl-monogram.png" alt="NL monogram" />
           <strong id="viewerBrandName">No Limit Carpentry</strong>
         </a>
       </header>
@@ -110,10 +119,6 @@
 
       function applyViewerSettings() {
         const settings = getStoredSettings();
-        if (settings.logoUrl && viewerBrandLogo) {
-          viewerBrandLogo.src = settings.logoUrl;
-          viewerBrandLogo.alt = `${settings.companyName || 'No Limit Carpentry'} logo`;
-        }
         if (settings.companyName && viewerBrandName) {
           viewerBrandName.textContent = settings.companyName;
         }

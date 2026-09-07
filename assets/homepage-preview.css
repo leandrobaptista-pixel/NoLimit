@@ -18,3 +18,30 @@ body{overflow-x:hidden}.container{max-width:1180px;padding-inline:34px}a{color:i
 @media (max-width:1000px){.category-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:800px){.category-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.category-feature,.category-feature-large{min-height:0;aspect-ratio:1/1}.category-feature span{left:11px;bottom:10px;font-size:1.02rem}.category-feature b{font-size:.62rem}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.entry-splash{display:none}.category-feature img{transition:none}}
+
+/* Catalog library — same editorial system as the homepage. */
+.catalog-library-page{background:var(--paper);color:var(--ink)}
+.catalog-library-page .library-hero{padding:clamp(72px,10vw,132px) 0 54px;background:var(--ivory);border-bottom:1px solid var(--line)}
+.catalog-library-page .library-hero-shell{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.62fr);gap:clamp(32px,6vw,82px);align-items:end}
+.catalog-library-page .library-hero-copy h1{max-width:11ch;margin:12px 0 20px;font:300 clamp(3rem,5.6vw,5.3rem)/.95 "Newsreader",Georgia,serif;letter-spacing:-.05em;color:var(--ink)}
+.catalog-library-page .library-hero-copy .hint{max-width:48rem;color:var(--soft)!important;line-height:1.75}
+.catalog-library-page .library-search-card{min-width:0;padding:24px 0 0;border:0;border-top:1px solid var(--bronze);border-radius:0;background:transparent;box-shadow:none}
+.catalog-library-page .library-search-card label{color:var(--bronze);font:500 .7rem/1.3 "DM Sans",sans-serif;letter-spacing:.2em}
+.catalog-library-page .library-search-card input{min-height:48px;padding:10px 0;border:0;border-bottom:1px solid var(--ink);border-radius:0;background:transparent;font:300 1.05rem/1.4 "DM Sans",sans-serif;color:var(--ink)}
+.catalog-library-page .library-search-card input:focus{outline:2px solid color-mix(in srgb,var(--bronze) 60%,transparent);outline-offset:5px}
+.catalog-library-page .library-search-card p{color:var(--soft);font:300 .82rem/1.5 "DM Sans",sans-serif}
+.catalog-library-page .section{padding:82px 0;background:var(--paper)}
+.catalog-library-page .library-groups{gap:58px;padding-bottom:0}
+.catalog-library-page .catalog-group{gap:21px}
+.catalog-library-page .catalog-group-head{padding-bottom:17px;border-bottom:1px solid var(--line)}
+.catalog-library-page .catalog-group-head h2{margin:0 0 7px;font:300 clamp(2rem,3.7vw,3.25rem)/1 "Newsreader",Georgia,serif;letter-spacing:-.04em;color:var(--ink)}
+.catalog-library-page .catalog-group-head p{color:var(--soft);font-weight:300;line-height:1.6}
+.catalog-library-page .catalog-group-total{padding:0;border-radius:0;background:transparent;color:var(--bronze);font:500 .72rem/1 "DM Sans",sans-serif;letter-spacing:.13em;text-transform:uppercase;white-space:nowrap}
+.catalog-library-page .catalog-doc-grid{gap:0;border-top:1px solid var(--line)}
+.catalog-library-page .catalog-doc-card{gap:17px;padding:25px 28px 27px 0;border:0;border-radius:0;border-bottom:1px solid var(--line);background:transparent;box-shadow:none}
+.catalog-library-page .catalog-doc-card:nth-child(even){padding-left:28px;padding-right:0;border-left:1px solid var(--line)}
+.catalog-library-page .catalog-doc-card h3{font:300 1.45rem/1.15 "Newsreader",Georgia,serif;color:var(--ink)}
+.catalog-library-page .catalog-doc-type{padding:0;border-radius:0;background:transparent;color:var(--bronze);font:500 .65rem/1.3 "DM Sans",sans-serif;letter-spacing:.14em;text-transform:uppercase}
+.catalog-library-page .catalog-doc-card p{color:var(--soft);font-weight:300;line-height:1.65}
+.catalog-library-page .catalog-doc-actions{gap:17px}.catalog-library-page .catalog-doc-actions .btn{padding:8px 0;border:0;border-bottom:1px solid var(--bronze);font-size:.95rem}.catalog-library-page .catalog-doc-actions .btn:hover{background:transparent;color:var(--bronze)}
+@media (max-width:800px){.catalog-library-page .library-hero{padding:74px 0 44px}.catalog-library-page .library-hero-shell{grid-template-columns:1fr;gap:32px}.catalog-library-page .library-hero-copy h1{font-size:clamp(2.85rem,13vw,4.35rem)}.catalog-library-page .section{padding:58px 0}.catalog-library-page .library-groups{gap:45px}.catalog-library-page .catalog-group-head{align-items:flex-start}.catalog-library-page .catalog-group-total{margin-top:6px}.catalog-library-page .catalog-doc-grid{grid-template-columns:1fr}.catalog-library-page .catalog-doc-card,.catalog-library-page .catalog-doc-card:nth-child(even){padding:23px 0;border-left:0}.catalog-library-page .catalog-doc-card h3{font-size:1.35rem}}

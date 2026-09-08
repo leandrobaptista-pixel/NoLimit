@@ -38,13 +38,15 @@ export async function onRequestPost({ request }) {
   const email = String(fields?.email || '').trim();
   if (!name || !email) return json({ error: 'Name and email are required.' }, 400);
 
+  const submittedAt = new Date().toISOString();
   const record = {
     tenant: 'nolimit',
     kind: 'visitRequest',
     id: crypto.randomUUID(),
+    updated_at: submittedAt,
     payload: {
       source: 'website',
-      submittedAt: new Date().toISOString(),
+      submittedAt,
       pageUrl: String(fields?.pageUrl || ''),
       name,
       email,
@@ -58,13 +60,13 @@ export async function onRequestPost({ request }) {
   };
 
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_records`, {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_records?on_conflict=tenant,kind,id`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Prefer: 'return=minimal'
+        Prefer: 'resolution=merge-duplicates,return=minimal'
       },
       body: JSON.stringify(record)
     });

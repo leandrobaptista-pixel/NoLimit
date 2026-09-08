@@ -9,6 +9,8 @@ const form = document.getElementById('visitForm');
 const note = document.getElementById('formNote');
 const dateField = form?.querySelector('input[name="date"]');
 const submitButton = form?.querySelector('button[type="submit"]');
+const visitSuccessDialog = document.getElementById('visitSuccessDialog');
+const visitSuccessClose = document.getElementById('visitSuccessClose');
 
 const metaDescription = document.querySelector('meta[name="description"]');
 const brandLogo = document.getElementById('brandLogo');
@@ -571,6 +573,36 @@ function setFormNote(message, state = '') {
   }
 }
 
+function closeVisitSuccessDialog() {
+  if (!visitSuccessDialog || visitSuccessDialog.hidden) return;
+  visitSuccessDialog.hidden = true;
+  visitSuccessDialog.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('visit-success-open');
+  window.location.hash = 'home';
+  document.getElementById('home')?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+  });
+  document.querySelector('.brand')?.focus({ preventScroll: true });
+}
+
+function openVisitSuccessDialog() {
+  if (!visitSuccessDialog) return;
+  visitSuccessDialog.hidden = false;
+  visitSuccessDialog.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('visit-success-open');
+  requestAnimationFrame(() => visitSuccessClose?.focus());
+}
+
+visitSuccessDialog?.querySelectorAll('[data-visit-success-close]').forEach((element) => {
+  element.addEventListener('click', closeVisitSuccessDialog);
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !visitSuccessDialog?.hidden) {
+    closeVisitSuccessDialog();
+  }
+});
+
 function getFieldWrapper(name) {
   return form?.querySelector(`.field[data-field="${name}"]`) || null;
 }
@@ -629,16 +661,16 @@ function resetVisitForm() {
 }
 
 const FALLBACK_GALLERY = {
-  Trim: ['assets/00-Trim/IMG_7031.jpg'],
-  Wainscoting: ['assets/00-Wainscoting/IMG_1663.JPG'],
-  Stairs: ['assets/00-Stairs/IMG_9268.JPG'],
-  Ceiling: ['assets/00-Ceiling/IMG_6650.jpg'],
-  Decks: ['assets/00-Decks/IMG_4694.jpg'],
-  'Kitchen & Vanities': ['assets/00-kitchen & Vanities/IMG_5865.JPG'],
-  'Fireplaces & Bars': ['assets/00-Fireplaces & Bars/IMG_1816.JPG'],
-  'Outside Doors & Windows': ['assets/00-Outside Doors & Windows/IMG_3311.JPG'],
+  Trim: ['assets/Trim/Trim 94.jpg'],
+  Wainscoting: ['assets/Wainscoting/Wainscoting 03.JPG'],
+  Stairs: ['assets/Stairs/Stairs 40.JPG'],
+  Ceiling: ['assets/Ceiling/Ceiling 43.jpg'],
+  Decks: ['assets/Decks/Decks 09.jpg'],
+  'Kitchen & Vanities': ['assets/Kitchen & Vanities/Kitchen & Vanities 43.JPG'],
+  'Fireplaces & Bars': ['assets/Fireplaces & Bars/Fireplaces & Bars 03.JPG'],
+  'Outside Doors & Windows': ['assets/Outside Doors & Windows/Outside Doors & Windows 11.JPG'],
   Pergola: ['assets/00-Pergola/IMG_2744.jpg'],
-  'Port & Portal': ['assets/00-Port & Portal/IMG_5811.JPG']
+  'Port & Portal': ['assets/Port & Portal/Port & Portal 05.JPG']
 };
 
 function dedupeByBase(list) {
@@ -1401,7 +1433,8 @@ form?.addEventListener('submit', async (event) => {
 
     if (result.mode !== 'saved') throw new Error('Could not submit request.');
     resetVisitForm();
-    setFormNote('Thank you — your on-site visit request has been received successfully. Our team will be in touch as soon as possible.', 'success');
+    setFormNote('');
+    openVisitSuccessDialog();
   } catch (error) {
     console.error(error);
     setFormNote('We could not submit your request at this time. Please try again shortly.', 'error');

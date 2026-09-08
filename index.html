@@ -473,6 +473,17 @@
       </div>
     </div>
 
+    <div id="visitSuccessDialog" class="visit-success-dialog" hidden aria-hidden="true">
+      <button class="visit-success-backdrop" type="button" data-visit-success-close tabindex="-1" aria-label="Return to No Limit Carpentry homepage"></button>
+      <section class="visit-success-card" role="dialog" aria-modal="true" aria-labelledby="visitSuccessTitle" aria-describedby="visitSuccessCopy">
+        <img src="assets/brand-kit/no-limit-carpentry-approved-logo.png" alt="No Limit Carpentry" class="visit-success-logo" />
+        <p class="visit-success-kicker">Request received</p>
+        <h2 id="visitSuccessTitle">Thank you for reaching out.</h2>
+        <p id="visitSuccessCopy">Your on-site visit request has been received successfully. Our team will be in touch as soon as possible.</p>
+        <button id="visitSuccessClose" class="btn visit-success-return" type="button" data-visit-success-close>Return to homepage</button>
+      </section>
+    </div>
+
     <footer class="site-footer">
       <div class="container footer-inner">
         <div class="footer-meta">
@@ -494,6 +505,6 @@
     <script src="assets/catalogs-data.js" defer></script>
     <script src="assets/contact-config.js" defer></script>
     <script src="assets/homepage-preview.js" defer></script>
-    <script src="assets/script.js?v=20260907-visit-request" defer></script>
+    <script src="assets/script.js?v=20260908-visit-success-dialog" defer></script>
   </body>
   </html>

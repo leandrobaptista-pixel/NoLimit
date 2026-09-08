@@ -319,6 +319,63 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 .gallery-lightbox[hidden]{
   display:none;
 }
+.visit-success-open{overflow:hidden}
+.visit-success-dialog{
+  position:fixed;
+  inset:0;
+  z-index:60;
+  display:grid;
+  place-items:center;
+  padding:24px;
+}
+.visit-success-dialog[hidden]{display:none}
+.visit-success-backdrop{
+  position:absolute;
+  inset:0;
+  border:0;
+  background:rgba(38,39,35,.45);
+  backdrop-filter:blur(8px);
+  cursor:pointer;
+}
+.visit-success-card{
+  position:relative;
+  z-index:1;
+  width:min(520px,100%);
+  padding:clamp(38px,6vw,62px) clamp(26px,6vw,58px);
+  text-align:center;
+  background:var(--paper);
+  border:1px solid var(--line);
+  box-shadow:0 28px 80px rgba(26,26,23,.24);
+}
+.visit-success-logo{
+  display:block;
+  width:min(230px,72%);
+  max-height:108px;
+  margin:0 auto 28px;
+  object-fit:contain;
+}
+.visit-success-kicker{
+  margin:0 0 12px;
+  color:var(--bronze);
+  font-size:.72rem;
+  font-weight:700;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+}
+.visit-success-card h2{
+  margin:0;
+  color:var(--ink);
+  font:300 clamp(2.1rem,5vw,3.35rem)/.98 "Newsreader",Georgia,serif;
+  letter-spacing:-.035em;
+}
+.visit-success-card p:not(.visit-success-kicker){
+  max-width:29rem;
+  margin:18px auto 30px;
+  color:var(--soft);
+  font-weight:300;
+  line-height:1.65;
+}
+.visit-success-return{min-width:min(100%,230px)}
 .gallery-lightbox-backdrop{
   position:absolute;
   inset:0;
@@ -1266,6 +1323,10 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   .form-section-head{min-height:0}
   .form-actions{flex-direction:column;align-items:stretch}
   .form-actions .btn{width:100%;justify-content:center}
+  .visit-success-dialog{padding:16px}
+  .visit-success-card{padding:42px 24px}
+  .visit-success-logo{width:min(210px,78%);margin-bottom:24px}
+  .visit-success-return{width:100%}
   .form-action-copy{text-align:left}
   .consent-field .field-error{margin-left:0}
   .gallery-lightbox-stage{

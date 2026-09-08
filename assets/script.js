@@ -522,28 +522,25 @@ async function loadWebsiteContent() {
 }
 
 async function submitVisitRequest(fields) {
-  const config = getContactFormConfig();
-  if (!config) throw new Error('Visit request service is not configured.');
+  const requestUrl = window.location.protocol === 'file:'
+    ? 'https://nolimitcontractor.pages.dev/api/visit-request'
+    : '/api/visit-request';
 
-  const response = await fetch(`${config.supabaseUrl}/rest/v1/${config.table}`, {
+  const response = await fetch(requestUrl, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      apikey: config.supabaseAnonKey,
-      Authorization: `Bearer ${config.supabaseAnonKey}`,
-      Prefer: 'return=minimal'
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      source: 'website',
-      page_url: window.location.href,
+      pageUrl: window.location.href,
       name: fields.name,
       email: fields.email,
-      phone: fields.phone || null,
-      address: fields.address || null,
-      city: fields.city || null,
-      preferred_date: fields.date || null,
-      project_type: fields.type || null,
-      details: fields.details || null
+      phone: fields.phone || '',
+      address: fields.address || '',
+      city: fields.city || '',
+      date: fields.date || '',
+      type: fields.type || '',
+      details: fields.details || ''
     })
   });
 

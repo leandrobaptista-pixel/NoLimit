@@ -38,27 +38,35 @@ export async function onRequestPost({ request }) {
   const email = String(fields?.email || '').trim();
   if (!name || !email) return json({ error: 'Name and email are required.' }, 400);
 
+  const submittedAt = new Date().toISOString();
   const record = {
-    source: 'website',
-    page_url: String(fields?.pageUrl || ''),
-    name,
-    email,
-    phone: String(fields?.phone || '').trim() || null,
-    address: String(fields?.address || '').trim() || null,
-    city: String(fields?.city || '').trim() || null,
-    preferred_date: String(fields?.date || '').trim() || null,
-    project_type: String(fields?.type || '').trim() || null,
-    details: String(fields?.details || '').trim() || null
+    tenant: 'nolimit',
+    kind: 'visitRequest',
+    id: crypto.randomUUID(),
+    updated_at: submittedAt,
+    payload: {
+      source: 'website',
+      submittedAt,
+      pageUrl: String(fields?.pageUrl || ''),
+      name,
+      email,
+      phone: String(fields?.phone || '').trim(),
+      address: String(fields?.address || '').trim(),
+      city: String(fields?.city || '').trim(),
+      preferredDate: String(fields?.date || '').trim(),
+      projectType: String(fields?.type || '').trim(),
+      details: String(fields?.details || '').trim()
+    }
   };
 
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/public_visit_requests`, {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_records?on_conflict=tenant,kind,id`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Prefer: 'return=minimal'
+        Prefer: 'resolution=merge-duplicates,return=minimal'
       },
       body: JSON.stringify(record)
     });

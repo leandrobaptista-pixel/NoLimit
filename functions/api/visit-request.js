@@ -21,6 +21,10 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
+export async function onRequestGet() {
+  return json({ error: 'Method not allowed.' }, 405);
+}
+
 export async function onRequestPost({ request }) {
   let fields;
 

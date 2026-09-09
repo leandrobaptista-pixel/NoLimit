@@ -57,7 +57,7 @@ const DEFAULT_SITE_PROFILE = {
   phone: '',
   email: form?.dataset?.to || 'info@your-company.com',
   logoUrl: brandLogo?.getAttribute('src') || 'assets/brand.png',
-  anniversaryLogoUrl: anniversaryLogo?.getAttribute('src') || 'assets/anniversary-18.png',
+  anniversaryLogoUrl: anniversaryLogo?.getAttribute('src') || 'assets/brand-kit/no-limit-contractor-20-years-seal.svg',
   defaultCta: 'Request a Visit'
 };
 
@@ -562,6 +562,21 @@ function getFields() {
   });
   return data;
 }
+
+function formatUsPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+const visitPhoneField = form?.querySelector('input[name="phone"]');
+visitPhoneField?.addEventListener('input', () => {
+  const cursorAtEnd = visitPhoneField.selectionStart === visitPhoneField.value.length;
+  const formatted = formatUsPhone(visitPhoneField.value);
+  if (visitPhoneField.value !== formatted) visitPhoneField.value = formatted;
+  if (cursorAtEnd) visitPhoneField.setSelectionRange(formatted.length, formatted.length);
+});
 
 function setFormNote(message, state = '') {
   if (!note) return;

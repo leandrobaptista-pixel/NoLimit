@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>No Limit | Visit Requests</title>
+    <link rel="stylesheet" href="../assets/styles.css" />
+  </head>
+  <body class="admin-portal-page">
+    <header class="site-header"><div class="container nav"><a class="brand" href="../index.html#home"><img class="logo" src="../assets/brand.png" onerror="this.src='../assets/logo.svg'" alt="No Limit Carpentry logo" /><span>No Limit Carpentry</span></a><nav><a class="btn btn-small" href="./index.html">Back to Admin</a></nav></div></header>
+    <main class="section"><div class="container admin-request-shell">
+      <div class="admin-tools-head"><div><p class="section-kicker">Client demand</p><h1>On-site visit requests</h1><p class="hint">Requests submitted through the website, organized by the same thirteen project areas shown in Gallery.</p></div><button id="refreshVisitRequests" class="btn btn-secondary" type="button">Refresh</button></div>
+      <p id="visitRequestsStatus" class="admin-status hint" aria-live="polite">Loading requests…</p>
+      <section id="visitRequestMetrics" class="visit-request-metrics" aria-label="Demand by project area"></section>
+      <section class="card admin-request-list"><div class="admin-request-list-head"><h2>Submitted requests</h2><span id="visitRequestCount" class="hint"></span></div><div id="visitRequestsEmpty" class="hint" hidden>No requests have been received yet.</div><div id="visitRequestsTable" class="visit-request-table" aria-live="polite"></div></section>
+    </div></main>
+    <script src="../installation-control/cloud-sync-config.js"></script>
+    <script src="../assets/visit-requests-admin.js"></script>
+  </body>
+</html>

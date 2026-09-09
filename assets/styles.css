@@ -323,10 +323,10 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 .visit-success-dialog{
   position:fixed;
   inset:0;
-  z-index:60;
+  z-index:9999;
   display:grid;
   place-items:center;
-  padding:24px;
+  padding:max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
 }
 .visit-success-dialog[hidden]{display:none}
 .visit-success-backdrop{
@@ -349,9 +349,9 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 }
 .visit-success-logo{
   display:block;
-  width:min(230px,72%);
-  max-height:108px;
-  margin:0 auto 28px;
+  width:min(270px,78%);
+  max-height:126px;
+  margin:0 auto 24px;
   object-fit:contain;
 }
 .visit-success-kicker{
@@ -365,7 +365,7 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
 .visit-success-card h2{
   margin:0;
   color:var(--ink);
-  font:300 clamp(2.1rem,5vw,3.35rem)/.98 "Newsreader",Georgia,serif;
+  font:300 clamp(1.85rem,4vw,2.8rem)/1.02 "Newsreader",Georgia,serif;
   letter-spacing:-.035em;
 }
 .visit-success-card p:not(.visit-success-kicker){
@@ -376,6 +376,11 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   line-height:1.65;
 }
 .visit-success-return{min-width:min(100%,230px)}
+.admin-request-shell{max-width:1180px}
+.visit-request-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:24px 0}
+.visit-request-metric{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px}.visit-request-metric strong{font-size:.85rem;line-height:1.25}.visit-request-metric span{font:400 2rem/1 "Newsreader",Georgia,serif;color:var(--bronze)}
+.admin-request-list{padding:clamp(20px,4vw,38px)}.admin-request-list-head{display:flex;justify-content:space-between;gap:16px;align-items:baseline;margin-bottom:16px}.admin-request-list-head h2{margin:0}
+.visit-request-row{display:grid;grid-template-columns:1.25fr .9fr .75fr;gap:20px;padding:20px 0;border-top:1px solid var(--line)}.visit-request-row h3,.visit-request-row p{margin:.15rem 0}.visit-request-row strong{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--bronze)}.visit-request-details{grid-column:1/-1}.visit-request-details p{max-width:72ch}
 .gallery-lightbox-backdrop{
   position:absolute;
   inset:0;
@@ -1323,10 +1328,13 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   .form-section-head{min-height:0}
   .form-actions{flex-direction:column;align-items:stretch}
   .form-actions .btn{width:100%;justify-content:center}
-  .visit-success-dialog{padding:16px}
-  .visit-success-card{padding:42px 24px}
-  .visit-success-logo{width:min(210px,78%);margin-bottom:24px}
+  .visit-success-dialog{padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));align-items:center}
+  .visit-success-card{width:min(100%,420px);padding:38px 24px}
+  .visit-success-logo{width:min(245px,82%);max-height:116px;margin-bottom:22px}
   .visit-success-return{width:100%}
+  .visit-request-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .visit-request-row{grid-template-columns:1fr;gap:12px}
+  .visit-request-details{grid-column:auto}
   .form-action-copy{text-align:left}
   .consent-field .field-error{margin-left:0}
   .gallery-lightbox-stage{

@@ -54,7 +54,7 @@ const galleryLightboxState = {
 
 const DEFAULT_SITE_PROFILE = {
   companyName: 'No Limit Carpentry',
-  phone: '',
+  phone: 'Office: (848) 466-3339',
   email: form?.dataset?.to || 'info@your-company.com',
   logoUrl: brandLogo?.getAttribute('src') || 'assets/brand.png',
   anniversaryLogoUrl: anniversaryLogo?.getAttribute('src') || 'assets/brand-kit/no-limit-contractor-20-years-seal.svg',
@@ -279,7 +279,7 @@ function normalizeSiteSettingsRow(row) {
 
   return {
     companyName: String(row.company_name || row.companyName || DEFAULT_SITE_PROFILE.companyName).trim() || DEFAULT_SITE_PROFILE.companyName,
-    phone: String(row.phone || '').trim(),
+    phone: String(row.phone || DEFAULT_SITE_PROFILE.phone).trim() || DEFAULT_SITE_PROFILE.phone,
     email: String(row.email || DEFAULT_SITE_PROFILE.email).trim() || DEFAULT_SITE_PROFILE.email,
     logoUrl: String(row.logo_url || row.logoUrl || DEFAULT_SITE_PROFILE.logoUrl).trim() || DEFAULT_SITE_PROFILE.logoUrl,
     anniversaryLogoUrl: String(row.logo_18_years_url || row.logo18YearsUrl || DEFAULT_SITE_PROFILE.anniversaryLogoUrl).trim() || DEFAULT_SITE_PROFILE.anniversaryLogoUrl,

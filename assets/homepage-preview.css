@@ -19,6 +19,58 @@ body{overflow-x:hidden}.container{max-width:1180px;padding-inline:34px}a{color:i
 @media (max-width:800px){.category-feature-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.category-feature,.category-feature-large{min-height:0;aspect-ratio:1/1}.category-feature span{left:11px;bottom:10px;font-size:1.02rem}.category-feature b{font-size:.62rem}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.entry-splash{display:none}.category-feature img{transition:none}}
 
+/* Subtle NL watermark — visual bridge between editorial sections. */
+.work-intro,
+#services,
+#process{
+  position:relative;
+  overflow:hidden;
+  isolation:isolate;
+}
+.work-intro > .container,
+#services > .container,
+#process > .container{
+  position:relative;
+  z-index:1;
+}
+.work-intro::before,
+#services::after,
+#process::before{
+  content:"";
+  position:absolute;
+  width:clamp(430px,53vw,790px);
+  aspect-ratio:1.42/1;
+  background:url("brand-kit/no-limit-carpentry-nl-monogram.png") center/contain no-repeat;
+  filter:grayscale(1);
+  opacity:.045;
+  pointer-events:none;
+  z-index:0;
+}
+.work-intro::before{
+  top:50%;
+  right:-8%;
+  transform:translateY(-50%);
+}
+#services::after{
+  left:-7%;
+  top:18%;
+}
+#process::before{
+  top:5%;
+  right:-9%;
+}
+@media (max-width:800px){
+  .work-intro::before,
+  #services::after,
+  #process::before{
+    width:620px;
+    opacity:.038;
+  }
+  .work-intro::before{right:-46%}
+  #services::after{left:-48%;top:24%}
+  #process::before{right:-48%;top:18%}
+}
+
 /* Catalog library — same editorial system as the homepage. */
 .catalog-library-page{background:var(--paper);color:var(--ink)}
 .catalog-library-page .library-hero{padding:clamp(72px,10vw,132px) 0 54px;background:var(--ivory);border-bottom:1px solid var(--line)}
@@ -46,3 +98,41 @@ body{overflow-x:hidden}.container{max-width:1180px;padding-inline:34px}a{color:i
 .catalog-library-page .catalog-doc-actions{gap:17px}.catalog-library-page .catalog-doc-actions .btn{padding:8px 0;border:0;border-bottom:1px solid var(--bronze);font-size:.95rem}.catalog-library-page .catalog-doc-actions .btn:hover{background:transparent;color:var(--bronze)}
 @media (max-width:800px){.catalog-library-page .library-hero{padding:74px 0 44px}.catalog-library-page .library-hero-shell{grid-template-columns:1fr;gap:32px}.catalog-library-page .library-hero-copy h1{font-size:clamp(2.85rem,13vw,4.35rem)}.catalog-library-page .section{padding:58px 0}.catalog-library-page .library-groups{gap:45px}.catalog-library-page .catalog-group-head{align-items:flex-start}.catalog-library-page .catalog-group-total{margin-top:6px}.catalog-library-page .catalog-doc-grid{grid-template-columns:1fr}.catalog-library-page .catalog-doc-card,.catalog-library-page .catalog-doc-card:nth-child(even){padding:23px 0;border-left:0}.catalog-library-page .catalog-doc-card h3{font-size:1.35rem}}
 @media (max-width:800px){#catalogs .resource-shell{grid-template-columns:1fr;gap:20px}#catalogs .resource-aside{min-height:0}#catalogs .catalog-preview-grid{grid-template-columns:1fr;gap:14px}#catalogs .catalog-preview-card{min-width:0;padding:20px 0;border-radius:0;border-top:1px solid var(--line);box-shadow:none;background:transparent}#catalogs .catalog-preview-brand{min-width:0}#catalogs .catalog-preview-text{overflow-wrap:anywhere}#catalogs .catalog-preview-links{gap:9px}#catalogs .catalog-preview-links a{overflow-wrap:anywhere}}
+
+/* Photo harmony layer for a consistent editorial palette across the site. */
+.hero-symbol-panel img,
+.category-feature img,
+.gallery-media-frame img,
+.gallery-lightbox-stage img,
+.process-card-media img,
+.service-card-media img,
+.viewer-main > img{
+  filter:brightness(var(--photo-brightness,1.04)) contrast(.92) saturate(var(--photo-saturation,.74)) sepia(.04);
+  transition:filter .28s ease,transform .6s ease;
+}
+
+/* Hero photos always fill the presentation frame, regardless of orientation. */
+.hero-visual,
+.hero-photo{
+  min-width:0;
+  align-self:stretch;
+}
+.hero-symbol-panel{
+  overflow:hidden;
+  background:var(--ivory);
+}
+.hero-symbol-panel img{
+  position:absolute;
+  inset:0;
+  display:block;
+  width:100%;
+  height:100%;
+  min-width:100%;
+  min-height:100%;
+  object-fit:cover;
+  object-position:center;
+  transform:scale(1.012);
+}
+.hero-photo figcaption{
+  z-index:2;
+}

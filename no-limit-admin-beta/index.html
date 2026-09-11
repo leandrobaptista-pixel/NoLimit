@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f4ef" />
+    <meta name="description" content="No Limit administrative platform preview." />
+    <title>No Limit | Administration Preview</title>
+    <link rel="stylesheet" href="styles.css?v=20260910-adminbeta1" />
+  </head>
+  <body class="auth-required">
+    <section class="auth-view" id="authView" aria-labelledby="authTitle">
+      <div class="auth-card">
+        <img src="logo.png" alt="No Limit Carpentry" />
+        <p class="page-kicker">Private beta</p>
+        <h1 id="authTitle">No Limit Administration</h1>
+        <p>Use your individual No Limit account. Access and editing tools are limited by your assigned role.</p>
+        <form id="loginForm" class="auth-form">
+          <label>Email<input name="email" type="email" autocomplete="username" required /></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required /></label>
+          <button class="button" type="submit">Sign in</button>
+        </form>
+        <form id="setPasswordForm" class="auth-form" hidden>
+          <label>New password<input name="newPassword" type="password" autocomplete="new-password" minlength="10" required /></label>
+          <label>Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" minlength="10" required /></label>
+          <button class="button" type="submit">Save password</button>
+        </form>
+        <button class="auth-link" id="resetPasswordButton" type="button">Set or reset password</button>
+        <p class="auth-status" id="authStatus" role="status">This beta is separate from the public website and TAG.</p>
+      </div>
+    </section>
+    <div class="app-shell" id="appShell">
+      <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#overview" aria-label="No Limit administration home">
+          <img src="logo.png" alt="No Limit Carpentry" />
+        </a>
+
+        <nav class="primary-nav" id="primaryNav">
+          <a href="#overview" data-route="overview"><span>OV</span>Overview</a>
+          <a href="#requests" data-route="requests"><span>RQ</span>Estimate Requests</a>
+          <a href="#documents" data-route="documents"><span>ES</span>Estimates &amp; Contracts</a>
+          <a href="#clients" data-route="clients"><span>CL</span>Clients</a>
+          <a href="#projects" data-route="projects"><span>PR</span>Projects</a>
+          <a href="#financial" data-route="financial"><span>FI</span>Financial</a>
+          <a href="#materials" data-route="materials"><span>MT</span>Materials</a>
+          <a href="#team" data-route="team"><span>TP</span>Team &amp; Partners</a>
+          <a href="#schedule" data-route="schedule"><span>SC</span>Work Schedule</a>
+          <a href="#media" data-route="media"><span>ME</span>Media Library</a>
+          <a href="#map" data-route="map"><span>MP</span>Project Map</a>
+          <a href="#compliance" data-route="compliance"><span>CO</span>Compliance</a>
+          <a href="#reports" data-route="reports"><span>RP</span>Reports</a>
+          <a href="#security" data-route="security"><span>SE</span>Security &amp; Settings</a>
+        </nav>
+
+        <div class="sidebar-note">
+          <strong>No Limit only</strong>
+          <p>This preview has no connection to TAG data or systems.</p>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <button class="menu-button" id="menuButton" type="button" aria-label="Open navigation" aria-expanded="false">
+            <span></span><span></span><span></span>
+          </button>
+          <div class="topbar-copy">
+            <p>NO LIMIT ADMINISTRATION</p>
+            <strong id="topbarTitle">Overview</strong>
+          </div>
+          <div class="topbar-actions">
+            <span class="sync-badge" id="syncBadge">Local preview</span>
+            <span class="demo-badge">Demo data</span>
+            <span class="preview-badge">Private preview</span>
+            <button class="profile-button" id="profileButton" type="button" aria-label="Sign out">
+              <span>LB</span>
+              <span class="profile-copy"><strong>Leandro</strong><small>Administrator preview</small></span>
+            </button>
+          </div>
+        </header>
+
+        <main id="appContent" tabindex="-1"></main>
+      </div>
+    </div>
+
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+    <dialog class="data-dialog" id="dataDialog" aria-labelledby="dialogTitle">
+      <form method="dialog" class="dialog-card" id="dataForm">
+        <div class="dialog-head">
+          <div>
+            <p class="page-kicker">Private beta entry</p>
+            <h2 id="dialogTitle">Add demo record</h2>
+          </div>
+          <button class="icon-button" value="cancel" aria-label="Close form" type="submit">×</button>
+        </div>
+        <div class="form-grid" id="dialogFields"></div>
+        <p class="dialog-note">This test record is stored in the private No Limit beta workspace. It is not connected to the public website or TAG.</p>
+        <div class="button-row dialog-actions">
+          <button class="button secondary" value="cancel" type="submit">Cancel</button>
+          <button class="button" id="saveRecord" value="default" type="submit">Save demo record</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="document-dialog" id="documentDialog" aria-labelledby="documentDialogTitle">
+      <div class="document-dialog-shell">
+        <header class="document-toolbar">
+          <div>
+            <p class="page-kicker">Document preview</p>
+            <h2 id="documentDialogTitle">Proposal</h2>
+          </div>
+          <div class="document-toolbar-actions">
+            <button class="button secondary" id="editDocument" type="button">Review &amp; edit</button>
+            <button class="button secondary" id="addDocumentItem" type="button" hidden>Add line item</button>
+            <button class="button secondary" id="saveDocument" type="button" hidden>Save changes</button>
+            <button class="button secondary" id="printDocument" type="button">Print / Save PDF</button>
+            <button class="button" id="emailDocument" type="button">Prepare email</button>
+            <button class="button secondary" id="messageDocument" type="button">Prepare message</button>
+            <button class="icon-button" id="closeDocument" aria-label="Close document preview" type="button">×</button>
+          </div>
+        </header>
+        <div class="document-notice" id="documentNotice">Nothing is sent automatically. Review the document before preparing a message.</div>
+        <div class="document-stage">
+          <article class="business-document" id="documentCanvas"></article>
+        </div>
+      </div>
+    </dialog>
+    <dialog class="data-dialog" id="customServiceDialog" aria-labelledby="customServiceTitle">
+      <form class="dialog-card" id="customServiceForm">
+        <div class="dialog-head">
+          <div>
+            <p class="page-kicker">Reusable service library</p>
+            <h2 id="customServiceTitle">Create Custom / New Work</h2>
+          </div>
+          <button class="icon-button" id="closeCustomService" aria-label="Close custom service form" type="button">×</button>
+        </div>
+        <div class="form-grid">
+          <label>Service title<input name="title" required placeholder="Custom door modification" /></label>
+          <label>Default unit<input name="unit" required placeholder="each, linear foot, day..." /></label>
+          <label class="field-wide">Default description<textarea name="description" required placeholder="Describe the work included in this reusable service"></textarea></label>
+          <label>Default price<input name="unitPrice" type="number" min="0" step="0.01" inputmode="decimal" required placeholder="$0.00" /></label>
+        </div>
+        <p class="dialog-note">After saving, this service becomes available in future Proposals, Invoices, and projects in this private preview.</p>
+        <div class="button-row dialog-actions">
+          <button class="button secondary" id="cancelCustomService" type="button">Cancel</button>
+          <button class="button" type="submit">Save reusable service</button>
+        </div>
+      </form>
+    </dialog>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="no-limit-supabase-config.js"></script>
+    <script src="app.js?v=20260910-adminbeta3" defer></script>
+  </body>
+</html>

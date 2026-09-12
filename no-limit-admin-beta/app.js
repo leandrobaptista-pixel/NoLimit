@@ -1,4 +1,8 @@
 const defaultState = {
+  accessUsers: [
+    { id: "USR-DEMO-001", name: "Leandro Baptista", email: "leandrobaptista@me.com", role: "Administrator", linkedPersonId: "", status: "active", invitedAt: "Sep 12, 2026" },
+    { id: "USR-DEMO-002", name: "Alex Morgan (Demo)", email: "alex@example.invalid", role: "Project Manager", linkedPersonId: "PE-DEMO-001", status: "invited", invitedAt: "Sep 12, 2026" },
+  ],
   customServices: [
     { id: "SVC-DEMO-001", title: "Custom door modification", description: "Modify door height or width to fit an existing opening.", unit: "each", unitPrice: 600 },
   ],
@@ -118,6 +122,7 @@ function loadPreviewState() {
     });
     merged.expenseReceipts = merged.expenseReceipts || [];
     merged.insuranceRenewals = merged.insuranceRenewals || [];
+    merged.accessUsers = merged.accessUsers || cloneDefaultState().accessUsers;
     merged.materials = merged.materials.map((item) => ({ ...item, vendor: item.vendor || item.supplier || "" }));
     merged.estimates = merged.estimates.map((estimate) => {
       const linkedContract = merged.contracts.find((contract) => contract.estimateId === estimate.id);
@@ -198,6 +203,12 @@ const routes = {
     heading: "The right access for every person involved.",
     description: "Team members, vendors, and subcontractors remain distinct while connecting to the projects, services, documents, hours, and payments that concern them.",
   },
+  vendors: {
+    title: "Vendors",
+    kicker: "Vendor directory",
+    heading: "Vendor responsibilities in one direct view.",
+    description: "Review people and companies registered as vendors, their responsibilities, contacts, project assignments, and current status.",
+  },
   schedule: {
     title: "Work Schedule",
     kicker: "Individual assignments",
@@ -260,6 +271,10 @@ const customServiceDialog = document.getElementById("customServiceDialog");
 const customServiceForm = document.getElementById("customServiceForm");
 const closeCustomServiceButton = document.getElementById("closeCustomService");
 const cancelCustomServiceButton = document.getElementById("cancelCustomService");
+const mediaViewerDialog = document.getElementById("mediaViewerDialog");
+const mediaViewerTitle = document.getElementById("mediaViewerTitle");
+const mediaViewerContent = document.getElementById("mediaViewerContent");
+const closeMediaViewerButton = document.getElementById("closeMediaViewer");
 const authView = document.getElementById("authView");
 const loginForm = document.getElementById("loginForm");
 const setPasswordForm = document.getElementById("setPasswordForm");
@@ -272,6 +287,11 @@ let pendingRecordType = "";
 let pendingRecordId = "";
 let activeDocument = null;
 let pendingCustomServiceTarget = null;
+let selectedClientId = "";
+let selectedProjectId = "";
+let projectReturnRoute = "projects";
+let teamViewFilter = "all";
+let selectedMediaProjectId = "all";
 
 function escapeHtml(value = "") {
   return String(value)
@@ -288,6 +308,22 @@ function formatCurrency(value) {
 
 function formatStatus(value = "") {
   return String(value).replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function dateInputValue(value = "") {
+  if (!value || value === "To be scheduled") return "";
+  const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function safeFileName(value = "file") {
+  return String(value).normalize("NFKD").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(-120) || "file";
 }
 
 function statusClass(value = "") {
@@ -420,7 +456,7 @@ function renderBusinessDocument(context, editing = false, itemDraft = null) {
   const stages = !isProposal && record.schedule?.length ? `<section class="document-section"><h3>Payment stages</h3><div class="document-stage-list">${record.schedule.map((stage) => `<div><span>${escapeHtml(stage.label)} · ${Number(stage.percent || 0).toLocaleString("en-US")}%</span><strong>${formatCurrency(stage.amount)}</strong><small>${escapeHtml(formatStatus(stage.status))}</small></div>`).join("")}</div></section>` : "";
   return `
     <header class="document-brand">
-      <div class="document-company"><img src="logo.png" alt="No Limit Carpentry" /><p><strong>No Limit Contractor, LLC.</strong><br />2137 Aldrin Rd Apt 6B<br />Ocean, NJ 07712-2466</p></div>
+      <div class="document-company"><img src="../assets/brand-kit/no-limit-carpentry-approved-logo.png" alt="No Limit Carpentry" /><p><strong>No Limit Contractor, LLC.</strong><br />2137 Aldrin Rd Apt 6B<br />Ocean, NJ 07712-2466</p></div>
       <div class="document-company-contact"><strong>${title}</strong><p>leandrobaptista@me.com<br />+1 (848) 466-3339</p></div>
     </header>
     <section class="document-parties">
@@ -651,6 +687,14 @@ function openDataEntry(type, recordId = "") {
       title: recordId ? "Edit Team Member, Vendor, or Subcontractor" : "Add Team Member, Vendor, or Subcontractor",
       fields: field("Person or company name", "name", { placeholder: "Demo name" }) + field("Type", "type", { options: '<option>Team Member</option><option>Vendor</option><option>Subcontractor</option>' }) + field("Role or specialty", "role", { placeholder: "Lead carpenter, lumber, railings..." }) + field("Primary contact", "contactName", { required: false }) + field("Personal phone", "personalPhone", { required: false, type: "tel" }) + field("Company phone", "companyPhone", { required: false, type: "tel" }) + field("Primary email", "email", { required: false, type: "email" }) + field("Website", "website", { required: false, type: "url", placeholder: "https://" }) + field("Street address", "street", { required: false }) + field("City", "city", { required: false }) + field("State", "state", { required: false, placeholder: "NJ" }) + field("ZIP code", "postalCode", { required: false }) + field("Project", "projectId", { required: false, options: '<option value="">Not assigned</option>' + projectOptions() }) + field("Status", "status", { options: statusOptions(["active", "approved", "inactive"]) }) + '<div class="form-section-title field-wide"><strong>Subcontractor compliance</strong><span>Used only when the record type is Subcontractor.</span></div>' + field("W-9 status", "w9Status", { required: false, options: '<option value="missing">Missing</option><option value="requested">Requested</option><option value="received">Received</option><option value="verified">Verified</option>' }) + field("W-9 received date", "w9ReceivedDate", { required: false, type: "date" }) + field("Upload W-9", "w9File", { required: false, type: "file" }) + field("Insurance company", "insuranceCompany", { required: false }) + field("Insurance type", "insuranceType", { required: false, options: '<option>General Liability</option><option>Workers’ Compensation</option><option>Commercial Auto</option><option>Umbrella</option><option>Other</option>' }) + field("Policy number", "policyNumber", { required: false }) + field("Coverage amount", "coverageAmount", { required: false, type: "number", min: 0 }) + field("Effective date", "insuranceEffectiveDate", { required: false, type: "date" }) + field("Expiration date", "insuranceExpirationDate", { required: false, type: "date" }) + field("Upload Certificate of Insurance", "insuranceFile", { required: false, type: "file" }) + field("Renewal alerts", "renewalNoticeDays", { required: false, options: '<option value="60,30">60 and 30 days before</option><option value="90,60,30">90, 60, and 30 days before</option><option value="30">30 days before</option>' }),
     },
+    projectVendor: {
+      title: "Link vendor to project",
+      fields: field("Vendor", "vendorId", { options: vendorOptions() }) + field("Project", "projectId", { options: projectOptions() }),
+    },
+    accessUser: {
+      title: "Invite user",
+      fields: field("Full name", "name", { placeholder: "Authorized user name" }) + field("Email", "email", { type: "email", placeholder: "name@company.com" }) + field("Role", "role", { options: '<option>Administrator</option><option>Project Manager</option><option>Office / Financial</option><option>Team Member</option><option>Vendor</option><option>Subcontractor</option><option>Viewer</option>' }) + field("Link to existing person or company", "linkedPersonId", { required: false, options: '<option value="">Not linked yet</option>' + peopleOptions() }) + `<p class="privacy-note field-wide">${isLocalPreview ? "Local preview: the invitation is saved as a draft and no email is sent." : "The invitation email will be sent after you save this form. The user creates their own password through the secure link."}</p>`,
+    },
     receipt: {
       title: "Add project receipt or expense",
       fields: field("Project", "projectId", { options: projectOptions() }) + field("Vendor or store", "vendor", { placeholder: "Company or person paid" }) + field("Expense category", "category", { options: '<option>Materials</option><option>Job supplies</option><option>Equipment rental</option><option>Subcontractor</option><option>Permits and fees</option><option>Travel and delivery</option><option>Other</option>' }) + field("Purchase date", "purchaseDate", { type: "date" }) + field("Amount", "amount", { type: "number", min: 0 }) + field("Payment method", "paymentMethod", { options: '<option>Company card</option><option>Check</option><option>Cash</option><option>ACH / Bank transfer</option><option>Other</option>' }) + field("Receipt or reference number", "reference", { required: false }) + field("Upload receipt", "receiptFile", { required: false, type: "file" }) + field("Notes", "notes", { required: false, multiline: true, placeholder: "What this expense covered" }),
@@ -661,7 +705,11 @@ function openDataEntry(type, recordId = "") {
     },
     schedule: {
       title: "Add work assignment",
-      fields: field("Team Member, Vendor, or Subcontractor", "personId", { options: peopleOptions() }) + field("Project", "projectId", { options: projectOptions() }) + field("Work date", "workDate", { type: "date" }) + field("Shift", "shift", { placeholder: "7:00 AM – 3:30 PM" }) + field("Instructions", "instructions", { placeholder: "Work planned for this date" }) + field("Status", "status", { options: statusOptions(["scheduled", "confirmed", "completed", "cancelled"]) }),
+      fields: field("Team Member, Vendor, or Subcontractor", "personId", { options: '<option value="" selected disabled>Select a person or company</option>' + peopleOptions() }) + field("Project", "projectId", { options: '<option value="" selected disabled>Select a project</option>' + projectOptions() }) + field("Work date", "workDate", { type: "date" }) + field("Shift", "shift", { placeholder: "7:00 AM – 3:30 PM" }) + field("Instructions", "instructions", { placeholder: "Work planned for this date" }) + field("Status", "status", { options: statusOptions(["scheduled", "confirmed", "completed", "cancelled"]) }),
+    },
+    media: {
+      title: "Upload project media",
+      fields: field("Project", "projectId", { options: '<option value="" selected disabled>Select a project</option>' + projectOptions() }) + field("Project phase", "phase", { options: '<option>Site visit</option><option>Before</option><option>In progress</option><option>Completed</option><option>Other</option>' }) + field("Publishing status", "publishStatus", { options: statusOptions(["internal", "awaiting-review", "approved"]) }) + '<label class="field-wide">Photo, video, or file<input name="mediaFile" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" required /></label>' + field("Caption", "caption", { required: false, multiline: true, placeholder: "What this file shows" }),
     },
     compliance: {
       title: "Add compliance requirement",
@@ -677,11 +725,14 @@ function openDataEntry(type, recordId = "") {
   dialogTitle.textContent = config.title;
   dialogFields.innerHTML = config.fields;
   dataForm.reset();
+  if (type === "projectVendor" && selectedProjectId) dataForm.elements.namedItem("projectId").value = selectedProjectId;
   const source = type === "client" ? state.clients.find((item) => item.id === recordId) : type === "project" ? state.projects.find((item) => item.id === recordId) : type === "person" ? state.people.find((item) => item.id === recordId) : type === "estimate" ? state.estimates.find((item) => item.id === recordId) : null;
   if (source) {
     Object.entries(source).forEach(([name, value]) => {
       const control = dataForm.elements.namedItem(name);
-      if (control && control.type !== "file" && typeof value !== "object") control.value = value ?? "";
+      if (control && control.type !== "file" && typeof value !== "object") {
+        control.value = control.type === "date" ? dateInputValue(value) : value ?? "";
+      }
     });
     if (type === "estimate" && source.items?.[0]) {
       ["category", "title", "description", "quantity", "unitPrice"].forEach((name) => {
@@ -886,7 +937,7 @@ async function pushBetaWorkspace() {
 
 function routesForBetaRole(role = "admin") {
   if (role === "collaborator") return ["overview", "projects", "schedule", "media", "map"];
-  if (role === "vendor") return ["overview", "projects", "materials", "schedule", "team"];
+  if (role === "vendor") return ["overview", "projects", "materials", "schedule", "team", "vendors"];
   if (role === "subcontractor") return ["overview", "projects", "schedule", "team", "compliance"];
   return Object.keys(routes);
 }
@@ -931,6 +982,18 @@ function mappedBetaRole(role) {
   if (role === "team_member") return "collaborator";
   if (["vendor", "subcontractor"].includes(role)) return role;
   return "viewer";
+}
+
+function invitationRole(role) {
+  return ({
+    "Administrator": "admin",
+    "Project Manager": "manager",
+    "Office / Financial": "office",
+    "Team Member": "team_member",
+    "Vendor": "vendor",
+    "Subcontractor": "subcontractor",
+    "Viewer": "viewer",
+  })[role] || "viewer";
 }
 
 async function userFromSession(session) {
@@ -982,7 +1045,7 @@ async function startBeta() {
   }
 }
 
-function saveDataEntry(formData) {
+async function saveDataEntry(formData) {
   if (pendingRecordType === "request") {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
     state.requests.unshift({ id: nextId(state.requests, "REQ"), clientId: client?.id || "", clientName: client?.name || formData.get("clientName"), service: formData.get("service"), submitted: readableDate(), status: formData.get("status"), nextAction: formData.get("nextAction") });
@@ -1012,7 +1075,9 @@ function saveDataEntry(formData) {
   }
   if (pendingRecordType === "project") {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
-    const project = { id: pendingRecordId || nextId(state.projects, "PR"), name: formData.get("name"), clientId: client.id, clientName: client.name, status: formData.get("status"), service: formData.get("service"), siteStreet: formData.get("siteStreet"), siteCity: formData.get("siteCity"), siteState: formData.get("siteState"), sitePostalCode: formData.get("sitePostalCode"), startDate: readableDate(formData.get("startDate")), progress: Number(formData.get("progress")), contractValue: Number(formData.get("contractValue")), cost: Number(formData.get("cost")), outstanding: Number(formData.get("outstanding")), managerId: state.projects.find((item) => item.id === pendingRecordId)?.managerId || "" };
+    const existingProject = state.projects.find((item) => item.id === pendingRecordId);
+    const submittedStartDate = String(formData.get("startDate") || "");
+    const project = { id: pendingRecordId || nextId(state.projects, "PR"), name: formData.get("name"), clientId: client.id, clientName: client.name, status: formData.get("status"), service: formData.get("service"), siteStreet: formData.get("siteStreet"), siteCity: formData.get("siteCity"), siteState: formData.get("siteState"), sitePostalCode: formData.get("sitePostalCode"), startDate: submittedStartDate ? readableDate(submittedStartDate) : existingProject?.startDate || "To be scheduled", progress: Number(formData.get("progress")), contractValue: Number(formData.get("contractValue")), cost: Number(formData.get("cost")), outstanding: Number(formData.get("outstanding")), managerId: existingProject?.managerId || "" };
     if (pendingRecordId) state.projects = state.projects.map((item) => item.id === pendingRecordId ? project : item);
     else state.projects.unshift(project);
     state.clients.forEach((item) => { item.projectIds = (item.projectIds || []).filter((id) => id !== project.id); });
@@ -1056,6 +1121,26 @@ function saveDataEntry(formData) {
     if (pendingRecordId) state.people = state.people.map((item) => item.id === pendingRecordId ? record : item);
     else state.people.unshift(record);
   }
+  if (pendingRecordType === "projectVendor") {
+    const vendor = state.people.find((item) => item.id === formData.get("vendorId") && item.type === "Vendor");
+    const projectId = formData.get("projectId");
+    if (vendor && projectId) vendor.projectIds = [...new Set([...(vendor.projectIds || []), projectId])];
+  }
+  if (pendingRecordType === "accessUser") {
+    const email = String(formData.get("email") || "").trim().toLowerCase();
+    if (state.accessUsers.some((item) => String(item.email).toLowerCase() === email)) throw new Error("This email already has an access record.");
+    const role = String(formData.get("role"));
+    const linkedPersonId = String(formData.get("linkedPersonId") || "");
+    let status = "draft-invitation";
+    if (!isLocalPreview) {
+      const client = window.noLimitSupabaseClient;
+      if (!client || !currentAuthSession) throw new Error("Sign in again before inviting a user.");
+      const { error } = await client.functions.invoke("invite-no-limit-user", { body: { email, fullName: formData.get("name"), role: invitationRole(role), linkedPersonId } });
+      if (error) throw new Error(error.message || "The invitation could not be sent.");
+      status = "invited";
+    }
+    state.accessUsers.unshift({ id: nextId(state.accessUsers, "USR"), name: formData.get("name"), email, role, linkedPersonId, status, invitedAt: readableDate() });
+  }
   if (pendingRecordType === "receipt") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
     const receiptFile = formData.get("receiptFile");
@@ -1072,6 +1157,20 @@ function saveDataEntry(formData) {
     const person = state.people.find((item) => item.id === formData.get("personId"));
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
     state.schedule.unshift({ id: nextId(state.schedule, "SCH"), personId: person.id, personName: person.name, personType: person.type, projectId: project.id, projectName: project.name, workDate: readableDate(formData.get("workDate")), shift: formData.get("shift"), instructions: formData.get("instructions"), status: formData.get("status") });
+  }
+  if (pendingRecordType === "media") {
+    const project = state.projects.find((item) => item.id === formData.get("projectId"));
+    const file = formData.get("mediaFile");
+    const client = window.noLimitSupabaseClient;
+    const config = betaConfig();
+    if (!project || !(file instanceof File) || !file.size) throw new Error("Select a project and a file before uploading.");
+    if (!client || !currentAuthSession || !config) throw new Error("Sign in again before uploading project media.");
+    const uniqueId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const filePath = `${config.organizationId}/${safeFileName(project.id)}/${uniqueId}-${safeFileName(file.name)}`;
+    const { error } = await client.storage.from("media-library").upload(filePath, file, { contentType: file.type || undefined, upsert: false });
+    if (error) throw new Error(error.message || "The file could not be uploaded.");
+    const fileType = file.type.startsWith("image/") ? "Photo" : file.type.startsWith("video/") ? "Video" : "Document";
+    state.media.unshift({ id: nextId(state.media, "ME"), projectId: project.id, projectName: project.name, phase: formData.get("phase"), fileType, mimeType: file.type, fileName: file.name, filePath, caption: formData.get("caption"), publishStatus: formData.get("publishStatus"), date: readableDate() });
   }
   if (pendingRecordType === "compliance") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
@@ -1099,7 +1198,7 @@ function emptyState(title, copy) {
   return `
     <div class="empty-state">
       <div>
-        <img src="../assets/brand-kit/no-limit-carpentry-nl-monogram.png" alt="" />
+        <img src="../assets/brand-kit/no-limit-carpentry-approved-logo.png" alt="" />
         <h3>${title}</h3>
         <p>${copy}</p>
       </div>
@@ -1180,26 +1279,91 @@ function renderDocuments() {
 }
 
 function renderClients() {
+  const selectedClient = state.clients.find((client) => client.id === selectedClientId);
+  const selectedProjects = selectedClient ? state.projects.filter((project) => project.clientId === selectedClient.id) : [];
+  const clientDetail = selectedClient ? `
+      <article class="panel detail-panel" id="clientDetail">
+        <div class="panel-head"><div><p class="page-kicker">Client record</p><h2>${escapeHtml(selectedClient.name)}</h2><p>${escapeHtml(clientContact(selectedClient))}</p></div><div class="button-row"><button class="button secondary" type="button" data-edit-client="${escapeHtml(selectedClient.id)}">Edit client</button><button class="text-button" type="button" data-close-client-detail>Close</button></div></div>
+        <div class="detail-grid">
+          <div><span>Client address</span><strong>${escapeHtml(clientLocation(selectedClient))}</strong></div>
+          <div><span>Billing address</span><strong>${escapeHtml([selectedClient.billingStreet || selectedClient.street, selectedClient.billingCity || selectedClient.city, selectedClient.billingState || selectedClient.state, selectedClient.billingPostalCode || selectedClient.postalCode].filter(Boolean).join(", ") || "Not entered")}</strong></div>
+          <div><span>Website</span><strong>${selectedClient.website ? `<a href="${escapeHtml(selectedClient.website)}" target="_blank" rel="noopener">${escapeHtml(selectedClient.website)}</a>` : "Not entered"}</strong></div>
+          <div><span>Client ID</span><strong>${escapeHtml(selectedClient.id)}</strong></div>
+        </div>
+        <h3 class="subsection-title">Linked projects</h3>
+        ${selectedProjects.length ? demoTable(["Project", "Service", "Address", "Status", ""], selectedProjects.map((project) => `<tr><td><strong>${escapeHtml(project.name)}</strong><small class="record-id">${escapeHtml(project.id)}</small></td><td>${escapeHtml(project.service)}</td><td>${escapeHtml(projectLocation(project))}</td><td><span class="status-pill ${statusClass(project.status)}">${escapeHtml(formatStatus(project.status))}</span></td><td><button class="text-button" type="button" data-open-project="${escapeHtml(project.id)}">Open project</button></td></tr>`)) : emptyState("No linked projects", "This client does not have a linked project yet.")}
+      </article>` : "";
   return `
     <section class="page">
       ${pageHead(routes.clients, '<button class="button" data-create="client" type="button">Add client</button>')}
       <div class="module-grid">
-        <article class="module-card"><span class="initial">CL</span><h3>Client directory</h3><p>Company, contacts, addresses, notes, documents, and full relationship history.</p><a href="#clients">Open directory</a></article>
+        <article class="module-card"><span class="initial">CL</span><h3>Client directory</h3><p>Company, contacts, addresses, notes, documents, and full relationship history.</p><button class="text-button module-action" type="button" data-open-client-directory>Open directory</button></article>
         <article class="module-card"><span class="initial">PR</span><h3>Projects by client</h3><p>Review every planned, active, paused, and completed job for one client.</p><a href="#projects">Open projects</a></article>
         <article class="module-card"><span class="initial">CT</span><h3>Contracts</h3><p>Keep primary contracts and approved change orders connected to the correct project.</p><a href="#financial">Open financial records</a></article>
       </div>
-      <article class="panel">
+      ${clientDetail}
+      <article class="panel" id="clientDirectory" tabindex="-1">
         <div class="panel-head"><div><h2>Connected client records</h2><p>Each client shows the projects linked to the same identifier.</p></div></div>
         ${demoTable(["Client", "Type", "Client address", "Primary contact", "Linked projects", "Contract value", ""], state.clients.map((client) => {
           const projects = state.projects.filter((project) => project.clientId === client.id);
           const total = projects.reduce((sum, project) => sum + project.contractValue, 0);
-          return `<tr><td><strong>${escapeHtml(client.name)}</strong><small class="record-id">${escapeHtml(client.id)}</small></td><td>${escapeHtml(client.type)}</td><td>${escapeHtml(clientLocation(client))}</td><td>${escapeHtml(clientContact(client))}</td><td><a href="#projects">${projects.length} project${projects.length === 1 ? "" : "s"}</a></td><td>${formatCurrency(total)}</td><td><button class="text-button" type="button" data-edit-client="${escapeHtml(client.id)}">Edit</button></td></tr>`;
+          return `<tr><td><button class="record-link" type="button" data-view-client="${escapeHtml(client.id)}"><strong>${escapeHtml(client.name)}</strong><small class="record-id">${escapeHtml(client.id)}</small></button></td><td>${escapeHtml(client.type)}</td><td>${escapeHtml(clientLocation(client))}</td><td>${escapeHtml(clientContact(client))}</td><td>${projects.length} project${projects.length === 1 ? "" : "s"}</td><td>${formatCurrency(total)}</td><td><button class="text-button" type="button" data-view-client="${escapeHtml(client.id)}">View</button><small class="record-id"><button class="text-button" type="button" data-edit-client="${escapeHtml(client.id)}">Edit</button></small></td></tr>`;
         }))}
       </article>
     </section>`;
 }
 
 function renderProjects() {
+  const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
+  if (selectedProject) {
+    const selectedClient = state.clients.find((client) => client.id === selectedProject.clientId);
+    const projectInvoices = state.invoices.filter((invoice) => invoice.projectId === selectedProject.id);
+    const projectChanges = state.changeOrders.filter((item) => item.projectId === selectedProject.id);
+    const projectReceipts = state.expenseReceipts.filter((item) => item.projectId === selectedProject.id);
+    const projectMaterials = state.materials.filter((item) => item.projectId === selectedProject.id);
+    const materialVendorIds = new Set(projectMaterials.map((item) => item.vendorId).filter(Boolean));
+    const projectVendors = state.people.filter((person) => person.type === "Vendor" && ((person.projectIds || []).includes(selectedProject.id) || materialVendorIds.has(person.id)));
+    const canViewFinancials = (currentBetaUser?.role || "admin") === "admin";
+    const invoiced = projectInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+    const paid = projectInvoices.reduce((sum, invoice) => sum + Number(invoice.paid || 0), 0);
+    const changeOrderValue = projectChanges.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    return `
+      <section class="page project-record-page" id="projectDetail">
+        ${pageHead({ ...routes.projects, kicker: "Project record", heading: selectedProject.name, description: `${selectedClient?.name || selectedProject.clientName || "Client not entered"} · ${projectLocation(selectedProject)}` }, `<button class="button secondary" type="button" data-project-back>← Back to ${projectReturnRoute === "map" ? "map" : "project list"}</button><a class="button secondary" href="#map">Open map</a><button class="button" type="button" data-edit-project="${escapeHtml(selectedProject.id)}">Edit project</button>`)}
+        <div class="detail-grid project-summary-grid">
+          <div><span>Client</span><strong><button class="record-link" type="button" data-view-client="${escapeHtml(selectedProject.clientId)}">${escapeHtml(selectedClient?.name || selectedProject.clientName || "Not entered")}</button></strong></div>
+          <div><span>Project address</span><strong>${escapeHtml(projectLocation(selectedProject))}</strong></div>
+          <div><span>Start date</span><strong>${escapeHtml(selectedProject.startDate || "To be scheduled")}</strong></div>
+          <div><span>Status</span><strong><span class="status-pill ${statusClass(selectedProject.status)}">${escapeHtml(formatStatus(selectedProject.status))}</span></strong></div>
+          <div><span>Service</span><strong>${escapeHtml(selectedProject.service || "Not entered")}</strong></div>
+          <div><span>Progress</span><strong>${Number(selectedProject.progress || 0).toLocaleString("en-US")}%</strong></div>
+          ${canViewFinancials ? `<div><span>Contract value</span><strong>${formatCurrency(selectedProject.contractValue)}</strong></div><div><span>Actual cost</span><strong>${formatCurrency(projectActualCost(selectedProject))}</strong></div>` : ""}
+        </div>
+        ${canViewFinancials ? `
+          <div class="metric-grid project-financial-metrics">
+            ${metric("Invoiced", formatCurrency(invoiced), `${projectInvoices.length} invoice${projectInvoices.length === 1 ? "" : "s"} for this project.`, "projects")}
+            ${metric("Received", formatCurrency(paid), "Payments recorded on this project's invoices.", "projects")}
+            ${metric("Change Orders", formatCurrency(changeOrderValue), `${projectChanges.length} linked change order${projectChanges.length === 1 ? "" : "s"}.`, "projects")}
+            ${metric("Receipts / expenses", formatCurrency(projectReceiptTotal(selectedProject.id)), `${projectReceipts.length} cost record${projectReceipts.length === 1 ? "" : "s"} for this location.`, "projects")}
+          </div>
+          <article class="panel">
+            <div class="panel-head"><div><h2>Invoices</h2><p>Only invoices linked to ${escapeHtml(selectedProject.name)} appear here.</p></div></div>
+            ${projectInvoices.length ? demoTable(["Invoice", "Issued", "Items", "Total", "Paid", "Balance", "Status", ""], projectInvoices.map((invoice) => `<tr><td><strong>${escapeHtml(invoice.id)}</strong></td><td>${escapeHtml(invoice.issueDate || "Not entered")}</td><td>${invoice.items?.length || 0}</td><td>${formatCurrency(invoice.total)}</td><td>${formatCurrency(invoice.paid)}</td><td>${formatCurrency(invoice.balance)}</td><td><span class="status-pill ${statusClass(invoice.status)}">${escapeHtml(formatStatus(invoice.status))}</span></td><td><button class="button secondary compact-button" data-view-document="invoice" data-document-id="${escapeHtml(invoice.id)}" type="button">Open full invoice</button></td></tr>`)) : emptyState("No invoices for this project", "Invoices will appear here after they are linked to this project.")}
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h2>Change Orders</h2><p>Additional work remains isolated to this project.</p></div><button class="button secondary" data-create="changeOrder" type="button">Add new work</button></div>
+            ${projectChanges.length ? demoTable(["Change order", "Category", "Description", "Amount", "Status"], projectChanges.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong></td><td>${escapeHtml(item.category || "Custom / New Work")}</td><td>${escapeHtml(item.description || item.title || "No description")}</td><td>${formatCurrency(item.amount)}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`)) : emptyState("No Change Orders", "No additional work is linked to this project.")}
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><h2>Receipts and expenses</h2><p>Only costs recorded for this project location are included.</p></div><button class="button secondary" data-create="receipt" type="button">Add receipt / expense</button></div>
+            ${projectReceipts.length ? demoTable(["Receipt", "Vendor / store", "Category", "Date", "Amount", "Payment", "Attachment"], projectReceipts.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong><small class="record-id">${escapeHtml(item.reference || "No reference")}</small></td><td>${escapeHtml(item.vendor)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(readableDate(item.purchaseDate))}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.paymentMethod)}</td><td>${escapeHtml(item.receiptFileName || "Not attached")}</td></tr>`)) : emptyState("No receipts or expenses", "No cost receipt is linked to this project yet.")}
+          </article>` : ""}
+        <article class="panel">
+          <div class="panel-head"><div><h2>Vendors involved</h2><p>People or companies linked to this project through assignments or materials.</p></div>${canViewFinancials ? '<button class="button secondary" data-create="projectVendor" type="button">+ Link vendor</button>' : ""}</div>
+          ${projectVendors.length ? demoTable(["Vendor", "Responsibility", "Contact", "Status", ""], projectVendors.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.role || "Not entered")}</td><td>${escapeHtml(partyContact(person))}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><a class="text-button" href="#vendors">Open vendor directory</a></td></tr>`)) : emptyState("No vendors linked", "No vendor assignment or material supplier is linked to this project.")}
+        </article>
+      </section>`;
+  }
   return `
     <section class="page">
       ${pageHead(routes.projects, '<button class="button" data-create="project" type="button">Add project</button><button class="button secondary" data-create="receipt" type="button">Add receipt / expense</button><a class="button secondary" href="#map">Open map</a>')}
@@ -1210,7 +1374,7 @@ function renderProjects() {
           <label>Client<select><option>All clients</option>${clientOptions()}</select></label>
           <button class="button secondary" type="button">Apply filters</button>
         </div>
-        ${demoTable(["Project", "Client", "Service", "Project address", "Progress", "Financial", "Status", ""], state.projects.map((project) => `<tr><td><strong>${escapeHtml(project.name)}</strong><small class="record-id">${escapeHtml(project.id)}</small></td><td><a href="#clients">${escapeHtml(project.clientName)}</a></td><td>${escapeHtml(project.service)}</td><td>${escapeHtml(projectLocation(project))}</td><td><div class="progress"><span style="width:${Math.max(0, Math.min(100, project.progress))}%"></span></div><small>${project.progress}%</small></td><td>${formatCurrency(project.contractValue)}<small class="record-id">Base cost ${formatCurrency(project.cost)}</small><small class="record-id">Receipts ${formatCurrency(projectReceiptTotal(project.id))}</small><strong class="record-id">Actual cost ${formatCurrency(projectActualCost(project))}</strong></td><td><span class="status-pill ${statusClass(project.status)}">${escapeHtml(formatStatus(project.status))}</span></td><td><button class="text-button" type="button" data-edit-project="${escapeHtml(project.id)}">Edit</button></td></tr>`))}
+        ${demoTable(["Project", "Client", "Service", "Project address", "Progress", "Financial", "Status", ""], state.projects.map((project) => `<tr><td><button class="record-link" type="button" data-open-project="${escapeHtml(project.id)}"><strong>${escapeHtml(project.name)}</strong><small class="record-id">${escapeHtml(project.id)}</small></button></td><td><a href="#clients">${escapeHtml(project.clientName)}</a></td><td>${escapeHtml(project.service)}</td><td>${escapeHtml(projectLocation(project))}</td><td><div class="progress"><span style="width:${Math.max(0, Math.min(100, project.progress))}%"></span></div><small>${project.progress}%</small></td><td>${formatCurrency(project.contractValue)}<small class="record-id">Base cost ${formatCurrency(project.cost)}</small><small class="record-id">Receipts ${formatCurrency(projectReceiptTotal(project.id))}</small><strong class="record-id">Actual cost ${formatCurrency(projectActualCost(project))}</strong></td><td><span class="status-pill ${statusClass(project.status)}">${escapeHtml(formatStatus(project.status))}</span></td><td><button class="text-button" type="button" data-open-project="${escapeHtml(project.id)}">View</button><small class="record-id"><button class="text-button" type="button" data-edit-project="${escapeHtml(project.id)}">Edit</button></small></td></tr>`))}
       </article>
       <article class="panel">
         <div class="panel-head"><div><h2>Additional costs and receipts</h2><p>Every receipt is connected to a project and included in its actual cost.</p></div><button class="button secondary" data-create="receipt" type="button">Add receipt / expense</button></div>
@@ -1276,6 +1440,8 @@ function renderMaterials() {
 
 function renderTeam() {
   const subcontractors = state.people.filter((person) => person.type === "Subcontractor");
+  const filteredPeople = teamViewFilter === "all" ? state.people : state.people.filter((person) => person.type === teamViewFilter);
+  const teamHeading = teamViewFilter === "all" ? "All people and companies" : `${teamViewFilter}s`;
   const insuranceCounts = subcontractors.reduce((counts, person) => {
     const key = insuranceStatus(person).key;
     if (key === "active") counts.active += 1;
@@ -1293,13 +1459,13 @@ function renderTeam() {
         ${metric("Compliance action", insuranceCounts.action, "Missing or expired insurance records.", "team")}
       </div>
       <div class="module-grid">
-        <article class="module-card"><span class="initial">TM</span><h3>Team Members</h3><p>Roles, assignments, time records, documents, and payments.</p><a href="#team">Open team members</a></article>
-        <article class="module-card"><span class="initial">VE</span><h3>Vendors</h3><p>Contacts, supplied products, purchases, expenses, and project history.</p><a href="#team">Open vendors</a></article>
-        <article class="module-card"><span class="initial">SC</span><h3>Subcontractors</h3><p>Specialties, contracts, compliance documents, projects, and payments.</p><a href="#team">Open subcontractors</a></article>
+        <article class="module-card"><span class="initial">TM</span><h3>Team Members</h3><p>Roles, assignments, time records, documents, and payments.</p><button class="text-button module-action" type="button" data-team-filter="Team Member">Open team members</button></article>
+        <article class="module-card"><span class="initial">VE</span><h3>Vendors</h3><p>Contacts, supplied products, purchases, expenses, and project history.</p><button class="text-button module-action" type="button" data-team-filter="Vendor">Open vendors</button></article>
+        <article class="module-card"><span class="initial">SC</span><h3>Subcontractors</h3><p>Specialties, contracts, compliance documents, projects, and payments.</p><button class="text-button module-action" type="button" data-team-filter="Subcontractor">Open subcontractors</button></article>
       </div>
-      <article class="panel">
-        <div class="panel-head"><div><h2>Assignments</h2><p>Team members, vendors, and subcontractors remain distinct but connect to the same projects.</p></div></div>
-        ${demoTable(["Person or company", "Type", "Role / specialty", "Primary contact", "Address", "Linked projects", "Status", ""], state.people.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.type)}</td><td>${escapeHtml(person.role)}</td><td>${escapeHtml(partyContact(person))}</td><td>${escapeHtml(partyLocation(person))}</td><td>${person.projectIds.map((id) => `<a href="#projects">${escapeHtml(id)}</a>`).join(" · ")}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><button class="text-button" type="button" data-edit-person="${escapeHtml(person.id)}">Edit</button></td></tr>`))}
+      <article class="panel" id="peopleDirectory" tabindex="-1">
+        <div class="panel-head"><div><h2>${escapeHtml(teamHeading)}</h2><p>Team members, vendors, and subcontractors remain distinct but connect to the same projects.</p></div>${teamViewFilter !== "all" ? '<button class="text-button" type="button" data-team-filter="all">Show all</button>' : ""}</div>
+        ${demoTable(["Person or company", "Type", "Role / specialty", "Primary contact", "Address", "Linked projects", "Status", ""], filteredPeople.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.type)}</td><td>${escapeHtml(person.role)}</td><td>${escapeHtml(partyContact(person))}</td><td>${escapeHtml(partyLocation(person))}</td><td>${person.projectIds.map((id) => `<button class="text-button" type="button" data-open-project="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join(" · ")}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><button class="text-button" type="button" data-edit-person="${escapeHtml(person.id)}">Edit</button></td></tr>`))}
       </article>
       <article class="panel">
         <div class="panel-head"><div><h2>Subcontractor documents and renewals</h2><p>W-9 and insurance records show their current status automatically. Renewal requests are prepared at 60 and 30 days and require confirmation before sending.</p></div></div>
@@ -1312,18 +1478,30 @@ function renderTeam() {
     </section>`;
 }
 
+function renderVendors() {
+  const vendors = state.people.filter((person) => person.type === "Vendor");
+  return `
+    <section class="page">
+      ${pageHead(routes.vendors, '<button class="button" data-create="person" type="button">Add person or company</button><a class="button secondary" href="#team">Open Team & Partners</a>')}
+      <article class="panel" id="vendorDirectory">
+        <div class="panel-head"><div><h2>Vendors</h2><p>The same vendor records are shown here through a direct navigation entry.</p></div></div>
+        ${vendors.length ? demoTable(["Person or company", "Role / specialty", "Primary contact", "Address", "Linked projects", "Status", ""], vendors.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.role)}</td><td>${escapeHtml(partyContact(person))}</td><td>${escapeHtml(partyLocation(person))}</td><td>${person.projectIds.map((id) => `<button class="text-button" type="button" data-open-project="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join(" · ")}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><button class="text-button" type="button" data-edit-person="${escapeHtml(person.id)}">Edit</button></td></tr>`)) : emptyState("No vendors yet", "Add a person or company and select Vendor as its type.")}
+      </article>
+    </section>`;
+}
+
 function renderSchedule() {
   return `
     <section class="page">
-      ${pageHead(routes.schedule, '<button class="button" data-create="schedule" type="button">Add assignment</button>')}
+      ${pageHead(routes.schedule, '<button class="button" data-create="schedule" type="button">Add assignment</button><button class="button secondary" data-assignment-history type="button">View previous assignments</button>')}
       <div class="metric-grid">
         ${metric("Scheduled", state.schedule.filter((item) => item.status === "scheduled").length, "Assignments awaiting completion.", "schedule")}
         ${metric("Confirmed", state.schedule.filter((item) => item.status === "confirmed").length, "People who confirmed their next workday.", "schedule")}
         ${metric("On site", state.attendance.filter((item) => item.locationStatus === "within-project-area").length, "Location-authorized work check-ins.", "map")}
         ${metric("Completed", state.schedule.filter((item) => item.status === "completed").length, "Assignments completed in this preview.", "schedule")}
       </div>
-      <article class="panel">
-        <div class="panel-head"><div><h2>Individual work assignments</h2><p>Future login permissions will show each person only their own schedule.</p></div></div>
+      <article class="panel" id="assignmentHistory" tabindex="-1">
+        <div class="panel-head"><div><h2>Previous and current assignments</h2><p>This history stays separate from the empty Add assignment form.</p></div></div>
         ${demoTable(["Date", "Team Member / Vendor / Subcontractor", "Type", "Project", "Shift", "Instructions", "Status"], state.schedule.map((item) => `<tr><td>${escapeHtml(item.workDate)}</td><td><strong>${escapeHtml(item.personName)}</strong></td><td>${escapeHtml(item.personType)}</td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td>${escapeHtml(item.shift)}</td><td>${escapeHtml(item.instructions)}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
       </article>
       <article class="panel"><div class="panel-head"><div><h2>Private account behavior</h2><p>Planned for the isolated authentication phase.</p></div></div><div class="security-list"><div class="security-row"><div><strong>Individual login</strong><p>Every authorized person or company receives a separate account.</p></div><span class="status-pill amber">Planned</span></div><div class="security-row"><div><strong>Schedule access window</strong><p>Daily access is available from ${scheduleAccessWindow.starts} to ${scheduleAccessWindow.ends}.</p></div><span class="status-pill green">Defined</span></div><div class="security-row"><div><strong>Schedule-only access</strong><p>Users see their own assignments, project instructions, and permitted documents.</p></div><span class="status-pill amber">Planned</span></div><div class="security-row"><div><strong>Location-authorized check-in</strong><p>Opening the schedule does not capture a home location. Verification begins only after an explicit Start Workday / Check In action and ends at Check Out or ${scheduleAccessWindow.ends}.</p></div><span class="status-pill amber">Planned</span></div></div></article>
@@ -1332,18 +1510,19 @@ function renderSchedule() {
 
 function renderMedia() {
   const countByStatus = (status) => state.media.filter((item) => item.publishStatus === status).length;
+  const filteredMedia = selectedMediaProjectId === "all" ? state.media : state.media.filter((item) => item.projectId === selectedMediaProjectId);
   return `
     <section class="page">
-      ${pageHead(routes.media, '<button class="button" type="button">Upload files</button>')}
+      ${pageHead(routes.media, '<button class="button" data-create="media" type="button">Upload files</button>')}
       <div class="metric-grid">
         ${metric("Internal", countByStatus("internal"), "Private files visible only to authorized users.", "media")}
         ${metric("Awaiting review", countByStatus("awaiting-review"), "Uploads that need approval or classification.", "media")}
         ${metric("Approved", countByStatus("approved"), "Files approved for possible public use.", "media")}
         ${metric("Published", countByStatus("published"), "Files currently visible on the website.", "media")}
       </div>
-      <article class="panel">
-        <div class="panel-head"><div><h2>Media index</h2><p>Demo metadata only; no image files were copied or published.</p></div></div>
-        ${demoTable(["Media", "Project", "Phase", "Type", "Date", "Publishing status"], state.media.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong></td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td>${escapeHtml(item.phase)}</td><td>${escapeHtml(item.fileType)}</td><td>${escapeHtml(item.date)}</td><td><span class="status-pill ${statusClass(item.publishStatus)}">${escapeHtml(formatStatus(item.publishStatus))}</span></td></tr>`))}
+      <article class="panel" id="mediaIndex">
+        <div class="panel-head"><div><h2>Media index</h2><p>Upload and review project files here without leaving the Media Library.</p></div><label>Project<select data-media-project-filter><option value="all">All projects</option>${projectOptions(selectedMediaProjectId)}</select></label></div>
+        ${demoTable(["Media", "Project", "Phase", "Type", "Date", "Publishing status", "File"], filteredMedia.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong><small class="record-id">${escapeHtml(item.caption || item.fileName || "No caption")}</small></td><td><button class="text-button" type="button" data-media-project="${escapeHtml(item.projectId)}">${escapeHtml(item.projectName)}</button></td><td>${escapeHtml(item.phase)}</td><td>${escapeHtml(item.fileType)}</td><td>${escapeHtml(item.date)}</td><td><span class="status-pill ${statusClass(item.publishStatus)}">${escapeHtml(formatStatus(item.publishStatus))}</span></td><td>${item.filePath ? `<button class="text-button" type="button" data-view-media="${escapeHtml(item.id)}">View file</button>` : '<span class="record-id">Metadata only</span>'}</td></tr>`))}
       </article>
     </section>`;
 }
@@ -1351,7 +1530,7 @@ function renderMedia() {
 function renderMap() {
   return `
     <section class="page">
-      ${pageHead(routes.map, '<a class="button secondary" href="#projects">View project list</a>')}
+      ${pageHead(routes.map, '<button class="button secondary" type="button" data-project-list>View project list</button>')}
       <article class="panel">
         <div class="filter-bar">
           <label>Project status<select><option>All statuses</option><option>Planned</option><option>Active</option><option>Paused</option><option>Completed</option></select></label>
@@ -1360,7 +1539,7 @@ function renderMap() {
           <button class="button secondary" type="button">Apply filters</button>
         </div>
         <div class="location-grid">
-          ${state.projects.map((project) => `<a class="location-card" href="#projects"><span class="map-pin">${project.status === "active" ? "A" : project.status === "planned" ? "P" : "C"}</span><div><strong>${escapeHtml(project.name)}</strong><p>${escapeHtml(projectLocation(project))} · ${escapeHtml(project.service)}</p></div><span class="status-pill ${statusClass(project.status)}">${escapeHtml(formatStatus(project.status))}</span></a>`).join("")}
+          ${state.projects.map((project) => `<button class="location-card" type="button" data-open-project="${escapeHtml(project.id)}"><span class="map-pin">${project.status === "active" ? "A" : project.status === "planned" ? "P" : "C"}</span><div><strong>${escapeHtml(project.name)}</strong><p>${escapeHtml(projectLocation(project))} · ${escapeHtml(project.service)}</p></div><span class="status-pill ${statusClass(project.status)}">${escapeHtml(formatStatus(project.status))}</span></button>`).join("")}
         </div>
         <p class="privacy-note">Only city-level demo locations are shown in this preview. Exact job-site addresses will require permission.</p>
       </article>
@@ -1417,9 +1596,10 @@ function renderReports() {
 
 function renderSecurity() {
   const items = [
-    ["Dedicated No Limit database", "Required before live operational data is connected.", "Planned"],
-    ["Individual authentication", "Every person receives a separate account.", "Planned"],
-    ["Role-based permissions", "Administrator, project manager, financial, and authorized team member.", "Planned"],
+    ["Dedicated No Limit workspace", "The private beta remains separate from TAG and the public website.", "Beta active"],
+    ["Individual authentication", "Every authorized person signs in with a separate account.", "Beta active"],
+    ["Role-based permissions", "Routes and creation rights are limited by the assigned role.", "Beta active"],
+    ["Administrator invitations", "Only an administrator can prepare and send a user invitation.", "Preview ready"],
     ["Two-factor authentication", "Required for administrator accounts.", "Planned"],
     ["Audit history", "Important reads, writes, exports, and permission changes.", "Planned"],
     ["Work-hour location controls", "Explicit check-in consent, project-area verification, and automatic stop at 6:00 PM.", "Planned"],
@@ -1427,7 +1607,15 @@ function renderSecurity() {
   ];
   return `
     <section class="page">
-      ${pageHead(routes.security)}
+      ${pageHead(routes.security, '<button class="button" data-create="accessUser" type="button">Invite user</button>')}
+      <article class="panel">
+        <div class="panel-head"><div><h2>User access</h2><p>Create access by invitation, choose the role, and link the account to the correct person or company. Public self-registration stays disabled.</p></div></div>
+        ${demoTable(["User", "Email", "Role", "Linked record", "Status", "Prepared"], state.accessUsers.map((item) => {
+          const linked = state.people.find((person) => person.id === item.linkedPersonId);
+          return `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${escapeHtml(linked?.name || "Not linked")}</td><td><span class="status-pill ${item.status === "active" ? "green" : "amber"}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.invitedAt || "—")}</td></tr>`;
+        }))}
+        <p class="privacy-note">For security, the browser never receives an administrative Supabase key. Sending invitations will use a protected server function that verifies the administrator, creates the account, assigns the organization role, and records the audit event.</p>
+      </article>
       <div class="content-grid">
         <article class="panel">
           <div class="panel-head"><div><h2>Isolation checklist</h2><p>No production connection will be made before these controls are approved.</p></div></div>
@@ -1456,6 +1644,7 @@ const renderers = {
   financial: renderFinancial,
   materials: renderMaterials,
   team: renderTeam,
+  vendors: renderVendors,
   schedule: renderSchedule,
   media: renderMedia,
   map: renderMap,
@@ -1578,10 +1767,41 @@ function updateReportPreview() {
     "Audit history": `<p>${selectedPayments.length} payment record${selectedPayments.length === 1 ? "" : "s"} included. Preview activity is stored only in this browser; the production audit log is not connected.</p>`,
   };
   preview.innerHTML = `
-    <div class="report-brand"><img src="logo.png" alt="No Limit Carpentry" /><span>Private administrative report</span></div>
+    <div class="report-brand"><img src="../assets/brand-kit/no-limit-carpentry-approved-logo.png" alt="No Limit Carpentry" /><span>Private administrative report</span></div>
     <h2>${escapeHtml(type)}</h2>
     <p class="report-meta">${escapeHtml(projectLabel)} · ${escapeHtml(period)} · Issued ${escapeHtml(issueDate)} · Demo preview only</p>
     ${sections.length ? sections.map((section) => `<section class="report-section"><h3>${escapeHtml(section)}</h3>${reportSections[section] || ""}</section>`).join("") : '<section class="report-section"><h3>No sections selected</h3><p>Select at least one report section and update the preview.</p></section>'}`;
+}
+
+async function openMediaAsset(mediaId) {
+  const item = state.media.find((media) => media.id === mediaId);
+  if (!item || !mediaViewerDialog || !mediaViewerContent) return;
+  mediaViewerTitle.textContent = item.fileName || item.caption || item.id;
+  if (!item.filePath) {
+    mediaViewerContent.innerHTML = emptyState("File not uploaded", "This older record contains metadata only. Upload the original file to preview it here.");
+    mediaViewerDialog.showModal();
+    return;
+  }
+  const client = window.noLimitSupabaseClient;
+  if (!client || !currentAuthSession) {
+    window.alert("Sign in again before viewing private project media.");
+    return;
+  }
+  mediaViewerContent.innerHTML = '<p class="media-loading">Preparing a secure preview…</p>';
+  mediaViewerDialog.showModal();
+  const { data, error } = await client.storage.from("media-library").createSignedUrl(item.filePath, 600);
+  if (error || !data?.signedUrl) {
+    mediaViewerContent.innerHTML = `<p class="media-error">${escapeHtml(error?.message || "The file preview is temporarily unavailable.")}</p>`;
+    return;
+  }
+  const isImage = String(item.mimeType || "").startsWith("image/") || item.fileType === "Photo";
+  const isVideo = String(item.mimeType || "").startsWith("video/") || item.fileType === "Video";
+  const asset = isImage
+    ? `<img src="${escapeHtml(data.signedUrl)}" alt="${escapeHtml(item.caption || item.fileName || "Project media")}" />`
+    : isVideo
+      ? `<video src="${escapeHtml(data.signedUrl)}" controls playsinline></video>`
+      : `<a class="button" href="${escapeHtml(data.signedUrl)}" target="_blank" rel="noopener">Open file</a>`;
+  mediaViewerContent.innerHTML = `${asset}<div class="media-meta"><strong>${escapeHtml(item.projectName)}</strong><span>${escapeHtml(item.phase)} · ${escapeHtml(formatStatus(item.publishStatus))}</span>${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ""}</div>`;
 }
 
 function bindPageEvents(routeName) {
@@ -1593,6 +1813,18 @@ function bindPageEvents(routeName) {
   content.querySelectorAll("[data-view-document]").forEach((button) => button.addEventListener("click", () => openBusinessDocument(button.dataset.viewDocument, button.dataset.documentId)));
   content.querySelectorAll("[data-convert-estimate]").forEach((button) => button.addEventListener("click", () => convertEstimateToContract(button.dataset.convertEstimate)));
   content.querySelectorAll("[data-renewal-person]").forEach((button) => button.addEventListener("click", () => prepareInsuranceRenewal(button.dataset.renewalPerson)));
+  content.querySelector("[data-open-client-directory]")?.addEventListener("click", () => document.getElementById("clientDirectory")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  content.querySelectorAll("[data-view-client]").forEach((button) => button.addEventListener("click", () => { selectedClientId = button.dataset.viewClient; if (routeName !== "clients") location.hash = "clients"; else { renderRoute(); document.getElementById("clientDetail")?.scrollIntoView({ block: "start" }); } }));
+  content.querySelector("[data-close-client-detail]")?.addEventListener("click", () => { selectedClientId = ""; renderRoute(); });
+  content.querySelectorAll("[data-open-project]").forEach((button) => button.addEventListener("click", () => { projectReturnRoute = routeName === "map" ? "map" : "projects"; selectedProjectId = button.dataset.openProject; if (routeName !== "projects") location.hash = "projects"; else { renderRoute(); document.getElementById("projectDetail")?.scrollIntoView({ block: "start" }); } }));
+  content.querySelector("[data-close-project-detail]")?.addEventListener("click", () => { selectedProjectId = ""; renderRoute(); });
+  content.querySelectorAll("[data-project-list]").forEach((button) => button.addEventListener("click", () => { selectedProjectId = ""; if (routeName !== "projects") location.hash = "projects"; else renderRoute(); }));
+  content.querySelector("[data-project-back]")?.addEventListener("click", () => { const returnRoute = projectReturnRoute; selectedProjectId = ""; projectReturnRoute = "projects"; if (returnRoute === "map") location.hash = "map"; else renderRoute(); });
+  content.querySelectorAll("[data-team-filter]").forEach((button) => button.addEventListener("click", () => { teamViewFilter = button.dataset.teamFilter; renderRoute(); document.getElementById("peopleDirectory")?.scrollIntoView({ behavior: "smooth", block: "start" }); }));
+  content.querySelector("[data-assignment-history]")?.addEventListener("click", () => document.getElementById("assignmentHistory")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  content.querySelector("[data-media-project-filter]")?.addEventListener("change", (event) => { selectedMediaProjectId = event.target.value; renderRoute(); });
+  content.querySelectorAll("[data-media-project]").forEach((button) => button.addEventListener("click", () => { selectedMediaProjectId = button.dataset.mediaProject; renderRoute(); }));
+  content.querySelectorAll("[data-view-media]").forEach((button) => button.addEventListener("click", () => void openMediaAsset(button.dataset.viewMedia)));
   if (routeName === "reports") {
     const form = document.getElementById("reportBuilder");
     form?.addEventListener("submit", (event) => {
@@ -1628,20 +1860,33 @@ menuButton.addEventListener("click", () => {
   const isOpen = document.body.classList.toggle("nav-open");
   menuButton.setAttribute("aria-expanded", String(isOpen));
 });
+nav.querySelector('a[data-route="projects"]')?.addEventListener("click", () => { selectedProjectId = ""; });
 mobileOverlay.addEventListener("click", closeNavigation);
-dataForm.addEventListener("submit", (event) => {
+dataForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (event.submitter?.value === "cancel") {
     dataDialog.close();
     return;
   }
   if (!dataForm.reportValidity()) return;
-  saveDataEntry(new FormData(dataForm));
-  dataDialog.close();
-  renderRoute();
+  const submitButton = event.submitter;
+  if (submitButton) submitButton.disabled = true;
+  try {
+    await saveDataEntry(new FormData(dataForm));
+    dataDialog.close();
+    renderRoute();
+  } catch (error) {
+    window.alert(error?.message || "The record could not be saved.");
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
 });
 dataDialog.addEventListener("click", (event) => {
   if (event.target === dataDialog) dataDialog.close();
+});
+closeMediaViewerButton?.addEventListener("click", () => mediaViewerDialog.close());
+mediaViewerDialog?.addEventListener("click", (event) => {
+  if (event.target === mediaViewerDialog) mediaViewerDialog.close();
 });
 closeDocumentButton.addEventListener("click", () => documentDialog.close());
 documentDialog.addEventListener("click", (event) => {

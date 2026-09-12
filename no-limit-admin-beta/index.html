@@ -11,7 +11,10 @@
   <body class="auth-required">
     <section class="auth-view" id="authView" aria-labelledby="authTitle">
       <div class="auth-card">
-        <img src="logo.png" alt="No Limit Carpentry" />
+        <a class="auth-logo-link" href="https://nolimitcontractor.net" aria-label="Return to the No Limit website">
+          <img src="../assets/brand-kit/no-limit-carpentry-approved-logo.png" alt="No Limit Carpentry" />
+        </a>
+        <a class="website-return auth-return" href="https://nolimitcontractor.net">← Return to website</a>
         <p class="page-kicker">Private beta</p>
         <h1 id="authTitle">No Limit Administration</h1>
         <p>Use your individual No Limit account. Access and editing tools are limited by your assigned role.</p>
@@ -32,7 +35,7 @@
     <div class="app-shell" id="appShell">
       <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
         <a class="brand" href="#overview" aria-label="No Limit administration home">
-          <img src="logo.png" alt="No Limit Carpentry" />
+          <img src="../assets/brand-kit/no-limit-carpentry-approved-logo.png" alt="No Limit Carpentry" />
         </a>
 
         <nav class="primary-nav" id="primaryNav">
@@ -44,6 +47,7 @@
           <a href="#financial" data-route="financial"><span>FI</span>Financial</a>
           <a href="#materials" data-route="materials"><span>MT</span>Materials</a>
           <a href="#team" data-route="team"><span>TP</span>Team &amp; Partners</a>
+          <a href="#vendors" data-route="vendors"><span>VE</span>Vendors</a>
           <a href="#schedule" data-route="schedule"><span>SC</span>Work Schedule</a>
           <a href="#media" data-route="media"><span>ME</span>Media Library</a>
           <a href="#map" data-route="map"><span>MP</span>Project Map</a>
@@ -56,6 +60,7 @@
           <strong>No Limit only</strong>
           <p>This preview has no connection to TAG data or systems.</p>
         </div>
+        <a class="website-return sidebar-return" href="https://nolimitcontractor.net">← Return to website</a>
       </aside>
 
       <div class="workspace">
@@ -144,6 +149,18 @@
           <button class="button" type="submit">Save reusable service</button>
         </div>
       </form>
+    </dialog>
+    <dialog class="media-viewer-dialog" id="mediaViewerDialog" aria-labelledby="mediaViewerTitle">
+      <div class="media-viewer-card">
+        <div class="dialog-head">
+          <div>
+            <p class="page-kicker">Project media</p>
+            <h2 id="mediaViewerTitle">Media preview</h2>
+          </div>
+          <button class="icon-button" id="closeMediaViewer" aria-label="Close media preview" type="button">×</button>
+        </div>
+        <div class="media-viewer-content" id="mediaViewerContent"></div>
+      </div>
     </dialog>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="no-limit-supabase-config.js"></script>

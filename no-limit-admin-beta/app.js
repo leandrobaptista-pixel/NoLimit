@@ -1007,18 +1007,20 @@ async function loadCloudAccessUsers() {
     cloudAccessUsers = state.accessUsers;
     return true;
   }
-  const client = window.noLimitSupabaseClient;
-  if (!client || !currentAuthSession) return false;
+  if (!currentAuthSession) return false;
   const config = betaConfig();
-  const [{ data: members, error: membersError }, { data: profiles, error: profilesError }] = await Promise.all([
-    client.from("organization_members").select("user_id,role,status,created_at").eq("organization_id", config.organizationId).order("created_at", { ascending: false }),
-    client.from("profiles").select("id,email,full_name"),
+  const membersQuery = new URLSearchParams({ select: "user_id,role,status,created_at", organization_id: `eq.${config.organizationId}`, order: "created_at.desc" });
+  const profilesQuery = new URLSearchParams({ select: "id,email,full_name" });
+  const [membersResponse, profilesResponse] = await Promise.all([
+    fetch(`${config.supabaseUrl}/rest/v1/organization_members?${membersQuery}`, { headers: betaRequestHeaders(), cache: "no-store" }),
+    fetch(`${config.supabaseUrl}/rest/v1/profiles?${profilesQuery}`, { headers: betaRequestHeaders(), cache: "no-store" }),
   ]);
-  if (membersError || profilesError) {
-    console.error("Could not load authorized users", membersError || profilesError);
+  if (!membersResponse.ok || !profilesResponse.ok) {
+    console.error("Could not load authorized users", membersResponse.status, profilesResponse.status);
     cloudAccessUsers = [];
     return false;
   }
+  const [members, profiles] = await Promise.all([membersResponse.json(), profilesResponse.json()]);
   const profilesById = new Map((profiles || []).map((profile) => [profile.id, profile]));
   cloudAccessUsers = (members || []).map((member) => {
     const profile = profilesById.get(member.user_id);
@@ -1291,7 +1293,10 @@ async function saveDataEntry(formData) {
     if (!isLocalPreview) {
       const client = window.noLimitSupabaseClient;
       if (!client || !currentAuthSession) throw new Error("Sign in again before inviting a user.");
-      const { data, error } = await client.functions.invoke("invite-no-limit-user", { body: { email, fullName: formData.get("name"), role: invitationRole(role), linkedPersonId } });
+      const { data, error } = await client.functions.invoke("invite-no-limit-user", {
+        body: { email, fullName: formData.get("name"), role: invitationRole(role), linkedPersonId },
+        headers: { Authorization: `Bearer ${currentAuthSession.access_token}` },
+      });
       if (error) {
         let message = error.message || "The invitation could not be sent.";
         try {

@@ -1,4 +1,3 @@
-
 name: Deploy Cloudflare Pages
 
 on:
@@ -44,6 +43,7 @@ jobs:
           mapfile -t oversized < <(find . -type f -size +25M ! -path './.git/*')
           if [ "${#oversized[@]}" -gt 0 ]; then
             echo "Cloudflare Pages limit is 25 MiB per file."
+            echo "Reduce these files before deploy:"
             printf ' - %s\n' "${oversized[@]}"
             exit 1
           fi
@@ -56,9 +56,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .well-known
-          printf '{"commit":"%s","run_id":"%s","deployed_at":"%s"}\n' \
-            "${GITHUB_SHA}" "${GITHUB_RUN_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            > .well-known/nolimit-release.json
+          cat > .well-known/nolimit-release.json <<EOF
+          {"commit":"${GITHUB_SHA}","run_id":"${GITHUB_RUN_ID}","deployed_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+          EOF
 
       - name: Normalize Cloudflare credentials
         shell: bash
@@ -66,16 +66,21 @@ jobs:
           RAW_CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
+
           CLOUDFLARE_API_TOKEN="$(printf '%s' "$RAW_CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')"
           CLOUDFLARE_ACCOUNT_ID="$(printf '%s' '47f6c1dee23ca2adee98043a07a5cd23' | tr -d '\r\n')"
+
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "Missing GitHub Actions secret: CLOUDFLARE_API_TOKEN"
             exit 1
           fi
+
           if printf '%s' "$CLOUDFLARE_API_TOKEN" | LC_ALL=C grep -q '[^!-~]'; then
-            echo "CLOUDFLARE_API_TOKEN contains invalid characters after whitespace cleanup."
+            echo "CLOUDFLARE_API_TOKEN still contains invalid characters after whitespace cleanup."
+            echo "Recreate the GitHub secret by pasting the raw Cloudflare token as a single line without quotes."
             exit 1
           fi
+
           echo "::add-mask::$CLOUDFLARE_API_TOKEN"
           echo "CLOUDFLARE_API_TOKEN=$CLOUDFLARE_API_TOKEN" >> "$GITHUB_ENV"
           echo "CLOUDFLARE_ACCOUNT_ID=$CLOUDFLARE_ACCOUNT_ID" >> "$GITHUB_ENV"
@@ -83,66 +88,60 @@ jobs:
       - name: Deploy to Cloudflare Pages
         run: wrangler pages deploy . --project-name=nolimitcontractor --branch=main
 
-      - name: Verify Pages release propagation
+      - name: Verify Pages release fingerprint
         shell: bash
         run: |
           set -euo pipefail
           expected="${GITHUB_SHA}"
-          url="https://nolimitcontractor.pages.dev/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}"
-          actual=""
-          for attempt in {1..12}; do
-            actual="$(curl --fail --silent --show-error --max-time 30 "$url" | jq -r '.commit // empty' || true)"
-            if [ "$actual" = "$expected" ]; then
-              echo "Pages fingerprint confirmed on attempt $attempt."
-              exit 0
-            fi
-            echo "Pages release has not propagated yet (attempt $attempt/12); waiting 5 seconds."
-            sleep 5
-          done
-          echo "::error title=Pages release did not propagate::Expected $expected; received ${actual:-no release fingerprint}."
-          exit 1
+          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
+            "https://nolimitcontractor.pages.dev/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
+            | jq -r '.commit // empty')"
+          test "$actual" = "$expected"
 
-      - name: Verify custom-domain release propagation
+      - name: Audit custom-domain release fingerprint
         shell: bash
         run: |
           set -euo pipefail
           expected="${GITHUB_SHA}"
-          url="https://nolimitcontractor.net/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}"
-          actual=""
-          for attempt in {1..12}; do
-            actual="$(curl --fail --silent --show-error --max-time 30 "$url" | jq -r '.commit // empty' || true)"
-            if [ "$actual" = "$expected" ]; then
-              echo "Custom-domain fingerprint confirmed on attempt $attempt."
-              exit 0
-            fi
-            echo "Custom-domain release has not propagated yet (attempt $attempt/12); waiting 5 seconds."
-            sleep 5
-          done
-          echo "::error title=Custom-domain release did not propagate::Expected $expected; received ${actual:-no release fingerprint}."
-          exit 1
+          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
+            "https://nolimitcontractor.net/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
+            | jq -r '.commit // empty')"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error title=Custom domain is serving a different release::Expected ${expected}; received ${actual:-no release fingerprint}. Check the Cloudflare Pages custom-domain mapping, redirects, and cache rules."
+            exit 1
+          fi
 
       - name: Smoke-test the public entry points
         shell: bash
         run: |
           set -euo pipefail
           base="https://nolimitcontractor.net"
-          paths=("/" "/catalogs.html" "/viewer.html" "/no-limit-admin-beta/")
+          paths=(
+            "/"
+            "/catalogs.html"
+            "/viewer.html"
+            "/no-limit-admin-beta/"
+          )
+
           for path in "${paths[@]}"; do
-            status="$(curl --location --silent --output /dev/null --write-out '%{http_code}' --retry 3 --retry-delay 3 --max-time 30 "${base}${path}?release=${GITHUB_RUN_ID}")"
+            url="${base}${path}?release=${GITHUB_RUN_ID}"
+            status="$(curl --location --silent --output /dev/null --write-out '%{http_code}' \
+              --retry 3 --retry-delay 3 --max-time 30 "$url")"
             if [ "$status" != "200" ]; then
-              echo "::error title=Public entry point failed::$path returned HTTP $status."
+              echo "::error title=Public entry point failed::${path} returned HTTP ${status}."
               exit 1
             fi
           done
 
-      - name: Verify cache policy for document entry points
+      - name: Verify cache policy for Admin documents and active assets
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /catalogs.html /no-limit-admin-beta/; do
-            headers="$(curl --location --silent --show-error --head --max-time 30 "https://nolimitcontractor.net${path}?release=${GITHUB_RUN_ID}")"
+          for path in / /catalogs.html /no-limit-admin-beta/ /no-limit-admin-beta/app.js /no-limit-admin-beta/styles.css /no-limit-admin-beta/no-limit-supabase-config.js; do
+            headers="$(curl --location --silent --show-error --head --max-time 30 \
+              "https://nolimitcontractor.net${path}?release=${GITHUB_RUN_ID}")"
             if ! printf '%s\n' "$headers" | grep -Eqi '^cache-control:.*(no-cache|max-age=0|must-revalidate)'; then
-              echo "::error title=Document cache policy missing::$path is not returning a document revalidation policy."
+              echo "::error title=Cache policy missing::${path} is not returning a revalidation cache policy."
               exit 1
             fi
           done

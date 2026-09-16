@@ -331,6 +331,36 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .priority-dot.green { background: var(--green); }
 .priority-dot.amber { background: var(--amber); }
 
+/* Visit request intake — admin-only review workspace. */
+.visit-filter-row { display:flex; flex-wrap:wrap; align-items:end; gap:9px; }
+.visit-filter-row label { display:grid; gap:5px; min-width:190px; color:var(--muted); font-size:.68rem; font-weight:700; }
+.visit-filter-row select { min-height:36px; padding:6px 10px; border:1px solid var(--line); border-radius:10px; color:var(--ink); background:#fff; }
+.filter-chip { min-height:36px; padding:7px 11px; border:1px solid var(--line); border-radius:999px; color:var(--ink); background:#fff; font-size:.72rem; font-weight:700; cursor:pointer; }
+.filter-chip.active { color:#fff; border-color:var(--bronze); background:var(--bronze); }
+.visit-category-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin:14px 0; }
+.visit-category-card { display:flex; align-items:center; justify-content:space-between; min-height:58px; padding:10px 12px; border:1px solid var(--line); border-radius:13px; color:var(--ink); background:rgba(255,255,255,.78); text-align:left; cursor:pointer; }
+.visit-category-card:hover,.visit-category-card.active { border-color:var(--bronze); background:#fbf5ee; }
+.visit-category-card span { font-size:.68rem; line-height:1.25; font-weight:700; }
+.visit-category-card strong { color:var(--bronze); font:400 1.5rem/1 Georgia,serif; }
+.visit-intake-list { display:grid; gap:0; }
+.visit-intake-card { padding:18px 0; border-top:1px solid var(--line); }
+.visit-intake-card:first-of-type { border-top:0; }
+.visit-intake-card.is-new { margin-inline:-8px; padding-inline:8px; border-radius:12px; background:linear-gradient(90deg,rgba(247,237,223,.8),transparent); }
+.visit-intake-summary { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.visit-intake-summary h3 { margin:4px 0; font:400 1.15rem/1.2 Georgia,serif; }
+.visit-intake-summary p:not(.page-kicker) { margin:0; color:var(--muted); font-size:.74rem; }
+.visit-intake-actions { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.visit-intake-detail { display:grid; gap:13px; margin-top:15px; padding:16px; border:1px solid var(--line); border-radius:15px; background:var(--paper); }
+.visit-copy,.visit-attachments { display:grid; gap:6px; }
+.visit-copy > span,.visit-copy label,.visit-attachments > span { color:var(--muted); font-size:.65rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.visit-copy label small { font-size:.6rem; font-weight:500; letter-spacing:0; text-transform:none; }
+.visit-copy p,.visit-attachments p { margin:0; color:#4d4945; font-size:.78rem; line-height:1.55; white-space:pre-wrap; }
+.visit-copy textarea { min-height:84px; padding:10px; border:1px solid var(--line); border-radius:10px; resize:vertical; }
+.visit-attachments a { color:#75543a; font-size:.75rem; font-weight:700; }
+.visit-intake-controls { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
+.visit-intake-controls select { min-height:38px; padding:6px 10px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+.danger-button { color:var(--red); }
+
 .table-shell { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; background: white; }
 table { width: 100%; border-collapse: collapse; min-width: 680px; }
 th, td { padding: 9px 11px; border-bottom: 1px solid #eee9e2; text-align: left; font-size: 0.71rem; }
@@ -513,6 +543,11 @@ textarea { min-height: 104px; resize: vertical; line-height: 1.5; }
   .page-head { align-items: flex-start; flex-direction: column; }
   .filter-bar { grid-template-columns: 1fr; }
   .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .visit-category-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .visit-intake-summary { display:grid; }
+  .visit-intake-actions { justify-content:flex-start; }
+  .visit-intake-controls { display:grid; grid-template-columns:1fr; }
+  .visit-intake-controls .button, .visit-intake-controls select { width:100%; }
 }
 
 @media (max-width: 560px) {

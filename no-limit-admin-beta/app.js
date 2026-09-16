@@ -88,9 +88,11 @@ const defaultState = {
 };
 
 const serviceCategories = ["Trim", "Wainscoting", "Stairs", "Crown Molding · Ceiling · Coffered Ceiling", "Decks", "Kitchen & Vanities", "Fireplaces & Bars", "Outside Doors & Windows", "Pergola", "Port & Portal", "Commercial", "Trash Container", "Wall Paneling", "Custom / New Work"];
+const visitRequestCategories = serviceCategories.slice(0, 13);
 const scheduleAccessWindow = { starts: "6:00 AM", ends: "6:00 PM" };
 
 const previewStorageKey = "no-limit-admin-preview-demo-v1";
+const isLocalPreview = ["127.0.0.1", "localhost"].includes(location.hostname);
 
 function cloneDefaultState() {
   return JSON.parse(JSON.stringify(defaultState));
@@ -136,16 +138,18 @@ function loadPreviewState() {
   }
 }
 
-let state = loadPreviewState();
+// Browser storage is reserved for the explicitly local demo. Production never
+// substitutes cached demo data for a failed Supabase read.
+let state = isLocalPreview ? loadPreviewState() : cloneDefaultState();
 
 const betaWorkspaceId = "shared-v1";
-const isLocalPreview = ["127.0.0.1", "localhost"].includes(location.hostname);
 let currentBetaUser = null;
 let currentAuthSession = null;
 let cloudSaveTimer = null;
+let visitIntake = { items: [], loaded: false, loading: false, error: "", filter: "pending", category: "all", showDiscarded: false };
 
 function savePreviewState() {
-  localStorage.setItem(previewStorageKey, JSON.stringify(state));
+  if (isLocalPreview) localStorage.setItem(previewStorageKey, JSON.stringify(state));
   if (currentBetaUser && currentAuthSession) {
     window.clearTimeout(cloudSaveTimer);
     syncBadge.textContent = "Saving…";
@@ -292,6 +296,9 @@ let selectedProjectId = "";
 let projectReturnRoute = "projects";
 let teamViewFilter = "all";
 let selectedMediaProjectId = "all";
+let securityPresence = [];
+let securityAudit = [];
+let presenceHeartbeat = 0;
 
 function escapeHtml(value = "") {
   return String(value)
@@ -902,7 +909,7 @@ async function pullBetaWorkspace({ quiet = false } = {}) {
     return true;
   } catch (error) {
     console.error("Could not load shared beta workspace", error);
-    setSyncStatus("Offline test copy", "error");
+    setSyncStatus("Cloud sync failed — no local fallback", "error");
     return false;
   }
 }
@@ -973,9 +980,83 @@ function applyBetaAccess() {
 async function activateBetaUser(user, session = currentAuthSession) {
   currentBetaUser = user;
   currentAuthSession = session;
+  const synced = await pullBetaWorkspace();
+  if (!synced) {
+    currentBetaUser = null;
+    currentAuthSession = null;
+    document.body.classList.add("auth-required");
+    authStatus.textContent = "The No Limit workspace could not be loaded. No local or demo fallback was used. Please retry when the secure service is available.";
+    return;
+  }
   document.body.classList.remove("auth-required");
-  await pullBetaWorkspace();
   renderRoute();
+  await updatePresence(location.hash.replace(/^#/, "") || "overview");
+  window.clearInterval(presenceHeartbeat);
+  presenceHeartbeat = window.setInterval(() => updatePresence(location.hash.replace(/^#/, "") || "overview"), 60000);
+}
+
+function deviceType() {
+  const agent = navigator.userAgent;
+  if (/iPhone|Android.+Mobile/i.test(agent)) return "Smartphone";
+  if (/iPad|Android/i.test(agent)) return "Tablet";
+  return "Computer";
+}
+
+async function updatePresence(routeName) {
+  const client = window.noLimitSupabaseClient;
+  const config = betaConfig();
+  if (!client || !currentAuthSession?.user || !config || isLocalPreview) return;
+  await client.from("user_presence").upsert({
+    organization_id: config.organizationId,
+    user_id: currentAuthSession.user.id,
+    current_route: routeName,
+    device_type: deviceType(),
+    last_seen_at: new Date().toISOString(),
+  }, { onConflict: "organization_id,user_id" });
+}
+
+async function recordActivity(action, entityType, entityId = null, details = {}) {
+  const client = window.noLimitSupabaseClient;
+  const config = betaConfig();
+  if (!client || !currentAuthSession || !config || isLocalPreview) return;
+  await client.rpc("record_admin_activity", {
+    org: config.organizationId,
+    action_name: action,
+    entity_kind: entityType,
+    entity_key: entityId,
+    details,
+  });
+}
+
+function relativeActivity(value) {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+  if (seconds < 90) return "Active now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+async function refreshSecurityMonitor() {
+  const client = window.noLimitSupabaseClient;
+  const config = betaConfig();
+  const presenceHost = document.getElementById("presenceMonitor");
+  const auditHost = document.getElementById("auditMonitor");
+  if (!client || !config || !presenceHost || !auditHost) return;
+  const [{ data: presence }, { data: audit }] = await Promise.all([
+    client.from("user_presence").select("user_id,current_route,device_type,session_started_at,last_seen_at").eq("organization_id", config.organizationId).order("last_seen_at", { ascending: false }),
+    client.from("audit_log").select("actor_user_id,action,entity_type,entity_id,created_at").eq("organization_id", config.organizationId).order("created_at", { ascending: false }).limit(40),
+  ]);
+  const ids = [...new Set([...(presence || []).map((item) => item.user_id), ...(audit || []).map((item) => item.actor_user_id)].filter(Boolean))];
+  const { data: profiles } = ids.length ? await client.from("profiles").select("id,full_name,email").in("id", ids) : { data: [] };
+  const names = new Map((profiles || []).map((item) => [item.id, item.full_name || item.email]));
+  securityPresence = presence || [];
+  securityAudit = audit || [];
+  presenceHost.innerHTML = securityPresence.length ? demoTable(["User", "Status", "Current section", "Device", "Last activity"], securityPresence.map((item) => {
+    const age = Date.now() - new Date(item.last_seen_at).getTime();
+    const status = age < 120000 ? "Online" : age < 600000 ? "Away" : "Offline";
+    return `<tr><td><strong>${escapeHtml(names.get(item.user_id) || "Authorized user")}</strong></td><td><span class="status-pill ${status === "Online" ? "green" : "amber"}">${status}</span></td><td>${escapeHtml(formatStatus(item.current_route))}</td><td>${escapeHtml(item.device_type)}</td><td>${escapeHtml(relativeActivity(item.last_seen_at))}</td></tr>`;
+  })) : emptyState("No activity yet", "Users will appear here after they enter the admin.");
+  auditHost.innerHTML = securityAudit.length ? demoTable(["User", "Action", "Area", "Record", "Time"], securityAudit.map((item) => `<tr><td>${escapeHtml(names.get(item.actor_user_id) || "Authorized user")}</td><td>${escapeHtml(formatStatus(item.action))}</td><td>${escapeHtml(formatStatus(item.entity_type))}</td><td>${escapeHtml(item.entity_id || "—")}</td><td>${escapeHtml(relativeActivity(item.created_at))}</td></tr>`)) : emptyState("No recorded actions yet", "Important changes will appear here as the team uses the admin.");
 }
 
 function mappedBetaRole(role) {
@@ -1251,25 +1332,15 @@ function renderOverview() {
     </section>`;
 }
 
-function renderRequests() {
-  return `
-    <section class="page">
-      ${pageHead(routes.requests, '<button class="button" data-create="request" type="button">New request</button><button class="button secondary" data-create="siteVisit" type="button">Schedule Free On-Site Visit</button>')}
-      <article class="panel">
-        <div class="filter-bar">
-          <label>Search<input type="search" placeholder="Name, phone, email, or service" /></label>
-          <label>Status<select><option>All statuses</option><option>New</option><option>To Contact</option><option>Contacted</option><option>Proposal Sent</option></select></label>
-          <label>Service category<select><option>All 13 categories</option></select></label>
-          <button class="button secondary" type="button">Apply filters</button>
-        </div>
-        ${demoTable(["Request", "Client", "Service", "Submitted", "Status", "Next action"], state.requests.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong></td><td>${escapeHtml(item.clientName)}</td><td>${escapeHtml(item.service)}</td><td>${escapeHtml(item.submitted)}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.nextAction)}</td></tr>`))}
-      </article>
-      <article class="panel">
-        <div class="panel-head"><div><h2>Free On-Site Visits</h2><p>Visits connect the original request, client, future project, assigned person, and notes.</p></div></div>
-        ${demoTable(["Visit", "Date", "Client", "Request", "Project", "Assigned to", "Status", "Notes"], state.siteVisits.map((visit) => `<tr><td><strong>${escapeHtml(visit.id)}</strong></td><td>${escapeHtml(visit.visitDate)}</td><td>${escapeHtml(visit.clientName)}</td><td>${escapeHtml(visit.requestId)}</td><td>${escapeHtml(visit.projectId || "Not created")}</td><td>${escapeHtml(visit.assignedTo)}</td><td><span class="status-pill ${statusClass(visit.status)}">${escapeHtml(formatStatus(visit.status))}</span></td><td>${escapeHtml(visit.notes)}</td></tr>`))}
-      </article>
-    </section>`;
-}
+function demoVisitRequests() { return state.requests.map((item, index) => ({ id:item.id, submitted_at:new Date(Date.now()-(index+1)*86400000).toISOString(), full_name:item.clientName, email:`client${index+1}@example.invalid`, phone:"(555) 010-0000", project_type:index===0?"Trim":index===1?"Stairs":"Kitchen & Vanities", message:`Preview request for ${item.service}. The original customer message and any reference photos remain attached to this request.`, status:index===0?"to_contact":index===1?"waiting_reply":"in_progress", internal_note:"", discarded_at:null, attachments:[] })); }
+function visitStatusLabel(status) { return ({to_contact:"To contact",waiting_reply:"Waiting for reply",in_progress:"In progress",completed:"Completed"})[status] || "To contact"; }
+function visitStatusClass(status) { return ({to_contact:"amber",waiting_reply:"amber",in_progress:"green",completed:"green"})[status] || "amber"; }
+function visitIsToday(item) { const d=new Date(item.submitted_at||item.created_at||0), n=new Date(); return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate(); }
+function visitIsNew(item) { const t=new Date(item.submitted_at||item.created_at||0).getTime(); return Number.isFinite(t)&&Date.now()-t<86400000; }
+function safeAttachmentHref(value) { try { const url=new URL(String(value||""),window.location.origin); return ["https:","http:"].includes(url.protocol)?url.href:""; } catch { return ""; } }
+function filteredVisitRequests() { return visitIntake.items.filter((item)=>{ if(visitIntake.showDiscarded?!item.discarded_at:item.discarded_at)return false; if(visitIntake.category!=="all"&&item.project_type!==visitIntake.category)return false; if(visitIntake.filter==="today"&&!visitIsToday(item))return false; return visitIntake.filter!=="pending"||["to_contact","waiting_reply","in_progress"].includes(item.status||"to_contact"); }); }
+function renderVisitRequestCard(item) { const date=new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(item.submitted_at||item.created_at)); const files=(Array.isArray(item.attachments)?item.attachments:[]).map((file)=>({...file,href:safeAttachmentHref(file.url||file.path)})).filter((file)=>file.href); return `<article class="visit-intake-card${visitIsNew(item)?" is-new":""}"><div class="visit-intake-summary"><div><p class="page-kicker">${escapeHtml(item.project_type||"Other")} · ${escapeHtml(date)}${visitIsNew(item)?" · New":""}</p><h3>${escapeHtml(item.full_name||"Unnamed request")}</h3><p>${escapeHtml([item.phone,item.email].filter(Boolean).join(" · ")||"No contact details provided")}</p></div><div class="visit-intake-actions"><span class="status-pill ${visitStatusClass(item.status)}">${escapeHtml(visitStatusLabel(item.status))}</span><button class="text-button" data-toggle-visit="${escapeHtml(item.id)}" type="button" aria-expanded="false">Open details</button></div></div><div id="visit-detail-${escapeHtml(item.id)}" class="visit-intake-detail" hidden><div class="detail-grid"><div><span>Phone</span><strong>${escapeHtml(item.phone||"Not provided")}</strong></div><div><span>Email</span><strong>${escapeHtml(item.email||"Not provided")}</strong></div><div><span>Address</span><strong>${escapeHtml(item.address||"Not provided")}</strong></div><div><span>Preferred visit</span><strong>${escapeHtml(item.preferred_date||"Not provided")}</strong></div></div><div class="visit-copy"><span>Customer message</span><p>${escapeHtml(item.message||"No details provided")}</p></div><div class="visit-copy"><label for="visit-note-${escapeHtml(item.id)}">Internal note <small>Private — never shown to the customer</small></label><textarea id="visit-note-${escapeHtml(item.id)}" data-visit-note="${escapeHtml(item.id)}" placeholder="Add an internal follow-up note…">${escapeHtml(item.internal_note||"")}</textarea></div><div class="visit-attachments"><span>Customer photos / references</span>${files.length?files.map((file)=>`<a href="${escapeHtml(file.href)}" target="_blank" rel="noopener">${escapeHtml(file.name||"Open attachment")}</a>`).join(""):"<p>No photos or references were provided.</p>"}</div><div class="visit-intake-controls"><a class="button secondary" href="mailto:${encodeURIComponent(item.email||"")}?subject=${encodeURIComponent("No Limit Carpentry — your on-site visit request")}">Contact customer</a><select data-visit-status="${escapeHtml(item.id)}" aria-label="Request status"><option value="to_contact"${item.status==="to_contact"?" selected":""}>To contact</option><option value="waiting_reply"${item.status==="waiting_reply"?" selected":""}>Waiting for reply</option><option value="in_progress"${item.status==="in_progress"?" selected":""}>In progress</option><option value="completed"${item.status==="completed"?" selected":""}>Completed</option></select><button class="button secondary" data-save-visit="${escapeHtml(item.id)}" type="button">Save review</button><button class="text-button danger-button" data-discard-visit="${escapeHtml(item.id)}" type="button">${item.discarded_at?"Restore request":"Discard request"}</button></div></div></article>`; }
+function renderRequests() { const records=filteredVisitRequests(), totals=Object.fromEntries(visitRequestCategories.map((category)=>[category,0])); visitIntake.items.filter((item)=>!item.discarded_at).forEach((item)=>{if(Object.prototype.hasOwnProperty.call(totals,item.project_type))totals[item.project_type]+=1;}); return `<section class="page">${pageHead(routes.requests,'<button class="button secondary" data-refresh-visits type="button">Refresh requests</button>')}<article class="panel visit-intake-overview"><div class="panel-head"><div><h2>Free On-Site Visit requests</h2><p>Private intake review. Opening contact does not change status; only an explicit save does.</p></div><span class="status-pill ${visitIntake.error?"red":"green"}">${escapeHtml(visitIntake.error||(isLocalPreview?"Preview data":"Secure admin view"))}</span></div><div class="visit-filter-row" role="group" aria-label="Request filters"><button class="filter-chip${visitIntake.filter==="today"?" active":""}" data-visit-filter="today" type="button">Today</button><button class="filter-chip${visitIntake.filter==="pending"?" active":""}" data-visit-filter="pending" type="button">Pending</button><button class="filter-chip${visitIntake.filter==="all"?" active":""}" data-visit-filter="all" type="button">All</button><button class="filter-chip${visitIntake.showDiscarded?" active":""}" data-show-discarded type="button">${visitIntake.showDiscarded?"Back to active":"Discarded"}</button><label>Gallery section<select id="visitCategoryFilter"><option value="all">All 13 sections</option>${visitRequestCategories.map((category)=>`<option value="${escapeHtml(category)}"${visitIntake.category===category?" selected":""}>${escapeHtml(category)} (${totals[category]||0})</option>`).join("")}</select></label></div></article><section class="visit-category-grid" aria-label="Request totals by gallery section">${visitRequestCategories.map((category)=>`<button class="visit-category-card${visitIntake.category===category?" active":""}" data-visit-category="${escapeHtml(category)}" type="button"><span>${escapeHtml(category)}</span><strong>${totals[category]||0}</strong></button>`).join("")}</section><section class="panel visit-intake-list"><div class="panel-head"><div><h2>${visitIntake.showDiscarded?"Discarded requests":"Requests to review"}</h2><p>${records.length} request${records.length===1?"":"s"} shown</p></div></div>${records.length?records.map(renderVisitRequestCard).join(""):'<div class="empty-state"><h3>No requests in this view</h3><p>Try another filter or refresh the secure intake.</p></div>'}</section></section>`; }
 
 function renderDocuments() {
   return `
@@ -1609,7 +1680,7 @@ function renderSecurity() {
     ["Role-based permissions", "Routes and creation rights are limited by the assigned role.", "Beta active"],
     ["Administrator invitations", "Only an administrator can prepare and send a user invitation.", "Preview ready"],
     ["Two-factor authentication", "Required for administrator accounts.", "Planned"],
-    ["Audit history", "Important reads, writes, exports, and permission changes.", "Planned"],
+    ["Audit history", "Important changes are recorded with the user, time, area, and affected record.", "Beta active"],
     ["Work-hour location controls", "Explicit check-in consent, project-area verification, and automatic stop at 6:00 PM.", "Planned"],
     ["Backup and recovery", "Automatic backups plus a tested recovery procedure.", "Planned"],
   ];
@@ -1618,11 +1689,19 @@ function renderSecurity() {
       ${pageHead(routes.security, '<button class="button" data-create="accessUser" type="button">Invite user</button>')}
       <article class="panel">
         <div class="panel-head"><div><h2>User access</h2><p>Create access by invitation, choose the role, and link the account to the correct person or company. Public self-registration stays disabled.</p></div></div>
-        ${demoTable(["User", "Email", "Role", "Linked record", "Status", "Prepared"], state.accessUsers.map((item) => {
+        ${demoTable(["User", "Email", "Role", "Linked record", "Status", "Prepared", "Access"], state.accessUsers.map((item) => {
           const linked = state.people.find((person) => person.id === item.linkedPersonId);
-          return `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${escapeHtml(linked?.name || "Not linked")}</td><td><span class="status-pill ${item.status === "active" ? "green" : "amber"}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.invitedAt || "—")}</td></tr>`;
+          return `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${escapeHtml(linked?.name || "Not linked")}</td><td><span class="status-pill ${item.status === "active" ? "green" : "amber"}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.invitedAt || "—")}</td><td><button class="text-button" type="button" data-resend-access-email="${escapeHtml(item.email)}">Resend access email</button></td></tr>`;
         }))}
-        <p class="privacy-note">For security, the browser never receives an administrative Supabase key. Sending invitations will use a protected server function that verifies the administrator, creates the account, assigns the organization role, and records the audit event.</p>
+        <p class="privacy-note">For security, the browser never receives an administrative Supabase key. Invitations and re-sent access emails use a protected server function that verifies the administrator, preserves the existing role, and records the audit event.</p>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Active users</h2><p>Presence inside the No Limit admin only. A user is online when activity was received within the last two minutes.</p></div></div>
+        <div id="presenceMonitor"><p>Loading user activity…</p></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Audit history</h2><p>Important administrative changes, recorded without passwords or private message content.</p></div></div>
+        <div id="auditMonitor"><p>Loading audit history…</p></div>
       </article>
       <div class="content-grid">
         <article class="panel">
@@ -1781,6 +1860,24 @@ function updateReportPreview() {
     ${sections.length ? sections.map((section) => `<section class="report-section"><h3>${escapeHtml(section)}</h3>${reportSections[section] || ""}</section>`).join("") : '<section class="report-section"><h3>No sections selected</h3><p>Select at least one report section and update the preview.</p></section>'}`;
 }
 
+async function resendAccessEmail(email) {
+  if (isLocalPreview) {
+    window.alert(`Preview only: an access email would be re-sent to ${email}.`);
+    return;
+  }
+  const client = window.noLimitSupabaseClient;
+  if (!client || !currentAuthSession) {
+    window.alert("Sign in again before re-sending an access email.");
+    return;
+  }
+  const { data, error } = await client.functions.invoke("invite-no-limit-user", { body: { email, resend: true } });
+  if (error || data?.error) {
+    window.alert(data?.error || error?.message || "The access email could not be re-sent.");
+    return;
+  }
+  window.alert(`A new access link was sent to ${email}.`);
+}
+
 async function openMediaAsset(mediaId) {
   const item = state.media.find((media) => media.id === mediaId);
   if (!item || !mediaViewerDialog || !mediaViewerContent) return;
@@ -1812,6 +1909,38 @@ async function openMediaAsset(mediaId) {
   mediaViewerContent.innerHTML = `${asset}<div class="media-meta"><strong>${escapeHtml(item.projectName)}</strong><span>${escapeHtml(item.phase)} · ${escapeHtml(formatStatus(item.publishStatus))}</span>${item.caption ? `<p>${escapeHtml(item.caption)}</p>` : ""}</div>`;
 }
 
+async function refreshVisitRequests() {
+  if (visitIntake.loading) return;
+  visitIntake.loading = true; visitIntake.error = "";
+  try {
+    if (isLocalPreview) visitIntake.items = demoVisitRequests();
+    else {
+      const client = window.noLimitSupabaseClient;
+      if (!client || !currentAuthSession) throw new Error("Sign in again before reviewing requests.");
+      const { data, error } = await client.functions.invoke("manage-visit-requests", { body: { action: "sync_and_list" } });
+      if (error || !Array.isArray(data?.requests)) throw new Error(data?.error || error?.message || "Requests could not be loaded.");
+      visitIntake.items = data.requests;
+    }
+    visitIntake.loaded = true;
+  } catch (error) { visitIntake.error = error?.message || "Requests could not be loaded."; }
+  finally { visitIntake.loading = false; if ((location.hash.replace(/^#/, "") || "overview") === "requests") renderRoute(); }
+}
+async function saveVisitRequestReview(id) {
+  const request=visitIntake.items.find((item)=>item.id===id); if(!request)return;
+  const status=document.querySelector(`[data-visit-status="${CSS.escape(id)}"]`)?.value||request.status;
+  const internalNote=document.querySelector(`[data-visit-note="${CSS.escape(id)}"]`)?.value||"";
+  if(isLocalPreview){request.status=status;request.internal_note=internalNote;renderRoute();return;}
+  const {data,error}=await window.noLimitSupabaseClient.functions.invoke("manage-visit-requests",{body:{action:"update",id,status,internalNote}});
+  if(error||data?.error)return window.alert(data?.error||error?.message||"The request could not be updated."); Object.assign(request,data.request||{status,internal_note:internalNote});renderRoute();
+}
+async function toggleVisitRequestDiscarded(id) {
+  const request=visitIntake.items.find((item)=>item.id===id); if(!request)return; const discarded=!request.discarded_at;
+  if(!window.confirm(discarded?"Move this request to the discarded list? It can be restored later.":"Restore this request to the active review list?"))return;
+  if(isLocalPreview){request.discarded_at=discarded?new Date().toISOString():null;renderRoute();return;}
+  const {data,error}=await window.noLimitSupabaseClient.functions.invoke("manage-visit-requests",{body:{action:"discard",id,discarded}});
+  if(error||data?.error)return window.alert(data?.error||error?.message||"The request could not be updated."); Object.assign(request,data.request||{discarded_at:discarded?new Date().toISOString():null});renderRoute();
+}
+
 function bindPageEvents(routeName) {
   content.querySelectorAll("[data-create]").forEach((button) => button.addEventListener("click", () => openDataEntry(button.dataset.create)));
   content.querySelectorAll("[data-edit-client]").forEach((button) => button.addEventListener("click", () => openDataEntry("client", button.dataset.editClient)));
@@ -1833,6 +1962,19 @@ function bindPageEvents(routeName) {
   content.querySelector("[data-media-project-filter]")?.addEventListener("change", (event) => { selectedMediaProjectId = event.target.value; renderRoute(); });
   content.querySelectorAll("[data-media-project]").forEach((button) => button.addEventListener("click", () => { selectedMediaProjectId = button.dataset.mediaProject; renderRoute(); }));
   content.querySelectorAll("[data-view-media]").forEach((button) => button.addEventListener("click", () => void openMediaAsset(button.dataset.viewMedia)));
+  if (routeName === "requests") {
+    content.querySelector("[data-refresh-visits]")?.addEventListener("click", () => void refreshVisitRequests());
+    content.querySelectorAll("[data-visit-filter]").forEach((button) => button.addEventListener("click", () => { visitIntake.filter=button.dataset.visitFilter; visitIntake.showDiscarded=false; renderRoute(); }));
+    content.querySelector("[data-show-discarded]")?.addEventListener("click", () => { visitIntake.showDiscarded=!visitIntake.showDiscarded; renderRoute(); });
+    content.querySelectorAll("[data-visit-category]").forEach((button) => button.addEventListener("click", () => { visitIntake.category=button.dataset.visitCategory; renderRoute(); }));
+    content.querySelector("#visitCategoryFilter")?.addEventListener("change", (event) => { visitIntake.category=event.target.value; renderRoute(); });
+    content.querySelectorAll("[data-toggle-visit]").forEach((button) => button.addEventListener("click", () => { const detail=document.getElementById(`visit-detail-${button.dataset.toggleVisit}`), open=detail?.hidden; if(detail)detail.hidden=!open; button.textContent=open?"Close details":"Open details";button.setAttribute("aria-expanded",String(Boolean(open))); }));
+    content.querySelectorAll("[data-save-visit]").forEach((button) => button.addEventListener("click", () => void saveVisitRequestReview(button.dataset.saveVisit)));
+    content.querySelectorAll("[data-discard-visit]").forEach((button) => button.addEventListener("click", () => void toggleVisitRequestDiscarded(button.dataset.discardVisit)));
+  }
+  if (routeName === "security") {
+    content.querySelectorAll("[data-resend-access-email]").forEach((button) => button.addEventListener("click", () => void resendAccessEmail(button.dataset.resendAccessEmail)));
+  }
   if (routeName === "reports") {
     const form = document.getElementById("reportBuilder");
     form?.addEventListener("submit", (event) => {
@@ -1861,6 +2003,9 @@ function renderRoute() {
   window.scrollTo({ top: 0, behavior: "instant" });
   bindPageEvents(routeName);
   applyBetaAccess();
+  updatePresence(routeName);
+  if (routeName === "requests" && !visitIntake.loaded && !visitIntake.loading) void refreshVisitRequests();
+  if (routeName === "security" && currentBetaUser?.role === "admin") refreshSecurityMonitor();
   closeNavigation();
 }
 
@@ -1881,6 +2026,7 @@ dataForm.addEventListener("submit", async (event) => {
   if (submitButton) submitButton.disabled = true;
   try {
     await saveDataEntry(new FormData(dataForm));
+    if (pendingRecordType !== "accessUser") await recordActivity("record_saved", pendingRecordType, pendingRecordId || "new", { section: location.hash.replace(/^#/, "") || "overview" });
     dataDialog.close();
     renderRoute();
   } catch (error) {

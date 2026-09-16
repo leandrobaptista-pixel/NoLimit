@@ -300,6 +300,7 @@ let teamViewFilter = "all";
 let selectedMediaProjectId = "all";
 let securityPresence = [];
 let securityAudit = [];
+let cloudAccessUsers = [];
 let presenceHeartbeat = 0;
 
 function escapeHtml(value = "") {
@@ -990,6 +991,7 @@ async function activateBetaUser(user, session = currentAuthSession) {
     return;
   }
   document.body.classList.remove("auth-required");
+  await loadCloudAccessUsers();
   renderRoute();
   await updatePresence(location.hash.replace(/^#/, "") || "overview");
   window.clearInterval(presenceHeartbeat);
@@ -998,6 +1000,31 @@ async function activateBetaUser(user, session = currentAuthSession) {
   workspaceRefreshTimer = window.setInterval(() => {
     if (!dataDialog.open && !documentDialog.open && !customServiceDialog.open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
   }, 15000);
+}
+
+async function loadCloudAccessUsers() {
+  if (isLocalPreview) {
+    cloudAccessUsers = state.accessUsers;
+    return true;
+  }
+  const client = window.noLimitSupabaseClient;
+  if (!client || !currentAuthSession) return false;
+  const { data, error } = await client.functions.invoke("invite-no-limit-user", { body: { action: "list" } });
+  if (error || data?.error) {
+    console.error("Could not load authorized users", data?.error || error);
+    cloudAccessUsers = [];
+    return false;
+  }
+  cloudAccessUsers = (data?.users || []).map((user) => ({
+    id: user.id,
+    name: user.fullName || user.email,
+    email: user.email,
+    role: formatStatus(user.role),
+    linkedPersonId: "",
+    status: user.status,
+    invitedAt: user.invitedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(user.invitedAt)) : "—",
+  }));
+  return true;
 }
 
 function deviceType() {
@@ -1248,14 +1275,15 @@ async function saveDataEntry(formData) {
   }
   if (pendingRecordType === "accessUser") {
     const email = String(formData.get("email") || "").trim().toLowerCase();
-    if (state.accessUsers.some((item) => String(item.email).toLowerCase() === email)) throw new Error("This email already has an access record.");
+    const knownUsers = isLocalPreview ? state.accessUsers : cloudAccessUsers;
+    if (knownUsers.some((item) => String(item.email).toLowerCase() === email)) throw new Error("This email already has an access record. Use Send access reset instead.");
     const role = String(formData.get("role"));
     const linkedPersonId = String(formData.get("linkedPersonId") || "");
     let status = "draft-invitation";
     if (!isLocalPreview) {
       const client = window.noLimitSupabaseClient;
       if (!client || !currentAuthSession) throw new Error("Sign in again before inviting a user.");
-      const { error } = await client.functions.invoke("invite-no-limit-user", { body: { email, fullName: formData.get("name"), role: invitationRole(role), linkedPersonId } });
+      const { data, error } = await client.functions.invoke("invite-no-limit-user", { body: { email, fullName: formData.get("name"), role: invitationRole(role), linkedPersonId } });
       if (error) {
         let message = error.message || "The invitation could not be sent.";
         try {
@@ -1264,9 +1292,11 @@ async function saveDataEntry(formData) {
         } catch {}
         throw new Error(message);
       }
+      if (data?.alreadyActive) throw new Error("This account is already active. Its current role was preserved; use Send access reset if the user needs a new sign-in link.");
       status = "invited";
     }
-    state.accessUsers.unshift({ id: nextId(state.accessUsers, "USR"), name: formData.get("name"), email, role, linkedPersonId, status, invitedAt: readableDate() });
+    if (isLocalPreview) state.accessUsers.unshift({ id: nextId(state.accessUsers, "USR"), name: formData.get("name"), email, role, linkedPersonId, status, invitedAt: readableDate() });
+    else await loadCloudAccessUsers();
   }
   if (pendingRecordType === "receipt") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
@@ -1727,7 +1757,7 @@ function renderSecurity() {
       ${pageHead(routes.security, '<button class="button" data-create="accessUser" type="button">Invite user</button>')}
       <article class="panel">
         <div class="panel-head"><div><h2>User access</h2><p>Create access by invitation, choose the role, and link the account to the correct person or company. Public self-registration stays disabled.</p></div></div>
-        ${demoTable(["User", "Email", "Role", "Linked record", "Status", "Prepared", "Access"], state.accessUsers.map((item) => {
+        ${demoTable(["User", "Email", "Role", "Linked record", "Status", "Prepared", "Access"], (isLocalPreview ? state.accessUsers : cloudAccessUsers).map((item) => {
           const linked = state.people.find((person) => person.id === item.linkedPersonId);
           return `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${escapeHtml(linked?.name || "Not linked")}</td><td><span class="status-pill ${item.status === "active" ? "green" : "amber"}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.invitedAt || "—")}</td><td><button class="text-button" type="button" data-resend-access-email="${escapeHtml(item.email)}">Send access reset</button></td></tr>`;
         }))}

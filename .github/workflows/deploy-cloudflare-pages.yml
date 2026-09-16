@@ -33,7 +33,9 @@ jobs:
           test "${GITHUB_REF_NAME}" = "${EXPECTED_BRANCH}"
           test "${EXPECTED_PAGES_PROJECT}" = "nolimitcontractor"
           test "${EXPECTED_DOMAIN}" = "nolimitcontractor.net"
-          printf 'Publishing %s/%s to %s (%s)\n' "${GITHUB_REPOSITORY}" "${GITHUB_REF_NAME}" "${EXPECTED_PAGES_PROJECT}" "${EXPECTED_DOMAIN}"
+          printf 'Publishing %s/%s to %s (%s)\n' \
+            "${GITHUB_REPOSITORY}" "${GITHUB_REF_NAME}" \
+            "${EXPECTED_PAGES_PROJECT}" "${EXPECTED_DOMAIN}"
 
       - name: Validate Cloudflare file limit (25 MiB)
         shell: bash
@@ -41,6 +43,7 @@ jobs:
           set -euo pipefail
           mapfile -t oversized < <(find . -type f -size +25M ! -path './.git/*')
           if [ "${#oversized[@]}" -gt 0 ]; then
+            echo "Cloudflare Pages limit is 25 MiB per file."
             printf ' - %s\n' "${oversized[@]}"
             exit 1
           fi
@@ -53,7 +56,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .well-known
-          printf '{"commit":"%s","run_id":"%s","deployed_at":"%s"}\n' "${GITHUB_SHA}" "${GITHUB_RUN_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .well-known/nolimit-release.json
+          printf '{"commit":"%s","run_id":"%s","deployed_at":"%s"}\n' \
+            "${GITHUB_SHA}" "${GITHUB_RUN_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > .well-known/nolimit-release.json
 
       - name: Normalize Cloudflare credentials
         shell: bash
@@ -68,7 +73,7 @@ jobs:
             exit 1
           fi
           if printf '%s' "$CLOUDFLARE_API_TOKEN" | LC_ALL=C grep -q '[^!-~]'; then
-            echo "CLOUDFLARE_API_TOKEN contains invalid characters."
+            echo "CLOUDFLARE_API_TOKEN contains invalid characters after whitespace cleanup."
             exit 1
           fi
           echo "::add-mask::$CLOUDFLARE_API_TOKEN"
@@ -78,33 +83,56 @@ jobs:
       - name: Deploy to Cloudflare Pages
         run: wrangler pages deploy . --project-name=nolimitcontractor --branch=main
 
-      - name: Verify Pages release fingerprint
+      - name: Verify Pages release propagation
         shell: bash
         run: |
           set -euo pipefail
           expected="${GITHUB_SHA}"
-          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 "https://nolimitcontractor.pages.dev/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" | jq -r '.commit // empty')"
-          test "$actual" = "$expected"
+          url="https://nolimitcontractor.pages.dev/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}"
+          actual=""
+          for attempt in {1..12}; do
+            actual="$(curl --fail --silent --show-error --max-time 30 "$url" | jq -r '.commit // empty' || true)"
+            if [ "$actual" = "$expected" ]; then
+              echo "Pages fingerprint confirmed on attempt $attempt."
+              exit 0
+            fi
+            echo "Pages release has not propagated yet (attempt $attempt/12); waiting 5 seconds."
+            sleep 5
+          done
+          echo "::error title=Pages release did not propagate::Expected $expected; received ${actual:-no release fingerprint}."
+          exit 1
 
-      - name: Audit custom-domain release fingerprint
+      - name: Verify custom-domain release propagation
         shell: bash
         run: |
           set -euo pipefail
           expected="${GITHUB_SHA}"
-          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 "https://nolimitcontractor.net/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" | jq -r '.commit // empty')"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error title=Custom domain is serving a different release::Expected ${expected}; received ${actual:-no release fingerprint}."
-            exit 1
-          fi
+          url="https://nolimitcontractor.net/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}"
+          actual=""
+          for attempt in {1..12}; do
+            actual="$(curl --fail --silent --show-error --max-time 30 "$url" | jq -r '.commit // empty' || true)"
+            if [ "$actual" = "$expected" ]; then
+              echo "Custom-domain fingerprint confirmed on attempt $attempt."
+              exit 0
+            fi
+            echo "Custom-domain release has not propagated yet (attempt $attempt/12); waiting 5 seconds."
+            sleep 5
+          done
+          echo "::error title=Custom-domain release did not propagate::Expected $expected; received ${actual:-no release fingerprint}."
+          exit 1
 
       - name: Smoke-test the public entry points
         shell: bash
         run: |
           set -euo pipefail
           base="https://nolimitcontractor.net"
-          for path in / /catalogs.html /viewer.html /no-limit-admin-beta/; do
+          paths=("/" "/catalogs.html" "/viewer.html" "/no-limit-admin-beta/")
+          for path in "${paths[@]}"; do
             status="$(curl --location --silent --output /dev/null --write-out '%{http_code}' --retry 3 --retry-delay 3 --max-time 30 "${base}${path}?release=${GITHUB_RUN_ID}")"
-            test "$status" = "200"
+            if [ "$status" != "200" ]; then
+              echo "::error title=Public entry point failed::$path returned HTTP $status."
+              exit 1
+            fi
           done
 
       - name: Verify cache policy for document entry points
@@ -113,5 +141,8 @@ jobs:
           set -euo pipefail
           for path in / /catalogs.html /no-limit-admin-beta/; do
             headers="$(curl --location --silent --show-error --head --max-time 30 "https://nolimitcontractor.net${path}?release=${GITHUB_RUN_ID}")"
-            printf '%s\n' "$headers" | grep -qi '^cache-control:.*no-cache'
+            if ! printf '%s\n' "$headers" | grep -qi '^cache-control:.*no-cache'; then
+              echo "::error title=Document cache policy missing::$path is not returning Cache-Control: no-cache."
+              exit 1
+            fi
           done

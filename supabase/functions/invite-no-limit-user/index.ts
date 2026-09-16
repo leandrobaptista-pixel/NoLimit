@@ -45,7 +45,7 @@ Deno.serve(async (request) => {
 
   if (body.action === "list") {
     const { data: members, error: membersError } = await admin.from("organization_members")
-      .select("user_id,role,status,created_at").eq("organization_id", organizationId).order("created_at", { ascending: false });
+      .select("user_id,role,status").eq("organization_id", organizationId);
     if (membersError) return json(500, { error: "User access records could not be loaded" });
     const usersById = new Map(usersPage.users.map((user) => [user.id, user]));
     return json(200, { users: (members ?? []).map((member) => {
@@ -56,7 +56,6 @@ Deno.serve(async (request) => {
         fullName: String(user?.user_metadata?.full_name ?? user?.email ?? ""),
         role: member.role,
         status: member.status,
-        invitedAt: member.created_at,
       };
     }) });
   }

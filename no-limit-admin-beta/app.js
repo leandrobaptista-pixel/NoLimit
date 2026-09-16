@@ -1009,7 +1009,7 @@ async function loadCloudAccessUsers() {
   }
   if (!currentAuthSession) return false;
   const config = betaConfig();
-  const membersQuery = new URLSearchParams({ select: "user_id,role,status,created_at", organization_id: `eq.${config.organizationId}`, order: "created_at.desc" });
+  const membersQuery = new URLSearchParams({ select: "user_id,role,status", organization_id: `eq.${config.organizationId}` });
   const profilesQuery = new URLSearchParams({ select: "id,email,full_name" });
   const [membersResponse, profilesResponse] = await Promise.all([
     fetch(`${config.supabaseUrl}/rest/v1/organization_members?${membersQuery}`, { headers: betaRequestHeaders(), cache: "no-store" }),
@@ -1031,7 +1031,7 @@ async function loadCloudAccessUsers() {
     role: formatStatus(member.role),
     linkedPersonId: "",
     status: member.status,
-    invitedAt: member.created_at ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(member.created_at)) : "—",
+    invitedAt: "—",
   };
   });
   return true;

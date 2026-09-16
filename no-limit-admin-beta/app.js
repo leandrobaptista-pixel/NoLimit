@@ -1009,21 +1009,29 @@ async function loadCloudAccessUsers() {
   }
   const client = window.noLimitSupabaseClient;
   if (!client || !currentAuthSession) return false;
-  const { data, error } = await client.functions.invoke("invite-no-limit-user", { body: { action: "list" } });
-  if (error || data?.error) {
-    console.error("Could not load authorized users", data?.error || error);
+  const config = betaConfig();
+  const [{ data: members, error: membersError }, { data: profiles, error: profilesError }] = await Promise.all([
+    client.from("organization_members").select("user_id,role,status,created_at").eq("organization_id", config.organizationId).order("created_at", { ascending: false }),
+    client.from("profiles").select("id,email,full_name"),
+  ]);
+  if (membersError || profilesError) {
+    console.error("Could not load authorized users", membersError || profilesError);
     cloudAccessUsers = [];
     return false;
   }
-  cloudAccessUsers = (data?.users || []).map((user) => ({
-    id: user.id,
-    name: user.fullName || user.email,
-    email: user.email,
-    role: formatStatus(user.role),
+  const profilesById = new Map((profiles || []).map((profile) => [profile.id, profile]));
+  cloudAccessUsers = (members || []).map((member) => {
+    const profile = profilesById.get(member.user_id);
+    return {
+    id: member.user_id,
+    name: profile?.full_name || profile?.email || "Authorized user",
+    email: profile?.email || "",
+    role: formatStatus(member.role),
     linkedPersonId: "",
-    status: user.status,
-    invitedAt: user.invitedAt ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(user.invitedAt)) : "—",
-  }));
+    status: member.status,
+    invitedAt: member.created_at ? new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(member.created_at)) : "—",
+  };
+  });
   return true;
 }
 

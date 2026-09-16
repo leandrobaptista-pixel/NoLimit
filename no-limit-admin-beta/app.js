@@ -1729,9 +1729,9 @@ function renderSecurity() {
         <div class="panel-head"><div><h2>User access</h2><p>Create access by invitation, choose the role, and link the account to the correct person or company. Public self-registration stays disabled.</p></div></div>
         ${demoTable(["User", "Email", "Role", "Linked record", "Status", "Prepared", "Access"], state.accessUsers.map((item) => {
           const linked = state.people.find((person) => person.id === item.linkedPersonId);
-          return `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${escapeHtml(linked?.name || "Not linked")}</td><td><span class="status-pill ${item.status === "active" ? "green" : "amber"}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.invitedAt || "—")}</td><td><button class="text-button" type="button" data-resend-access-email="${escapeHtml(item.email)}">Resend access email</button></td></tr>`;
+          return `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${escapeHtml(linked?.name || "Not linked")}</td><td><span class="status-pill ${item.status === "active" ? "green" : "amber"}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.invitedAt || "—")}</td><td><button class="text-button" type="button" data-resend-access-email="${escapeHtml(item.email)}">Send access reset</button></td></tr>`;
         }))}
-        <p class="privacy-note">For security, the browser never receives an administrative Supabase key. Invitations and re-sent access emails use a protected server function that verifies the administrator, preserves the existing role, and records the audit event.</p>
+        <p class="privacy-note">For security, the browser never receives an administrative Supabase key. New invitations use a protected server function; access resets use Supabase’s secure password-recovery flow and do not change the user’s role.</p>
       </article>
       <article class="panel">
         <div class="panel-head"><div><h2>Active users and device health</h2><p>Presence is limited to the No Limit Admin. The table records device class, operating system, browser, viewport, and the last confirmed cloud-sync time; active workspaces check for shared updates every 15 seconds. It never records precise location or personal browsing history.</p></div></div>
@@ -1900,20 +1900,21 @@ function updateReportPreview() {
 
 async function resendAccessEmail(email) {
   if (isLocalPreview) {
-    window.alert(`Preview only: an access email would be re-sent to ${email}.`);
+    window.alert(`Preview only: a secure access-reset email would be sent to ${email}.`);
     return;
   }
   const client = window.noLimitSupabaseClient;
   if (!client || !currentAuthSession) {
-    window.alert("Sign in again before re-sending an access email.");
+    window.alert("Sign in again before sending an access-reset email.");
     return;
   }
-  const { data, error } = await client.functions.invoke("invite-no-limit-user", { body: { email, resend: true } });
-  if (error || data?.error) {
-    window.alert(data?.error || error?.message || "The access email could not be re-sent.");
+  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) {
+    window.alert(error.message || "The secure access-reset email could not be sent.");
     return;
   }
-  window.alert(`A new access link was sent to ${email}.`);
+  window.alert(`A secure access-reset link was sent to ${email}. The recipient can use it to set a new password and sign in.`);
 }
 
 async function openMediaAsset(mediaId) {

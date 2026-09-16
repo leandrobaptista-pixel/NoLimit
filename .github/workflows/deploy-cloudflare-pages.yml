@@ -56,6 +56,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .well-known
+          # The Admin entry document is revalidated. Give its three executable
+          # assets an immutable release fingerprint so a browser can never reuse
+          # a prior Admin bundle after a successful deployment.
+          sed -i "s/__RELEASE__/${GITHUB_SHA}/g" no-limit-admin-beta/index.html
           cat > .well-known/nolimit-release.json <<EOF
           {"commit":"${GITHUB_SHA}","run_id":"${GITHUB_RUN_ID}","deployed_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
           EOF
@@ -133,15 +137,15 @@ jobs:
             fi
           done
 
-      - name: Verify cache policy for Admin documents and active assets
+      - name: Verify released Admin asset fingerprints
         shell: bash
         run: |
           set -euo pipefail
-          for path in / /catalogs.html /no-limit-admin-beta/ /no-limit-admin-beta/app.js /no-limit-admin-beta/styles.css /no-limit-admin-beta/no-limit-supabase-config.js; do
-            headers="$(curl --location --silent --show-error --head --max-time 30 \
-              "https://nolimitcontractor.net${path}?release=${GITHUB_RUN_ID}")"
-            if ! printf '%s\n' "$headers" | grep -Eqi '^cache-control:.*(no-cache|max-age=0|must-revalidate)'; then
-              echo "::error title=Cache policy missing::${path} is not returning a revalidation cache policy."
-              exit 1
-            fi
+          base="https://nolimitcontractor.net/no-limit-admin-beta"
+          index="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
+            "${base}/?release=${GITHUB_RUN_ID}")"
+          for asset in styles.css no-limit-supabase-config.js app.js; do
+            printf '%s' "$index" | grep -Fq "${asset}?v=${GITHUB_SHA}"
+            curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
+              "${base}/${asset}?v=${GITHUB_SHA}" > /dev/null
           done

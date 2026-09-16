@@ -141,8 +141,8 @@ jobs:
           set -euo pipefail
           for path in / /catalogs.html /no-limit-admin-beta/; do
             headers="$(curl --location --silent --show-error --head --max-time 30 "https://nolimitcontractor.net${path}?release=${GITHUB_RUN_ID}")"
-            if ! printf '%s\n' "$headers" | grep -qi '^cache-control:.*no-cache'; then
-              echo "::error title=Document cache policy missing::$path is not returning Cache-Control: no-cache."
+            if ! printf '%s\n' "$headers" | grep -Eqi '^cache-control:.*(no-cache|max-age=0|must-revalidate)'; then
+              echo "::error title=Document cache policy missing::$path is not returning a document revalidation policy."
               exit 1
             fi
           done

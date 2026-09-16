@@ -146,6 +146,8 @@ const betaWorkspaceId = "shared-v1";
 let currentBetaUser = null;
 let currentAuthSession = null;
 let cloudSaveTimer = null;
+let workspaceRefreshTimer = 0;
+let lastWorkspaceUpdatedAt = null;
 let visitIntake = { items: [], loaded: false, loading: false, error: "", filter: "pending", category: "all", showDiscarded: false };
 
 function savePreviewState() {
@@ -505,7 +507,7 @@ function setDocumentEditing(editing) {
   editDocumentButton.hidden = editing;
   addDocumentItemButton.hidden = !editing;
   saveDocumentButton.hidden = !editing;
-  documentNotice.textContent = editing ? "Adjust descriptions, quantities, rates, and notes. Saving creates the next proposal revision or updates the invoice draft in this preview." : "Changes saved in this private preview. Nothing has been sent.";
+  documentNotice.textContent = editing ? "Adjust descriptions, quantities, rates, and notes. Saving creates the next proposal revision or updates the invoice draft in this workspace." : "Changes are saved in the private workspace. Nothing is sent automatically.";
   if (editing) bindDocumentEditor();
 }
 
@@ -731,7 +733,7 @@ function openDataEntry(type, recordId = "") {
   if (!config) return;
   dialogTitle.textContent = config.title;
   dialogFields.innerHTML = config.fields;
-  saveRecord.textContent = type === "accessUser" ? "Send invitation" : "Save demo record";
+  saveRecord.textContent = type === "accessUser" ? "Send invitation" : "Save record";
   dataForm.reset();
   if (type === "projectVendor" && selectedProjectId) dataForm.elements.namedItem("projectId").value = selectedProjectId;
   const source = type === "client" ? state.clients.find((item) => item.id === recordId) : type === "project" ? state.projects.find((item) => item.id === recordId) : type === "person" ? state.people.find((item) => item.id === recordId) : type === "estimate" ? state.estimates.find((item) => item.id === recordId) : null;
@@ -893,6 +895,7 @@ async function pullBetaWorkspace({ quiet = false } = {}) {
     return false;
   }
   try {
+    const startedAt = performance.now();
     if (!quiet) setSyncStatus("Loading shared test…", "saving");
     const query = new URLSearchParams({ select: "payload,updated_at", organization_id: `eq.${betaConfig().organizationId}`, id: `eq.${betaWorkspaceId}`, limit: "1" });
     const response = await fetch(`${endpoint}?${query.toString()}`, { headers: betaRequestHeaders(), cache: "no-store" });
@@ -901,44 +904,42 @@ async function pullBetaWorkspace({ quiet = false } = {}) {
     const remoteState = rows?.[0]?.payload?.state;
     if (remoteState) {
       state = normalizedSharedState(remoteState);
-      localStorage.setItem(previewStorageKey, JSON.stringify(state));
+      lastWorkspaceUpdatedAt = rows[0].updated_at || null;
+      if (currentAuthSession?.user) await updatePresence(location.hash.replace(/^#/, "") || "overview", { syncLatencyMs: Math.round(performance.now() - startedAt) });
     } else if (currentBetaUser?.role === "admin") {
       await pushBetaWorkspace();
     }
-    setSyncStatus("Shared test synced");
+    setSyncStatus("Workspace synchronized");
     return true;
   } catch (error) {
-    console.error("Could not load shared beta workspace", error);
+    console.error("Could not load shared workspace", error);
     setSyncStatus("Cloud sync failed — no local fallback", "error");
     return false;
   }
 }
 
 async function pushBetaWorkspace() {
-  const endpoint = betaEndpoint();
-  if (!endpoint || !currentBetaUser) return false;
+  if (!currentBetaUser || !window.noLimitSupabaseClient) return false;
   try {
     setSyncStatus("Saving…", "saving");
     const now = new Date().toISOString();
-    const record = {
-      organization_id: betaConfig().organizationId,
-      id: betaWorkspaceId,
-      payload: { state, betaOnly: true, updatedAt: now, updatedBy: currentBetaUser.name, updatedByRole: currentBetaUser.role },
-      updated_by: currentBetaUser.id,
-      updated_at: now,
-    };
-    const response = await fetch(`${endpoint}?on_conflict=organization_id,id`, {
-      method: "POST",
-      headers: betaRequestHeaders({ "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }),
-      body: JSON.stringify([record]),
-      cache: "no-store",
+    const startedAt = performance.now();
+    const { data, error } = await window.noLimitSupabaseClient.rpc("save_admin_workspace", {
+      workspace_org: betaConfig().organizationId,
+      workspace_id: betaWorkspaceId,
+      workspace_payload: { state, updatedAt: now, updatedBy: currentBetaUser.name, updatedByRole: currentBetaUser.role },
+      expected_updated_at: lastWorkspaceUpdatedAt,
     });
-    if (!response.ok) throw new Error(`Shared beta save returned HTTP ${response.status}`);
-    setSyncStatus("Shared test saved");
+    if (error) throw error;
+    lastWorkspaceUpdatedAt = data?.[0]?.updated_at || lastWorkspaceUpdatedAt;
+    const latency = Math.round(performance.now() - startedAt);
+    await updatePresence(location.hash.replace(/^#/, "") || "overview", { syncLatencyMs: latency });
+    setSyncStatus(`Synchronized · ${latency} ms`);
     return true;
   } catch (error) {
-    console.error("Could not save shared beta workspace", error);
-    setSyncStatus("Save pending", "error");
+    console.error("Could not save shared workspace", error);
+    const message = String(error?.message || "");
+    setSyncStatus(message.includes("changed on another device") ? "Sync conflict — refresh required" : "Cloud save failed", "error");
     return false;
   }
 }
@@ -967,14 +968,14 @@ function applyBetaAccess() {
   if (role !== "admin") {
     content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate]").forEach((button) => { button.hidden = true; });
   }
-  const name = currentBetaUser?.name || "Beta tester";
+  const name = currentBetaUser?.name || "No Limit user";
   const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   const profileParts = profileButton?.querySelectorAll("span");
   if (profileParts?.[0]) profileParts[0].textContent = initials;
   const strong = profileButton?.querySelector("strong");
   const small = profileButton?.querySelector("small");
   if (strong) strong.textContent = name;
-  if (small) small.textContent = `${formatStatus(role)} beta`;
+  if (small) small.textContent = formatStatus(role);
 }
 
 async function activateBetaUser(user, session = currentAuthSession) {
@@ -993,6 +994,10 @@ async function activateBetaUser(user, session = currentAuthSession) {
   await updatePresence(location.hash.replace(/^#/, "") || "overview");
   window.clearInterval(presenceHeartbeat);
   presenceHeartbeat = window.setInterval(() => updatePresence(location.hash.replace(/^#/, "") || "overview"), 60000);
+  window.clearInterval(workspaceRefreshTimer);
+  workspaceRefreshTimer = window.setInterval(() => {
+    if (!dataDialog.open && !documentDialog.open && !customServiceDialog.open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
+  }, 15000);
 }
 
 function deviceType() {
@@ -1002,17 +1007,49 @@ function deviceType() {
   return "Computer";
 }
 
-async function updatePresence(routeName) {
+function deviceProfile() {
+  const agent = navigator.userAgent;
+  const platform = /iPhone|iPad|iPod/i.test(agent) ? "iOS" : /Android/i.test(agent) ? "Android" : /Windows/i.test(agent) ? "Windows" : /Mac OS X/i.test(agent) ? "macOS" : /CrOS/i.test(agent) ? "ChromeOS" : /Linux/i.test(agent) ? "Linux" : "Unknown";
+  const browser = /Edg\//i.test(agent) ? "Microsoft Edge" : /Firefox\//i.test(agent) ? "Firefox" : /CriOS\//i.test(agent) ? "Chrome for iOS" : /Chrome\//i.test(agent) ? "Chrome" : /Safari\//i.test(agent) ? "Safari" : "Unknown";
+  return { platform, browser, viewport: `${Math.round(window.innerWidth)}×${Math.round(window.innerHeight)}` };
+}
+
+async function updatePresence(routeName, { syncLatencyMs = null } = {}) {
   const client = window.noLimitSupabaseClient;
   const config = betaConfig();
   if (!client || !currentAuthSession?.user || !config || isLocalPreview) return;
+  const device = deviceProfile();
   await client.from("user_presence").upsert({
     organization_id: config.organizationId,
     user_id: currentAuthSession.user.id,
     current_route: routeName,
     device_type: deviceType(),
+    device_platform: device.platform,
+    browser_name: device.browser,
+    viewport: device.viewport,
+    last_sync_at: new Date().toISOString(),
+    ...(Number.isFinite(syncLatencyMs) ? { last_sync_latency_ms: syncLatencyMs } : {}),
     last_seen_at: new Date().toISOString(),
   }, { onConflict: "organization_id,user_id" });
+}
+
+async function refreshWorkspaceIfChanged() {
+  if (!currentBetaUser || !lastWorkspaceUpdatedAt) return;
+  const endpoint = betaEndpoint();
+  if (!endpoint) return;
+  try {
+    const query = new URLSearchParams({ select: "updated_at", organization_id: `eq.${betaConfig().organizationId}`, id: `eq.${betaWorkspaceId}`, limit: "1" });
+    const response = await fetch(`${endpoint}?${query.toString()}`, { headers: betaRequestHeaders(), cache: "no-store" });
+    if (!response.ok) throw new Error(`Workspace refresh returned HTTP ${response.status}`);
+    const rows = await response.json();
+    if (rows?.[0]?.updated_at && rows[0].updated_at !== lastWorkspaceUpdatedAt) {
+      const synced = await pullBetaWorkspace({ quiet: true });
+      if (synced) renderRoute();
+    }
+  } catch (error) {
+    console.error("Could not refresh shared workspace", error);
+    setSyncStatus("Cloud sync failed", "error");
+  }
 }
 
 async function recordActivity(action, entityType, entityId = null, details = {}) {
@@ -1043,7 +1080,7 @@ async function refreshSecurityMonitor() {
   const auditHost = document.getElementById("auditMonitor");
   if (!client || !config || !presenceHost || !auditHost) return;
   const [{ data: presence }, { data: audit }] = await Promise.all([
-    client.from("user_presence").select("user_id,current_route,device_type,session_started_at,last_seen_at").eq("organization_id", config.organizationId).order("last_seen_at", { ascending: false }),
+    client.from("user_presence").select("user_id,current_route,device_type,device_platform,browser_name,viewport,last_sync_at,last_sync_latency_ms,session_started_at,last_seen_at").eq("organization_id", config.organizationId).order("last_seen_at", { ascending: false }),
     client.from("audit_log").select("actor_user_id,action,entity_type,entity_id,created_at").eq("organization_id", config.organizationId).order("created_at", { ascending: false }).limit(40),
   ]);
   const ids = [...new Set([...(presence || []).map((item) => item.user_id), ...(audit || []).map((item) => item.actor_user_id)].filter(Boolean))];
@@ -1051,10 +1088,11 @@ async function refreshSecurityMonitor() {
   const names = new Map((profiles || []).map((item) => [item.id, item.full_name || item.email]));
   securityPresence = presence || [];
   securityAudit = audit || [];
-  presenceHost.innerHTML = securityPresence.length ? demoTable(["User", "Status", "Current section", "Device", "Last activity"], securityPresence.map((item) => {
+  presenceHost.innerHTML = securityPresence.length ? demoTable(["User", "Status", "Current section", "Device", "Platform / browser", "Sync", "Last activity"], securityPresence.map((item) => {
     const age = Date.now() - new Date(item.last_seen_at).getTime();
     const status = age < 120000 ? "Online" : age < 600000 ? "Away" : "Offline";
-    return `<tr><td><strong>${escapeHtml(names.get(item.user_id) || "Authorized user")}</strong></td><td><span class="status-pill ${status === "Online" ? "green" : "amber"}">${status}</span></td><td>${escapeHtml(formatStatus(item.current_route))}</td><td>${escapeHtml(item.device_type)}</td><td>${escapeHtml(relativeActivity(item.last_seen_at))}</td></tr>`;
+    const sync = item.last_sync_latency_ms == null ? "Awaiting measurement" : `${Number(item.last_sync_latency_ms).toLocaleString("en-US")} ms`;
+    return `<tr><td><strong>${escapeHtml(names.get(item.user_id) || "Authorized user")}</strong></td><td><span class="status-pill ${status === "Online" ? "green" : "amber"}">${status}</span></td><td>${escapeHtml(formatStatus(item.current_route))}</td><td>${escapeHtml(item.device_type)} · ${escapeHtml(item.viewport || "Unknown")}</td><td>${escapeHtml(item.device_platform || "Unknown")} · ${escapeHtml(item.browser_name || "Unknown")}</td><td>${escapeHtml(sync)}</td><td>${escapeHtml(relativeActivity(item.last_seen_at))}</td></tr>`;
   })) : emptyState("No activity yet", "Users will appear here after they enter the admin.");
   auditHost.innerHTML = securityAudit.length ? demoTable(["User", "Action", "Area", "Record", "Time"], securityAudit.map((item) => `<tr><td>${escapeHtml(names.get(item.actor_user_id) || "Authorized user")}</td><td>${escapeHtml(formatStatus(item.action))}</td><td>${escapeHtml(formatStatus(item.entity_type))}</td><td>${escapeHtml(item.entity_id || "—")}</td><td>${escapeHtml(relativeActivity(item.created_at))}</td></tr>`)) : emptyState("No recorded actions yet", "Important changes will appear here as the team uses the admin.");
 }
@@ -1675,12 +1713,12 @@ function renderReports() {
 
 function renderSecurity() {
   const items = [
-    ["Dedicated No Limit workspace", "The private beta remains separate from TAG and the public website.", "Beta active"],
-    ["Individual authentication", "Every authorized person signs in with a separate account.", "Beta active"],
-    ["Role-based permissions", "Routes and creation rights are limited by the assigned role.", "Beta active"],
-    ["Administrator invitations", "Only an administrator can prepare and send a user invitation.", "Preview ready"],
+    ["Dedicated No Limit workspace", "The private workspace remains separate from TAG and the public website.", "Active"],
+    ["Individual authentication", "Every authorized person signs in with a separate account.", "Active"],
+    ["Role-based permissions", "Routes and creation rights are limited by the assigned role.", "Active"],
+    ["Administrator invitations", "Only an administrator can prepare and send a user invitation.", "Active"],
     ["Two-factor authentication", "Required for administrator accounts.", "Planned"],
-    ["Audit history", "Important changes are recorded with the user, time, area, and affected record.", "Beta active"],
+    ["Audit history", "Important changes are recorded with the user, time, area, and affected record.", "Active"],
     ["Work-hour location controls", "Explicit check-in consent, project-area verification, and automatic stop at 6:00 PM.", "Planned"],
     ["Backup and recovery", "Automatic backups plus a tested recovery procedure.", "Planned"],
   ];
@@ -1696,7 +1734,7 @@ function renderSecurity() {
         <p class="privacy-note">For security, the browser never receives an administrative Supabase key. Invitations and re-sent access emails use a protected server function that verifies the administrator, preserves the existing role, and records the audit event.</p>
       </article>
       <article class="panel">
-        <div class="panel-head"><div><h2>Active users</h2><p>Presence inside the No Limit admin only. A user is online when activity was received within the last two minutes.</p></div></div>
+        <div class="panel-head"><div><h2>Active users and device health</h2><p>Presence is limited to the No Limit Admin. The table records device class, operating system, browser, viewport, and the last confirmed cloud-sync time; active workspaces check for shared updates every 15 seconds. It never records precise location or personal browsing history.</p></div></div>
         <div id="presenceMonitor"><p>Loading user activity…</p></div>
       </article>
       <article class="panel">
@@ -1705,17 +1743,17 @@ function renderSecurity() {
       </article>
       <div class="content-grid">
         <article class="panel">
-          <div class="panel-head"><div><h2>Isolation checklist</h2><p>No production connection will be made before these controls are approved.</p></div></div>
+          <div class="panel-head"><div><h2>Isolation checklist</h2><p>The Admin remains isolated from TAG and the public website while using its own authenticated data service.</p></div></div>
           <div class="security-list">
             ${items.map(([title, copy, status]) => `<div class="security-row"><div><strong>${title}</strong><p>${copy}</p></div><span class="status-pill amber">${status}</span></div>`).join("")}
           </div>
         </article>
         <aside class="panel">
-          <div class="panel-head"><div><h2>Current preview state</h2><p>Verified separation</p></div></div>
+          <div class="panel-head"><div><h2>Current system state</h2><p>Verified separation</p></div></div>
           <div class="security-list">
             <div class="security-row"><div><strong>TAG data</strong><p>No connection in this preview.</p></div><span class="status-pill green">Separated</span></div>
             <div class="security-row"><div><strong>Public website</strong><p>No admin changes published.</p></div><span class="status-pill green">Preserved</span></div>
-            <div class="security-row"><div><strong>Live writes</strong><p>Disabled until the dedicated database is ready.</p></div><span class="status-pill green">Protected</span></div>
+            <div class="security-row"><div><strong>Live writes</strong><p>Shared workspace writes use conflict detection; a newer cloud record is never silently overwritten.</p></div><span class="status-pill green">Protected</span></div>
           </div>
         </aside>
       </div>

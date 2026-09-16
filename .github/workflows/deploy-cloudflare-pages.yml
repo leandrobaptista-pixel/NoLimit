@@ -34,6 +34,15 @@ jobs:
       - name: Install Wrangler
         run: npm install -g wrangler@4.71.0
 
+      - name: Stamp this release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .well-known
+          cat > .well-known/nolimit-release.json <<EOF
+          {"commit":"${GITHUB_SHA}","run_id":"${GITHUB_RUN_ID}","deployed_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+          EOF
+
       - name: Normalize Cloudflare credentials
         shell: bash
         env:
@@ -61,3 +70,26 @@ jobs:
 
       - name: Deploy to Cloudflare Pages
         run: wrangler pages deploy . --project-name=nolimitcontractor --branch=main
+
+      - name: Verify Pages release fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${GITHUB_SHA}"
+          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
+            "https://nolimitcontractor.pages.dev/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
+            | jq -r '.commit // empty')"
+          test "$actual" = "$expected"
+
+      - name: Audit custom-domain release fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${GITHUB_SHA}"
+          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
+            "https://nolimitcontractor.net/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
+            | jq -r '.commit // empty')"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error title=Custom domain is serving a different release::Expected ${expected}; received ${actual:-no release fingerprint}. Check the Cloudflare Pages custom-domain mapping, redirects, and cache rules."
+            exit 1
+          fi

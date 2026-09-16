@@ -1,0 +1,11 @@
+/index.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/catalogs.html
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/no-limit-admin-beta/*
+  Cache-Control: no-cache, max-age=0, must-revalidate
+
+/.well-known/nolimit-release.json
+  Cache-Control: no-store, max-age=0

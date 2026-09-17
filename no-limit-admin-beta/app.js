@@ -2004,7 +2004,12 @@ async function refreshVisitRequests() {
     if (isLocalPreview) visitIntake.items = demoVisitRequests();
     else {
       const client = window.noLimitSupabaseClient;
-      if (!client || !currentAuthSession) throw new Error("Sign in again before reviewing requests.");
+      if (!client) throw new Error("The secure request service is unavailable.");
+      // Resolve the persisted session immediately before the protected request.
+      // This avoids treating a token refreshed by Supabase as a signed-out user.
+      const { data: { session } } = await client.auth.getSession();
+      currentAuthSession = session || currentAuthSession;
+      if (!currentAuthSession) throw new Error("Sign in again before reviewing requests.");
       const { data, error } = await client.functions.invoke("manage-visit-requests", { body: { action: "sync_and_list" } });
       if (error || !Array.isArray(data?.requests)) throw new Error(data?.error || error?.message || "Requests could not be loaded.");
       visitIntake.items = data.requests;

@@ -5,6 +5,11 @@
 -- operational data. Apply it in the No Limit Admin Supabase project before the
 -- corresponding Admin release is deployed.
 
+-- PostgreSQL does not permit a new enum value to be used until the transaction
+-- that creates it has committed. Keep this statement outside the transaction
+-- below so this migration also works cleanly in a fresh environment.
+alter type public.app_role add value if not exists 'developer';
+
 begin;
 
 -- The UI legitimately writes its own presence row after a successful cloud

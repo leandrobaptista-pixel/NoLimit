@@ -152,12 +152,18 @@ let visitIntake = { items: [], loaded: false, loading: false, error: "", filter:
 
 function savePreviewState() {
   if (isLocalPreview) localStorage.setItem(previewStorageKey, JSON.stringify(state));
-  if (currentBetaUser && currentAuthSession) {
-    window.clearTimeout(cloudSaveTimer);
-    syncBadge.textContent = "Saving…";
-    syncBadge.className = "sync-badge is-saving";
-    cloudSaveTimer = window.setTimeout(() => void pushBetaWorkspace(), 450);
-  }
+  if (!currentBetaUser || !currentAuthSession) return Promise.resolve(true);
+  window.clearTimeout(cloudSaveTimer);
+  syncBadge.textContent = "Saving…";
+  syncBadge.className = "sync-badge is-saving";
+  return new Promise((resolve) => {
+    cloudSaveTimer = window.setTimeout(async () => {
+      // A completed timeout must not be treated as a pending save. Otherwise
+      // the 15-second cross-device refresh loop remains paused indefinitely.
+      cloudSaveTimer = null;
+      resolve(await pushBetaWorkspace());
+    }, 450);
+  });
 }
 
 const routes = {
@@ -1209,6 +1215,7 @@ async function startBeta() {
 }
 
 async function saveDataEntry(formData) {
+  const stateBeforeSave = isLocalPreview ? null : structuredClone(state);
   if (pendingRecordType === "request") {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
     state.requests.unshift({ id: nextId(state.requests, "REQ"), clientId: client?.id || "", clientName: client?.name || formData.get("clientName"), service: formData.get("service"), submitted: readableDate(), status: formData.get("status"), nextAction: formData.get("nextAction") });
@@ -1355,7 +1362,11 @@ async function saveDataEntry(formData) {
   if (pendingRecordType === "consent") {
     state.consents.unshift({ id: nextId(state.consents, "CNS"), partyType: formData.get("partyType"), document: formData.get("document"), version: formData.get("version"), status: formData.get("status") });
   }
-  savePreviewState();
+  const saved = await savePreviewState();
+  if (!saved && stateBeforeSave) {
+    state = stateBeforeSave;
+    throw new Error("The record was not saved to the shared No Limit workspace. Please retry after the cloud connection is restored.");
+  }
 }
 
 function pageHead(route, actions = "") {

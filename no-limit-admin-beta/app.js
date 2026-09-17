@@ -1438,8 +1438,8 @@ function renderDocuments() {
         ${demoTable(["Proposal", "Request", "Client", "Revision", "Valid until", "Total", "Status", "Document", "Next step"], state.estimates.map((estimate) => `<tr><td><strong>${escapeHtml(estimate.id)}</strong><small class="record-id">${estimate.items.length} line item${estimate.items.length === 1 ? "" : "s"}</small></td><td>${escapeHtml(estimate.requestId)}</td><td><a href="#clients">${escapeHtml(estimate.clientName)}</a></td><td>R${estimate.revision}</td><td>${escapeHtml(estimate.validUntil)}</td><td>${formatCurrency(estimate.total)}</td><td><span class="status-pill ${statusClass(estimate.status)}">${escapeHtml(formatStatus(estimate.status))}</span></td><td><button class="text-button" data-view-document="proposal" data-document-id="${escapeHtml(estimate.id)}" type="button">Preview / send</button><small class="record-id"><button class="text-button" data-edit-estimate="${escapeHtml(estimate.id)}" type="button">Edit details</button></small></td><td>${estimate.contractId ? `<a href="#documents">${escapeHtml(estimate.contractId)}</a>` : `<button class="text-button" data-convert-estimate="${escapeHtml(estimate.id)}" type="button">Approve & generate</button>`}</td></tr>`))}
       </article>
       <article class="panel">
-        <div class="panel-head"><div><h2>Contracts</h2><p>Every contract stays linked to its estimate, client, project, and invoice.</p></div></div>
-        ${demoTable(["Contract", "Estimate", "Client", "Project", "Signed", "Value", "Status", "Invoice"], state.contracts.map((contract) => `<tr><td><strong>${escapeHtml(contract.id)}</strong></td><td>${escapeHtml(contract.estimateId)}</td><td><a href="#clients">${escapeHtml(contract.clientName)}</a></td><td><a href="#projects">${escapeHtml(contract.projectId)}</a></td><td>${escapeHtml(contract.signedDate)}</td><td>${formatCurrency(contract.value)}</td><td><span class="status-pill ${statusClass(contract.status)}">${escapeHtml(formatStatus(contract.status))}</span></td><td><a href="#financial">${escapeHtml(contract.invoiceId)}</a></td></tr>`))}
+        <div class="panel-head"><div><h2>Contracts</h2><p>Approved proposals generate a draft contract and draft invoice. Review the selected NJ/NY template before preparing the client email.</p></div></div>
+        ${demoTable(["Contract", "Template", "Client", "Project", "Value", "Status", "Invoice", ""], state.contracts.map((contract) => `<tr><td><strong>${escapeHtml(contract.id)}</strong><small class="record-id">${escapeHtml(contract.templateVersion || "v1")}</small></td><td>${escapeHtml(contract.templateLabel || "Legacy contract")}<small class="record-id">${escapeHtml(contract.jurisdiction || "—")} · ${escapeHtml(contract.legalStatus || "review required")}</small></td><td><a href="#clients">${escapeHtml(contract.clientName)}</a></td><td><a href="#projects">${escapeHtml(contract.projectId)}</a></td><td>${formatCurrency(contract.value)}</td><td><span class="status-pill ${statusClass(contract.status)}">${escapeHtml(formatStatus(contract.status))}</span></td><td><a href="#financial">${escapeHtml(contract.invoiceId)}</a></td><td><button class="button secondary compact-button" data-send-contract="${escapeHtml(contract.id)}" type="button">${contract.sentAt ? "Prepare resend" : "Prepare client email"}</button></td></tr>`))}
       </article>
     </section>`;
 }
@@ -1827,10 +1827,35 @@ const renderers = {
   security: renderSecurity,
 };
 
+function contractTemplateFor(estimate, project, client) {
+  const stateCode = String(project?.siteState || client?.state || "NJ").trim().toUpperCase() === "NY" ? "NY" : "NJ";
+  const service = [project?.service, estimate?.items?.[0]?.category, estimate?.service].filter(Boolean).join(" ").toLowerCase();
+  const serviceFamily = /kitchen|vanit/.test(service) ? "kitchen" : "millwork";
+  return {
+    id: `${serviceFamily}-${stateCode.toLowerCase()}-v1`,
+    label: serviceFamily === "kitchen" ? `Kitchen installation — ${stateCode}` : `Millwork — ${stateCode}`,
+    state: stateCode,
+    serviceFamily,
+    version: "v1",
+    legalStatus: "review-required",
+  };
+}
+
+function contractSendLink(contract) {
+  const client = state.clients.find((item) => item.id === contract.clientId);
+  const subject = `No Limit Carpentry — Contract ${contract.id}`;
+  const body = `Hello ${client?.contactName || client?.name || ""},\n\nYour contract ${contract.id} for ${contract.templateLabel || "the approved work"} is ready for your review.\n\nContract value: ${formatCurrency(contract.value)}\n\nPlease contact No Limit Carpentry with any questions.\n`;
+  return `mailto:${encodeURIComponent(client?.email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 function convertEstimateToContract(estimateId) {
   const estimate = state.estimates.find((item) => item.id === estimateId);
   if (!estimate || estimate.contractId) return;
   const client = state.clients.find((item) => item.id === estimate.clientId);
+  if (!client) {
+    window.alert("Link this proposal to an active client before generating a contract.");
+    return;
+  }
   const primaryService = estimate.items[0]?.category || "Custom / New Work";
   const newProject = {
     id: nextId(state.projects, "PR"),
@@ -1851,6 +1876,7 @@ function convertEstimateToContract(estimateId) {
     managerId: "",
   };
   const project = state.projects.find((item) => item.id === estimate.projectId) || newProject;
+  const template = contractTemplateFor(estimate, project, client);
   const contractId = nextId(state.contracts, "CTR");
   const invoiceId = nextId(state.invoices, "INV");
   if (project === newProject) state.projects.unshift(project);
@@ -1859,7 +1885,24 @@ function convertEstimateToContract(estimateId) {
     project.outstanding = estimate.total;
   }
   client.projectIds = [...new Set([...(client.projectIds || []), project.id])];
-  state.contracts.unshift({ id: contractId, estimateId: estimate.id, clientId: client.id, clientName: client.name, projectId: project.id, status: "active", signedDate: readableDate(), value: estimate.total, invoiceId });
+  state.contracts.unshift({
+    id: contractId,
+    estimateId: estimate.id,
+    clientId: client.id,
+    clientName: client.name,
+    projectId: project.id,
+    status: "review-required",
+    signedDate: "",
+    value: estimate.total,
+    invoiceId,
+    templateId: template.id,
+    templateLabel: template.label,
+    templateVersion: template.version,
+    jurisdiction: template.state,
+    legalStatus: template.legalStatus,
+    generatedAt: new Date().toISOString(),
+    sentAt: "",
+  });
   state.invoices.unshift({
     id: invoiceId,
     contractId,
@@ -1869,7 +1912,7 @@ function convertEstimateToContract(estimateId) {
     issueDate: readableDate(),
     dueDate: readableDate(new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)),
     terms: "Net 30",
-    status: "open",
+    status: "draft",
     items: JSON.parse(JSON.stringify(estimate.items)),
     schedule: [
       { label: "Initial deposit", percent: 30, amount: estimate.total * 0.3, status: "due" },
@@ -1884,6 +1927,16 @@ function convertEstimateToContract(estimateId) {
   estimate.status = "approved";
   estimate.contractId = contractId;
   savePreviewState();
+  renderRoute();
+}
+
+function prepareContractSend(contractId) {
+  const contract = state.contracts.find((item) => item.id === contractId);
+  if (!contract) return;
+  contract.status = "ready-to-send";
+  contract.sentAt = new Date().toISOString();
+  savePreviewState();
+  window.location.href = contractSendLink(contract);
   renderRoute();
 }
 
@@ -2042,6 +2095,7 @@ function bindPageEvents(routeName) {
   content.querySelectorAll("[data-edit-estimate]").forEach((button) => button.addEventListener("click", () => openDataEntry("estimate", button.dataset.editEstimate)));
   content.querySelectorAll("[data-view-document]").forEach((button) => button.addEventListener("click", () => openBusinessDocument(button.dataset.viewDocument, button.dataset.documentId)));
   content.querySelectorAll("[data-convert-estimate]").forEach((button) => button.addEventListener("click", () => convertEstimateToContract(button.dataset.convertEstimate)));
+  content.querySelectorAll("[data-send-contract]").forEach((button) => button.addEventListener("click", () => prepareContractSend(button.dataset.sendContract)));
   content.querySelectorAll("[data-renewal-person]").forEach((button) => button.addEventListener("click", () => prepareInsuranceRenewal(button.dataset.renewalPerson)));
   content.querySelector("[data-open-client-directory]")?.addEventListener("click", () => document.getElementById("clientDirectory")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   content.querySelectorAll("[data-view-client]").forEach((button) => button.addEventListener("click", () => { selectedClientId = button.dataset.viewClient; if (routeName !== "clients") location.hash = "clients"; else { renderRoute(); document.getElementById("clientDetail")?.scrollIntoView({ block: "start" }); } }));

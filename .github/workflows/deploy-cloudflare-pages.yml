@@ -97,19 +97,48 @@ jobs:
         run: |
           set -euo pipefail
           expected="${GITHUB_SHA}"
-          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
-            "https://nolimitcontractor.pages.dev/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
-            | jq -r '.commit // empty')"
-          test "$actual" = "$expected"
+          actual=""
+          # Pages can accept a deployment before every edge location serves the
+          # new static fingerprint. Poll the comparison itself (not only curl
+          # transport retries), and retain expected/received values on failure.
+          for attempt in {1..12}; do
+            actual="$(curl --fail --silent --show-error --max-time 30 \
+              "https://nolimitcontractor.pages.dev/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
+              | jq -r '.commit // empty' || true)"
+            if [ "$actual" = "$expected" ]; then
+              printf 'Pages release verified on attempt %s: %s\\n' "$attempt" "$actual"
+              break
+            fi
+            printf 'Pages release pending (attempt %s/12): expected %s, received %s\\n' \
+              "$attempt" "$expected" "${actual:-no release fingerprint}"
+            sleep 5
+          done
+          if [ "$actual" != "$expected" ]; then
+            echo "::error title=Pages release did not propagate::Expected ${expected}; received ${actual:-no release fingerprint}."
+            exit 1
+          fi
 
       - name: Audit custom-domain release fingerprint
         shell: bash
         run: |
           set -euo pipefail
           expected="${GITHUB_SHA}"
-          actual="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
-            "https://nolimitcontractor.net/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
-            | jq -r '.commit // empty')"
+          actual=""
+          # Apply the same bounded propagation audit to the public domain.
+          # A release is never approved merely because the Pages deployment
+          # command returned successfully.
+          for attempt in {1..12}; do
+            actual="$(curl --fail --silent --show-error --max-time 30 \
+              "https://nolimitcontractor.net/.well-known/nolimit-release.json?run=${GITHUB_RUN_ID}" \
+              | jq -r '.commit // empty' || true)"
+            if [ "$actual" = "$expected" ]; then
+              printf 'Custom-domain release verified on attempt %s: %s\\n' "$attempt" "$actual"
+              break
+            fi
+            printf 'Custom-domain release pending (attempt %s/12): expected %s, received %s\\n' \
+              "$attempt" "$expected" "${actual:-no release fingerprint}"
+            sleep 5
+          done
           if [ "$actual" != "$expected" ]; then
             echo "::error title=Custom domain is serving a different release::Expected ${expected}; received ${actual:-no release fingerprint}. Check the Cloudflare Pages custom-domain mapping, redirects, and cache rules."
             exit 1

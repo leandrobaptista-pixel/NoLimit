@@ -1,3 +1,12 @@
+// This is the browser-safe Supabase publishable key, not an administrative secret.
+// Keeping the public configuration in the application release prevents content blockers
+// from breaking cloud sync by blocking a separately named config file.
+const NO_LIMIT_SUPABASE_CONFIG = Object.freeze({
+  url: "https://powxzhcscqkhtaicxkyt.supabase.co",
+  publishableKey: "sb_publishable_Gw7E39Yd7wR3C0llQavA2w_909B4VpG",
+  organizationId: "00000000-0000-4000-8000-000000000001",
+});
+
 const defaultState = {
   accessUsers: [
     { id: "USR-DEMO-001", name: "Leandro Baptista", email: "leandrobaptista@me.com", role: "Administrator", linkedPersonId: "", status: "active", invitedAt: "Sep 12, 2026" },
@@ -845,7 +854,7 @@ function prepareInsuranceRenewal(personId) {
 }
 
 function betaConfig() {
-  const config = window.NO_LIMIT_SUPABASE || {};
+  const config = NO_LIMIT_SUPABASE_CONFIG;
   const supabaseUrl = String(config.url || "").trim().replace(/\/$/, "");
   const supabaseAnonKey = String(config.publishableKey || "").trim();
   const organizationId = String(config.organizationId || "").trim();

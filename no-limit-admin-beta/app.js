@@ -2092,7 +2092,9 @@ function renderRoute() {
   bindPageEvents(routeName);
   applyBetaAccess();
   updatePresence(routeName);
-  if (routeName === "requests" && !visitIntake.loaded && !visitIntake.loading) void refreshVisitRequests();
+  // An unsuccessful load must stay visible as a single actionable error. Retrying
+  // automatically after a failure would re-render this route indefinitely.
+  if (routeName === "requests" && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
   if (routeName === "security" && currentBetaUser?.role === "admin") refreshSecurityMonitor();
   closeNavigation();
 }

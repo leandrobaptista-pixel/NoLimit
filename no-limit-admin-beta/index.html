@@ -162,8 +162,9 @@
         <div class="media-viewer-content" id="mediaViewerContent"></div>
       </div>
     </dialog>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="no-limit-supabase-config.js?v=__RELEASE__"></script>
+    <!-- Keep the sync client inside this release. Browser content blockers must not be able to
+         prevent the Admin from loading its database connection. -->
+    <script src="vendor/supabase-js.min.js?v=__RELEASE__"></script>
     <script src="app.js?v=__RELEASE__" defer></script>
   </body>
 </html>

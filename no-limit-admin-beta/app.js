@@ -1186,6 +1186,12 @@ async function startBeta() {
   window.noLimitSupabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
+  // Keep the token used by the authenticated REST calls aligned with Supabase's
+  // automatic refresh cycle. Without this subscription the UI could retain an
+  // expired token and report a misleading cloud-sync failure after an hour.
+  window.noLimitSupabaseClient.auth.onAuthStateChange((_event, refreshedSession) => {
+    currentAuthSession = refreshedSession || null;
+  });
   const { data: { session } } = await window.noLimitSupabaseClient.auth.getSession();
   if (session) {
     if (["invite", "recovery"].includes(authFlowType)) {

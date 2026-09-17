@@ -940,7 +940,14 @@ async function pushBetaWorkspace() {
     if (error) throw error;
     lastWorkspaceUpdatedAt = data?.[0]?.updated_at || lastWorkspaceUpdatedAt;
     const latency = Math.round(performance.now() - startedAt);
-    await updatePresence(location.hash.replace(/^#/, "") || "overview", { syncLatencyMs: latency });
+    // Presence telemetry is useful, but it is never allowed to turn a
+    // confirmed workspace write into a false "Cloud save failed" result.
+    // A user may continue working while the presence monitor retries later.
+    try {
+      await updatePresence(location.hash.replace(/^#/, "") || "overview", { syncLatencyMs: latency });
+    } catch (presenceError) {
+      console.warn("Workspace saved, but presence could not be updated", presenceError);
+    }
     setSyncStatus(`Synchronized · ${latency} ms`);
     return true;
   } catch (error) {
@@ -956,6 +963,12 @@ function routesForBetaRole(role = "admin") {
   if (role === "vendor") return ["overview", "projects", "materials", "schedule", "team", "vendors"];
   if (role === "subcontractor") return ["overview", "projects", "schedule", "team", "compliance"];
   return Object.keys(routes);
+}
+
+function canAccessAuditControls() {
+  // The server policy is the security boundary; this keeps the interface
+  // aligned with the same Owner/Developer-only operational rule.
+  return isLocalPreview || ["owner", "developer"].includes(currentBetaUser?.membershipRole);
 }
 
 function betaCanCreate(type) {
@@ -1121,10 +1134,10 @@ async function refreshSecurityMonitor() {
   const config = betaConfig();
   const presenceHost = document.getElementById("presenceMonitor");
   const auditHost = document.getElementById("auditMonitor");
-  if (!client || !config || !presenceHost || !auditHost) return;
+  if (!client || !config || !presenceHost || !auditHost || !canAccessAuditControls()) return;
   const [{ data: presence }, { data: audit }] = await Promise.all([
     client.from("user_presence").select("user_id,current_route,device_type,device_platform,browser_name,viewport,last_sync_at,last_sync_latency_ms,session_started_at,last_seen_at").eq("organization_id", config.organizationId).order("last_seen_at", { ascending: false }),
-    client.from("audit_log").select("actor_user_id,action,entity_type,entity_id,created_at").eq("organization_id", config.organizationId).order("created_at", { ascending: false }).limit(40),
+    client.from("system_audit_events").select("actor_user_id,action,entity_type,entity_id,created_at").eq("organization_id", config.organizationId).order("created_at", { ascending: false }).limit(40),
   ]);
   const ids = [...new Set([...(presence || []).map((item) => item.user_id), ...(audit || []).map((item) => item.actor_user_id)].filter(Boolean))];
   const { data: profiles } = ids.length ? await client.from("profiles").select("id,full_name,email").in("id", ids) : { data: [] };
@@ -1141,7 +1154,7 @@ async function refreshSecurityMonitor() {
 }
 
 function mappedBetaRole(role) {
-  if (["owner", "admin", "manager", "office"].includes(role)) return "admin";
+  if (["owner", "developer", "admin", "manager", "office"].includes(role)) return "admin";
   if (role === "team_member") return "collaborator";
   if (["vendor", "subcontractor"].includes(role)) return role;
   return "viewer";
@@ -1172,6 +1185,7 @@ async function userFromSession(session) {
     username: profile?.email || session.user.email,
     name: profile?.full_name || session.user.email?.split("@")[0] || "No Limit user",
     role: mappedBetaRole(membership.role),
+    membershipRole: membership.role,
   };
 }
 
@@ -1772,6 +1786,7 @@ function renderReports() {
 }
 
 function renderSecurity() {
+  const auditControls = canAccessAuditControls();
   const items = [
     ["Dedicated No Limit workspace", "The private workspace remains separate from TAG and the public website.", "Active"],
     ["Individual authentication", "Every authorized person signs in with a separate account.", "Active"],
@@ -1793,14 +1808,17 @@ function renderSecurity() {
         }))}
         <p class="privacy-note">For security, the browser never receives an administrative Supabase key. New invitations use a protected server function; access resets use Supabase’s secure password-recovery flow and do not change the user’s role.</p>
       </article>
-      <article class="panel">
+      ${auditControls ? `<article class="panel">
         <div class="panel-head"><div><h2>Active users and device health</h2><p>Presence is limited to the No Limit Admin. The table records device class, operating system, browser, viewport, and the last confirmed cloud-sync time; active workspaces check for shared updates every 15 seconds. It never records precise location or personal browsing history.</p></div></div>
         <div id="presenceMonitor"><p>Loading user activity…</p></div>
       </article>
       <article class="panel">
-        <div class="panel-head"><div><h2>Audit history</h2><p>Important administrative changes, recorded without passwords or private message content.</p></div></div>
+        <div class="panel-head"><div><h2>Audit history and recovery</h2><p>Owner and Developer controls. Changes are retained without passwords, reset links, or private message content.</p></div></div>
         <div id="auditMonitor"><p>Loading audit history…</p></div>
-      </article>
+      </article>` : `<article class="panel">
+        <div class="panel-head"><div><h2>Audit history and recovery</h2><p>This protected control center is available only to the Owner and approved Developers.</p></div></div>
+        <p class="privacy-note">Your role continues to receive the operational information authorized for it. Audit logs, device monitoring, account intervention, and record recovery stay restricted.</p>
+      </article>`}
       <div class="content-grid">
         <article class="panel">
           <div class="panel-head"><div><h2>Isolation checklist</h2><p>The Admin remains isolated from TAG and the public website while using its own authenticated data service.</p></div></div>
@@ -2165,7 +2183,7 @@ function renderRoute() {
   // An unsuccessful load must stay visible as a single actionable error. Retrying
   // automatically after a failure would re-render this route indefinitely.
   if (routeName === "requests" && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
-  if (routeName === "security" && currentBetaUser?.role === "admin") refreshSecurityMonitor();
+  if (routeName === "security" && canAccessAuditControls()) refreshSecurityMonitor();
   closeNavigation();
 }
 

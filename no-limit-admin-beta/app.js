@@ -1010,6 +1010,8 @@ function applyBetaAccess() {
 async function activateBetaUser(user, session = currentAuthSession) {
   currentBetaUser = user;
   currentAuthSession = session;
+  visitIntake.error = "";
+  visitIntake.loaded = false;
   const synced = await pullBetaWorkspace();
   if (!synced) {
     currentBetaUser = null;
@@ -2120,7 +2122,12 @@ async function refreshVisitRequests() {
       currentAuthSession = session || currentAuthSession;
       if (!currentAuthSession) throw new Error("Sign in again before reviewing requests.");
       const { data, error } = await client.functions.invoke("manage-visit-requests", { body: { action: "sync_and_list" } });
-      if (error || !Array.isArray(data?.requests)) throw new Error(data?.error || error?.message || "Requests could not be loaded.");
+      if (error) {
+        let message = error.message;
+        try { const detail = await error.context?.json(); message = detail?.error || message; } catch {}
+        throw new Error(message || "Requests could not be loaded.");
+      }
+      if (!Array.isArray(data?.requests)) throw new Error(data?.error || "Requests could not be loaded.");
       visitIntake.items = data.requests;
     }
     visitIntake.loaded = true;
@@ -2224,7 +2231,7 @@ function renderRoute() {
   updatePresence(routeName);
   // An unsuccessful load must stay visible as a single actionable error. Retrying
   // automatically after a failure would re-render this route indefinitely.
-  if (routeName === "requests" && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
+  if (routeName === "requests" && (isLocalPreview || currentAuthSession) && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
   if (routeName === "security" && canAccessAuditControls()) refreshSecurityMonitor();
   closeNavigation();
 }

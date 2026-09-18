@@ -149,7 +149,8 @@ function loadPreviewState() {
 
 // Browser storage is reserved for the explicitly local demo. Production never
 // substitutes cached demo data for a failed Supabase read.
-let state = isLocalPreview ? loadPreviewState() : cloneDefaultState();
+function emptyOperationalState() { return Object.fromEntries(Object.keys(defaultState).map(key => [key, []])); }
+let state = isLocalPreview ? loadPreviewState() : emptyOperationalState();
 
 const betaWorkspaceId = "shared-v1";
 let currentBetaUser = null;
@@ -180,7 +181,7 @@ const routes = {
     title: "Overview",
     kicker: "Operational summary",
     heading: "Everything connected, without the noise.",
-    description: "A single view of requests, projects, financial activity, people, media, and website performance. The No Limit database will be connected only after its isolated security foundation is approved.",
+    description: "A single view of requests, projects, financial activity, people, media, and website performance. Records are saved in the shared No Limit database.",
   },
   requests: {
     title: "Visit Requests",
@@ -794,7 +795,7 @@ function openDataEntry(type, recordId = "") {
 }
 
 function nextId(collection, prefix) {
-  return `${prefix}-LOCAL-${String(collection.length + 1).padStart(3, "0")}`;
+  return `${prefix}-${crypto.randomUUID().slice(0,8).toUpperCase()}`;
 }
 
 function readableDate(value) {
@@ -868,7 +869,7 @@ function betaEndpoint() {
 }
 
 function normalizedSharedState(candidate = {}) {
-  const base = cloneDefaultState();
+  const base = isLocalPreview ? cloneDefaultState() : emptyOperationalState();
   const merged = { ...base, ...(candidate && typeof candidate === "object" ? candidate : {}) };
   Object.keys(base).forEach((key) => {
     if (Array.isArray(base[key]) && !Array.isArray(merged[key])) merged[key] = base[key];
@@ -913,18 +914,18 @@ async function pullBetaWorkspace({ quiet = false } = {}) {
   }
   try {
     const startedAt = performance.now();
-    if (!quiet) setSyncStatus("Loading shared test…", "saving");
-    const query = new URLSearchParams({ select: "payload,updated_at", organization_id: `eq.${betaConfig().organizationId}`, id: `eq.${betaWorkspaceId}`, limit: "1" });
-    const response = await fetch(`${endpoint}?${query.toString()}`, { headers: betaRequestHeaders(), cache: "no-store" });
-    if (!response.ok) throw new Error(`Shared beta returned HTTP ${response.status}`);
-    const rows = await response.json();
+    if (!quiet) setSyncStatus("Loading shared workspace…", "saving");
+    const {data: rows,error} = await window.noLimitSupabaseClient.rpc("read_operational_workspace", {
+      workspace_org: betaConfig().organizationId, workspace_id: betaWorkspaceId
+    });
+    if (error) throw error;
     const remoteState = rows?.[0]?.payload?.state;
     if (remoteState) {
       state = normalizedSharedState(remoteState);
       lastWorkspaceUpdatedAt = rows[0].updated_at || null;
       if (currentAuthSession?.user) await updatePresence(location.hash.replace(/^#/, "") || "overview", { syncLatencyMs: Math.round(performance.now() - startedAt) });
-    } else if (currentBetaUser?.role === "admin") {
-      await pushBetaWorkspace();
+    } else {
+      throw new Error("The shared workspace is not configured. Contact the administrator.");
     }
     setSyncStatus("Workspace synchronized");
     return true;
@@ -968,11 +969,9 @@ async function pushBetaWorkspace() {
   }
 }
 
-function routesForBetaRole(role = "admin") {
-  if (role === "collaborator") return ["overview", "projects", "schedule", "media", "map"];
-  if (role === "vendor") return ["overview", "projects", "materials", "schedule", "team", "vendors"];
-  if (role === "subcontractor") return ["overview", "projects", "schedule", "team", "compliance"];
-  return Object.keys(routes);
+function routesForBetaRole(role = "viewer") {
+  if (role === "admin") return Object.keys(routes);
+  return ["overview", "projects", "schedule", "media", "team", "map"];
 }
 
 function canAccessAuditControls() {
@@ -982,12 +981,9 @@ function canAccessAuditControls() {
 }
 
 function betaCanCreate(type) {
-  const role = currentBetaUser?.role || "admin";
-  if (role === "admin") return true;
-  if (role === "collaborator") return ["receipt", "schedule"].includes(type);
-  if (role === "vendor") return ["material", "receipt"].includes(type);
-  if (role === "subcontractor") return ["person", "receipt"].includes(type);
-  return false;
+  if (isLocalPreview) return true;
+  if (type === "accessUser") return ["owner", "admin"].includes(currentBetaUser?.membershipRole);
+  return currentBetaUser?.role === "admin";
 }
 
 function applyBetaAccess() {
@@ -996,7 +992,7 @@ function applyBetaAccess() {
   nav.querySelectorAll("a[data-route]").forEach((link) => { link.hidden = !allowedRoutes.has(link.dataset.route); });
   content.querySelectorAll("[data-create]").forEach((button) => { button.hidden = !betaCanCreate(button.dataset.create); });
   if (role !== "admin") {
-    content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate]").forEach((button) => { button.hidden = true; });
+    content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate], [data-edit-person], [data-renewal-person]").forEach((button) => { button.hidden = true; });
   }
   const name = currentBetaUser?.name || "No Limit user";
   const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
@@ -1038,9 +1034,9 @@ async function loadCloudAccessUsers() {
     cloudAccessUsers = state.accessUsers;
     return true;
   }
-  if (!currentAuthSession) return false;
+  if (!currentAuthSession || currentBetaUser?.role !== "admin") return false;
   const config = betaConfig();
-  const membersQuery = new URLSearchParams({ select: "user_id,role,status", organization_id: `eq.${config.organizationId}` });
+  const membersQuery = new URLSearchParams({ select: "user_id,role,status,linked_person_id", organization_id: `eq.${config.organizationId}` });
   const profilesQuery = new URLSearchParams({ select: "id,email,full_name" });
   const [membersResponse, profilesResponse] = await Promise.all([
     fetch(`${config.supabaseUrl}/rest/v1/organization_members?${membersQuery}`, { headers: betaRequestHeaders(), cache: "no-store" }),
@@ -1060,7 +1056,7 @@ async function loadCloudAccessUsers() {
     name: profile?.full_name || profile?.email || "Authorized user",
     email: profile?.email || "",
     role: formatStatus(member.role),
-    linkedPersonId: "",
+    linkedPersonId: member.linked_person_id || "",
     status: member.status,
     invitedAt: "—",
   };
@@ -1106,10 +1102,10 @@ async function refreshWorkspaceIfChanged() {
   const endpoint = betaEndpoint();
   if (!endpoint) return;
   try {
-    const query = new URLSearchParams({ select: "updated_at", organization_id: `eq.${betaConfig().organizationId}`, id: `eq.${betaWorkspaceId}`, limit: "1" });
-    const response = await fetch(`${endpoint}?${query.toString()}`, { headers: betaRequestHeaders(), cache: "no-store" });
-    if (!response.ok) throw new Error(`Workspace refresh returned HTTP ${response.status}`);
-    const rows = await response.json();
+    const {data: rows,error} = await window.noLimitSupabaseClient.rpc("read_operational_workspace", {
+      workspace_org: betaConfig().organizationId, workspace_id: betaWorkspaceId
+    });
+    if (error) throw error;
     if (rows?.[0]?.updated_at && rows[0].updated_at !== lastWorkspaceUpdatedAt) {
       const synced = await pullBetaWorkspace({ quiet: true });
       if (synced) renderRoute();
@@ -1241,6 +1237,7 @@ async function startBeta() {
 }
 
 async function saveDataEntry(formData) {
+  if (!betaCanCreate(pendingRecordType)) throw new Error("Your account can view assigned records. Contact the office to request changes.");
   const stateBeforeSave = isLocalPreview ? null : structuredClone(state);
   if (pendingRecordType === "request") {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
@@ -1313,7 +1310,10 @@ async function saveDataEntry(formData) {
     const existing = state.people.find((item) => item.id === pendingRecordId);
     const w9File = formData.get("w9File");
     const insuranceFile = formData.get("insuranceFile");
-    const record = { id: pendingRecordId || nextId(state.people, "PE"), name: formData.get("name"), type: formData.get("type"), role: formData.get("role"), contactName: formData.get("contactName"), personalPhone: formData.get("personalPhone"), companyPhone: formData.get("companyPhone"), email: formData.get("email"), website: formData.get("website"), street: formData.get("street"), city: formData.get("city"), state: formData.get("state"), postalCode: formData.get("postalCode"), projectIds: projectId ? [...new Set([...(existing?.projectIds || []), projectId])] : existing?.projectIds || [], status: formData.get("status"), w9Status: formData.get("w9Status") || "missing", w9ReceivedDate: formData.get("w9ReceivedDate") || "", w9FileName: w9File?.name || existing?.w9FileName || "", insuranceCompany: formData.get("insuranceCompany") || "", insuranceType: formData.get("insuranceType") || "", policyNumber: formData.get("policyNumber") || "", coverageAmount: Number(formData.get("coverageAmount") || 0), insuranceEffectiveDate: formData.get("insuranceEffectiveDate") || "", insuranceExpirationDate: formData.get("insuranceExpirationDate") || "", insuranceFileName: insuranceFile?.name || existing?.insuranceFileName || "", renewalNoticeDays: formData.get("renewalNoticeDays") || "60,30" };
+    const personId = pendingRecordId || nextId(state.people, "PE");
+    const w9Upload = await uploadWorkspaceFile(w9File,"compliance-files",`people/${personId}`);
+    const insuranceUpload = await uploadWorkspaceFile(insuranceFile,"compliance-files",`people/${personId}`);
+    const record = { id: personId, w9FilePath: w9Upload?.path || existing?.w9FilePath || "", insuranceFilePath: insuranceUpload?.path || existing?.insuranceFilePath || "", name: formData.get("name"), type: formData.get("type"), role: formData.get("role"), contactName: formData.get("contactName"), personalPhone: formData.get("personalPhone"), companyPhone: formData.get("companyPhone"), email: formData.get("email"), website: formData.get("website"), street: formData.get("street"), city: formData.get("city"), state: formData.get("state"), postalCode: formData.get("postalCode"), projectIds: projectId ? [...new Set([...(existing?.projectIds || []), projectId])] : existing?.projectIds || [], status: formData.get("status"), w9Status: formData.get("w9Status") || "missing", w9ReceivedDate: formData.get("w9ReceivedDate") || "", w9FileName: w9File?.name || existing?.w9FileName || "", insuranceCompany: formData.get("insuranceCompany") || "", insuranceType: formData.get("insuranceType") || "", policyNumber: formData.get("policyNumber") || "", coverageAmount: Number(formData.get("coverageAmount") || 0), insuranceEffectiveDate: formData.get("insuranceEffectiveDate") || "", insuranceExpirationDate: formData.get("insuranceExpirationDate") || "", insuranceFileName: insuranceFile?.name || existing?.insuranceFileName || "", renewalNoticeDays: formData.get("renewalNoticeDays") || "60,30" };
     if (pendingRecordId) state.people = state.people.map((item) => item.id === pendingRecordId ? record : item);
     else state.people.unshift(record);
   }
@@ -1353,7 +1353,8 @@ async function saveDataEntry(formData) {
   if (pendingRecordType === "receipt") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
     const receiptFile = formData.get("receiptFile");
-    state.expenseReceipts.unshift({ id: nextId(state.expenseReceipts, "RCP"), projectId: project.id, projectName: project.name, vendor: formData.get("vendor"), category: formData.get("category"), purchaseDate: formData.get("purchaseDate"), amount: Number(formData.get("amount")), paymentMethod: formData.get("paymentMethod"), reference: formData.get("reference"), receiptFileName: receiptFile?.name || "", notes: formData.get("notes") });
+    const receiptUpload = await uploadWorkspaceFile(receiptFile,"project-files",`receipts/${project.id}`);
+    state.expenseReceipts.unshift({ id: nextId(state.expenseReceipts, "RCP"), projectId: project.id, projectName: project.name, vendor: formData.get("vendor"), category: formData.get("category"), purchaseDate: formData.get("purchaseDate"), amount: Number(formData.get("amount")), paymentMethod: formData.get("paymentMethod"), reference: formData.get("reference"), receiptFileName: receiptFile?.name || "", receiptFilePath: receiptUpload?.path || "", notes: formData.get("notes") });
   }
   if (pendingRecordType === "material") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
@@ -1423,37 +1424,10 @@ function metric(label, value, note, route) {
 }
 
 function renderOverview() {
-  const activeProjects = state.projects.filter((item) => item.status === "active").length;
-  const awaitingContact = state.requests.filter((item) => ["new", "to-contact"].includes(item.status)).length;
-  const outstanding = state.transactions.filter((item) => item.type === "receivable" && item.status !== "paid").reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const approvedMedia = state.media.filter((item) => item.publishStatus === "approved").length;
-
-  return `
-    <section class="page">
-      ${pageHead(routes.overview, '<a class="button" href="#requests">Review new requests</a><a class="button secondary" href="#reports">Build a report</a>')}
-      <div class="metric-grid">
-        ${metric("Awaiting contact", awaitingContact, "New website requests that still need a response.", "requests")}
-        ${metric("Active projects", activeProjects, "Projects currently in execution.", "projects")}
-        ${metric("Outstanding", formatCurrency(outstanding), "Open client balances across projects.", "financial")}
-        ${metric("Approved media", approvedMedia, "Files cleared for possible website publishing.", "media")}
-      </div>
-      <div class="content-grid">
-        <article class="panel">
-          <div class="panel-head"><div><h2>Current priorities</h2><p>The dashboard will rank work that needs attention.</p></div></div>
-          <div class="priority-list">
-            <a href="#requests"><span class="priority-dot amber"></span><div><strong>Contact Harbor Residence (Demo)</strong><p>Custom Trim request · site visit due Sep 12</p></div><small>Request</small></a>
-            <a href="#financial"><span class="priority-dot amber"></span><div><strong>Review open material bill</strong><p>Oak House Millwork · Atlantic Millwork Supply (Demo)</p></div><small>${formatCurrency(5250)}</small></a>
-            <a href="#media"><span class="priority-dot green"></span><div><strong>Review project media</strong><p>Two demo uploads are awaiting classification.</p></div><small>Media</small></a>
-          </div>
-        </article>
-        <aside class="panel">
-          <div class="panel-head"><div><h2>Connected workflow</h2><p>Each stage opens the next record without retyping information.</p></div></div>
-          <div class="workflow">
-            ${["Request received", "Contact and site visit", "Proposal approval", "Client and project", "Execution and costs", "Completion and publishing"].map((item, index) => `<div class="workflow-item"><span class="workflow-number">${index + 1}</span><strong>${item}</strong><small>${index < 5 ? "Connected" : "Approval required"}</small></div>`).join("")}
-          </div>
-        </aside>
-      </div>
-    </section>`;
+  if (currentBetaUser && currentBetaUser.role !== "admin") return `<section class="page">${pageHead({kicker:"Your workspace",heading:"Your assigned projects and schedule",description:"The office shares your assignments and approved documents here. Contact the office to request changes."})}<div class="metric-grid">${metric("Projects",state.projects.length,"Projects assigned to your account.","projects")}${metric("Assignments",state.schedule.length,"Your work schedule.","schedule")}${metric("Shared files",state.media.length,"Approved files for your projects.","media")}</div></section>`;
+  const active = state.projects.filter(item => item.status === "active").length;
+  const pending = visitIntake.items.filter(item => !item.discarded_at && ["to_contact","waiting_reply","in_progress"].includes(item.status));
+  return `<section class="page">${pageHead(routes.overview,'<a class="button" href="#requests">Review website requests</a><a class="button secondary" href="#reports">Build a report</a>')}<div class="metric-grid">${metric("Requests to review",visitIntake.loaded?pending.length:"—",visitIntake.error?"Open Visit Requests to retry.":"Shared website requests.","requests")}${metric("Active projects",active,"Projects currently in execution.","projects")}${metric("Clients",state.clients.length,"Client records in the shared workspace.","clients")}${metric("People & companies",state.people.length,"Team members, vendors and subcontractors.","team")}</div><article class="panel"><div class="panel-head"><div><h2>Next requests to review</h2><p>Most recent pending website requests.</p></div></div>${pending.length?pending.slice(0,5).map(item=>`<p><a href="?visit=${encodeURIComponent(item.id)}#requests">${escapeHtml(item.full_name)}</a> · ${escapeHtml(item.project_type)} · ${escapeHtml(visitStatusLabel(item.status))}</p>`).join(""):"<p>Open Visit Requests to review the current list.</p>"}</article><p class="privacy-note">Existing records marked Demo or TESTE remain available for review. Review their contents before using them in operational reports.</p></section>`;
 }
 
 function demoVisitRequests() { return state.requests.map((item, index) => ({ id:item.id, submitted_at:new Date(Date.now()-(index+1)*86400000).toISOString(), full_name:item.clientName, email:`client${index+1}@example.invalid`, phone:"(555) 010-0000", project_type:index===0?"Trim":index===1?"Stairs":"Kitchen & Vanities", message:`Preview request for ${item.service}. The original customer message and any reference photos remain attached to this request.`, status:index===0?"to_contact":index===1?"waiting_reply":"in_progress", internal_note:"", discarded_at:null, attachments:[] })); }
@@ -1577,7 +1551,7 @@ function renderProjects() {
           </article>
           <article class="panel">
             <div class="panel-head"><div><h2>Receipts and expenses</h2><p>Only costs recorded for this project location are included.</p></div><button class="button secondary" data-create="receipt" type="button">Add receipt / expense</button></div>
-            ${projectReceipts.length ? demoTable(["Receipt", "Vendor / store", "Category", "Date", "Amount", "Payment", "Attachment"], projectReceipts.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong><small class="record-id">${escapeHtml(item.reference || "No reference")}</small></td><td>${escapeHtml(item.vendor)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(readableDate(item.purchaseDate))}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.paymentMethod)}</td><td>${escapeHtml(item.receiptFileName || "Not attached")}</td></tr>`)) : emptyState("No receipts or expenses", "No cost receipt is linked to this project yet.")}
+            ${projectReceipts.length ? demoTable(["Receipt", "Vendor / store", "Category", "Date", "Amount", "Payment", "Attachment"], projectReceipts.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong><small class="record-id">${escapeHtml(item.reference || "No reference")}</small></td><td>${escapeHtml(item.vendor)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(readableDate(item.purchaseDate))}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.paymentMethod)}</td><td>${privateFileControl("project-files",item.receiptFilePath,item.receiptFileName)}</td></tr>`)) : emptyState("No receipts or expenses", "No cost receipt is linked to this project yet.")}
           </article>` : ""}
         <article class="panel">
           <div class="panel-head"><div><h2>Vendors involved</h2><p>People or companies linked to this project through assignments or materials.</p></div>${canViewFinancials ? '<button class="button secondary" data-create="projectVendor" type="button">+ Link vendor</button>' : ""}</div>
@@ -1599,7 +1573,7 @@ function renderProjects() {
       </article>
       <article class="panel">
         <div class="panel-head"><div><h2>Additional costs and receipts</h2><p>Every receipt is connected to a project and included in its actual cost.</p></div><button class="button secondary" data-create="receipt" type="button">Add receipt / expense</button></div>
-        ${demoTable(["Receipt", "Project", "Vendor / store", "Category", "Date", "Amount", "Payment", "Attachment"], state.expenseReceipts.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong><small class="record-id">${escapeHtml(item.reference || "No reference")}</small></td><td>${escapeHtml(item.projectName)}</td><td>${escapeHtml(item.vendor)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(readableDate(item.purchaseDate))}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.paymentMethod)}</td><td>${escapeHtml(item.receiptFileName || "Not attached")}</td></tr>`))}
+        ${demoTable(["Receipt", "Project", "Vendor / store", "Category", "Date", "Amount", "Payment", "Attachment"], state.expenseReceipts.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong><small class="record-id">${escapeHtml(item.reference || "No reference")}</small></td><td>${escapeHtml(item.projectName)}</td><td>${escapeHtml(item.vendor)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(readableDate(item.purchaseDate))}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.paymentMethod)}</td><td>${privateFileControl("project-files",item.receiptFilePath,item.receiptFileName)}</td></tr>`))}
       </article>
       <article class="panel">
         <div class="panel-head"><div><h2>New work and change orders</h2><p>Additional scope remains separate from the original contract until approved.</p></div><button class="button secondary" data-create="changeOrder" type="button">Add new work</button></div>
@@ -1648,7 +1622,7 @@ function renderMaterials() {
       ${pageHead(routes.materials, '<button class="button" data-create="material" type="button">Add material</button><button class="button secondary" data-create="person" type="button">Add Vendor</button>')}
       <div class="metric-grid">
         ${metric("Material records", state.materials.length, "Quotes, orders, receipts, and installed items.", "materials")}
-        ${metric("Committed value", formatCurrency(total), "Current demo material value across projects.", "materials")}
+        ${metric("Committed value", formatCurrency(total), "Material value recorded across projects.", "materials")}
         ${metric("Vendors", state.people.filter((person) => person.type === "Vendor").length, "Registered material and service Vendors.", "team")}
         ${metric("Awaiting receipt", state.materials.filter((item) => item.status === "ordered").length, "Orders that have not been marked received.", "materials")}
       </div>
@@ -1693,7 +1667,7 @@ function renderTeam() {
         ${demoTable(["Subcontractor", "W-9", "Insurance", "Policy / coverage", "Expires", "Renewal activity", ""], subcontractors.map((person) => {
           const insurance = insuranceStatus(person);
           const lastRenewal = state.insuranceRenewals.find((item) => item.personId === person.id);
-          return `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.contactName || "No contact")}</small></td><td><span class="status-pill ${person.w9Status === "verified" ? "green" : "amber"}">${escapeHtml(formatStatus(person.w9Status || "missing"))}</span><small class="record-id">${escapeHtml(person.w9FileName || "No file")}</small></td><td><span class="status-pill ${insuranceStatusClass(insurance.key)}">${escapeHtml(insurance.label)}</span><small class="record-id">${escapeHtml(person.insuranceCompany || "No carrier")}</small></td><td>${escapeHtml(person.policyNumber || "—")}<small class="record-id">${person.coverageAmount ? formatCurrency(person.coverageAmount) : "No coverage entered"}</small></td><td>${person.insuranceExpirationDate ? escapeHtml(readableDate(person.insuranceExpirationDate)) : "—"}<small class="record-id">${escapeHtml(person.insuranceFileName || "No certificate")}</small></td><td>${lastRenewal ? `<span class="status-pill amber">Prepared</span><small class="record-id">${escapeHtml(new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(lastRenewal.preparedAt)))}</small>` : "No request prepared"}</td><td><button class="text-button" type="button" data-renewal-person="${escapeHtml(person.id)}">Prepare renewal</button><small class="record-id"><button class="text-button" type="button" data-edit-person="${escapeHtml(person.id)}">Edit record</button></small></td></tr>`;
+          return `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.contactName || "No contact")}</small></td><td><span class="status-pill ${person.w9Status === "verified" ? "green" : "amber"}">${escapeHtml(formatStatus(person.w9Status || "missing"))}</span><small class="record-id">${privateFileControl("compliance-files",person.w9FilePath,person.w9FileName)}</small></td><td><span class="status-pill ${insuranceStatusClass(insurance.key)}">${escapeHtml(insurance.label)}</span><small class="record-id">${escapeHtml(person.insuranceCompany || "No carrier")}</small></td><td>${escapeHtml(person.policyNumber || "—")}<small class="record-id">${person.coverageAmount ? formatCurrency(person.coverageAmount) : "No coverage entered"}</small></td><td>${person.insuranceExpirationDate ? escapeHtml(readableDate(person.insuranceExpirationDate)) : "—"}<small class="record-id">${privateFileControl("compliance-files",person.insuranceFilePath,person.insuranceFileName)}</small></td><td>${lastRenewal ? `<span class="status-pill amber">Prepared</span><small class="record-id">${escapeHtml(new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(lastRenewal.preparedAt)))}</small>` : "No request prepared"}</td><td><button class="text-button" type="button" data-renewal-person="${escapeHtml(person.id)}">Prepare renewal</button><small class="record-id"><button class="text-button" type="button" data-edit-person="${escapeHtml(person.id)}">Edit record</button></small></td></tr>`;
         }))}
       </article>
     </section>`;
@@ -1718,14 +1692,14 @@ function renderSchedule() {
       <div class="metric-grid">
         ${metric("Scheduled", state.schedule.filter((item) => item.status === "scheduled").length, "Assignments awaiting completion.", "schedule")}
         ${metric("Confirmed", state.schedule.filter((item) => item.status === "confirmed").length, "People who confirmed their next workday.", "schedule")}
-        ${metric("On site", state.attendance.filter((item) => item.locationStatus === "within-project-area").length, "Location-authorized work check-ins.", "map")}
-        ${metric("Completed", state.schedule.filter((item) => item.status === "completed").length, "Assignments completed in this preview.", "schedule")}
+        ${metric("People scheduled", new Set(state.schedule.map(item => item.personId)).size, "People with recorded work assignments.", "map")}
+        ${metric("Completed", state.schedule.filter((item) => item.status === "completed").length, "Completed assignments.", "schedule")}
       </div>
       <article class="panel" id="assignmentHistory" tabindex="-1">
         <div class="panel-head"><div><h2>Previous and current assignments</h2><p>This history stays separate from the empty Add assignment form.</p></div></div>
         ${demoTable(["Date", "Team Member / Vendor / Subcontractor", "Type", "Project", "Shift", "Instructions", "Status"], state.schedule.map((item) => `<tr><td>${escapeHtml(item.workDate)}</td><td><strong>${escapeHtml(item.personName)}</strong></td><td>${escapeHtml(item.personType)}</td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td>${escapeHtml(item.shift)}</td><td>${escapeHtml(item.instructions)}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
       </article>
-      <article class="panel"><div class="panel-head"><div><h2>Private account behavior</h2><p>Planned for the isolated authentication phase.</p></div></div><div class="security-list"><div class="security-row"><div><strong>Individual login</strong><p>Every authorized person or company receives a separate account.</p></div><span class="status-pill amber">Planned</span></div><div class="security-row"><div><strong>Schedule access window</strong><p>Daily access is available from ${scheduleAccessWindow.starts} to ${scheduleAccessWindow.ends}.</p></div><span class="status-pill green">Defined</span></div><div class="security-row"><div><strong>Schedule-only access</strong><p>Users see their own assignments, project instructions, and permitted documents.</p></div><span class="status-pill amber">Planned</span></div><div class="security-row"><div><strong>Location-authorized check-in</strong><p>Opening the schedule does not capture a home location. Verification begins only after an explicit Start Workday / Check In action and ends at Check Out or ${scheduleAccessWindow.ends}.</p></div><span class="status-pill amber">Planned</span></div></div></article>
+      <article class="panel"><h2>Individual access</h2><p>Each account sees the assignments shared with it. Schedules can be consulted at any time; automatic GPS tracking is not active.</p></article>
     </section>`;
 }
 
@@ -1739,7 +1713,7 @@ function renderMedia() {
         ${metric("Internal", countByStatus("internal"), "Private files visible only to authorized users.", "media")}
         ${metric("Awaiting review", countByStatus("awaiting-review"), "Uploads that need approval or classification.", "media")}
         ${metric("Approved", countByStatus("approved"), "Files approved for possible public use.", "media")}
-        ${metric("Published", countByStatus("published"), "Files currently visible on the website.", "media")}
+        ${metric("Published", countByStatus("published"), "Records marked published; public website publishing is managed separately.", "media")}
       </div>
       <article class="panel" id="mediaIndex">
         <div class="panel-head"><div><h2>Media index</h2><p>Upload and review project files here without leaving the Media Library.</p></div><label>Project<select data-media-project-filter><option value="all">All projects</option>${projectOptions(selectedMediaProjectId)}</select></label></div>
@@ -1749,26 +1723,7 @@ function renderMedia() {
 }
 
 function renderMap() {
-  return `
-    <section class="page">
-      ${pageHead(routes.map, '<button class="button secondary" type="button" data-project-list>View project list</button>')}
-      <article class="panel">
-        <div class="filter-bar">
-          <label>Project status<select><option>All statuses</option><option>Planned</option><option>Active</option><option>Paused</option><option>Completed</option></select></label>
-          <label>Client<select><option>All clients</option></select></label>
-          <label>Date range<select><option>All dates</option><option>This month</option><option>This year</option></select></label>
-          <button class="button secondary" type="button">Apply filters</button>
-        </div>
-        <div class="location-grid">
-          ${state.projects.map((project) => `<button class="location-card" type="button" data-open-project="${escapeHtml(project.id)}"><span class="map-pin">${project.status === "active" ? "A" : project.status === "planned" ? "P" : "C"}</span><div><strong>${escapeHtml(project.name)}</strong><p>${escapeHtml(projectLocation(project))} · ${escapeHtml(project.service)}</p></div><span class="status-pill ${statusClass(project.status)}">${escapeHtml(formatStatus(project.status))}</span></button>`).join("")}
-        </div>
-        <p class="privacy-note">Only city-level demo locations are shown in this preview. Exact job-site addresses will require permission.</p>
-      </article>
-      <article class="panel">
-        <div class="panel-head"><div><h2>Authorized work check-ins</h2><p>Location is verified only after Start Workday / Check In and only during the defined work window.</p></div></div>
-        ${demoTable(["Person", "Assigned project", "Check-in", "Verification", "Consent", "Automatic end"], state.attendance.map((item) => `<tr><td><strong>${escapeHtml(item.personName)}</strong></td><td>${escapeHtml(item.projectName)}</td><td>${escapeHtml(item.checkedInAt)}</td><td><span class="status-pill ${item.locationStatus === "within-project-area" ? "green" : "amber"}">${item.locationStatus === "within-project-area" ? "On site" : "Outside project area"}</span></td><td>${item.consentConfirmed ? "Confirmed" : "Not confirmed"}</td><td>${escapeHtml(item.trackingEnds)}</td></tr>`))}
-      </article>
-    </section>`;
+ return `<section class="page">${pageHead({...routes.map,heading:"Project locations",description:"Addresses recorded for your accessible projects. No background location tracking is active."})}<section class="panel"><div class="location-grid">${state.projects.map(project=>`<article class="location-card"><div><button class="text-button" data-open-project="${escapeHtml(project.id)}">${escapeHtml(project.name)}</button><p>${escapeHtml(projectLocation(project))}</p><a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(projectLocation(project))}">Open address in maps</a></div><span class="status-pill ${statusClass(project.status)}">${escapeHtml(formatStatus(project.status))}</span></article>`).join("") || "<p>No assigned projects yet.</p>"}</div></section></section>`;
 }
 
 function renderCompliance() {
@@ -1859,7 +1814,7 @@ function renderSecurity() {
         <aside class="panel">
           <div class="panel-head"><div><h2>Current system state</h2><p>Verified separation</p></div></div>
           <div class="security-list">
-            <div class="security-row"><div><strong>TAG data</strong><p>No connection in this preview.</p></div><span class="status-pill green">Separated</span></div>
+            <div class="security-row"><div><strong>TAG data</strong><p>No connection to TAG.</p></div><span class="status-pill green">Separated</span></div>
             <div class="security-row"><div><strong>Public website</strong><p>No admin changes published.</p></div><span class="status-pill green">Preserved</span></div>
             <div class="security-row"><div><strong>Live writes</strong><p>Shared workspace writes use conflict detection; a newer cloud record is never silently overwritten.</p></div><span class="status-pill green">Protected</span></div>
           </div>
@@ -2033,7 +1988,7 @@ function updateReportPreview() {
   const selectedCompliance = state.compliance.filter((item) => selectedProjectIds.includes(item.projectId));
   const selectedReceipts = state.expenseReceipts.filter((item) => selectedProjectIds.includes(item.projectId));
   const selectedVisits = state.siteVisits.filter((item) => selectedClientIds.includes(item.clientId) && (!item.projectId || selectedProjectIds.includes(item.projectId)));
-  const projectLabel = projectId === "all" ? "All demo projects" : selectedProjects[0]?.name || "No project selected";
+  const projectLabel = projectId === "all" ? "All projects" : selectedProjects[0]?.name || "No project selected";
   const issueDate = new Intl.DateTimeFormat("en-US", { dateStyle: "long" }).format(new Date());
   const reportSections = {
     "Project summary": demoTable(["Project", "Client", "Project address", "Status", "Progress", "Contract value"], selectedProjects.map((project) => `<tr><td>${escapeHtml(project.name)}</td><td>${escapeHtml(project.clientName)}</td><td>${escapeHtml(projectLocation(project))}</td><td>${escapeHtml(formatStatus(project.status))}</td><td>${project.progress}%</td><td>${formatCurrency(project.contractValue)}</td></tr>`)),
@@ -2055,7 +2010,7 @@ function updateReportPreview() {
   preview.innerHTML = `
     <div class="report-brand"><img src="../assets/brand-kit/no-limit-carpentry-approved-logo.png" alt="No Limit Carpentry" /><span>Private administrative report</span></div>
     <h2>${escapeHtml(type)}</h2>
-    <p class="report-meta">${escapeHtml(projectLabel)} · ${escapeHtml(period)} · Issued ${escapeHtml(issueDate)} · Demo preview only</p>
+    <p class="report-meta">${escapeHtml(projectLabel)} · ${escapeHtml(period)} · Issued ${escapeHtml(issueDate)} · Private operational report</p>
     ${sections.length ? sections.map((section) => `<section class="report-section"><h3>${escapeHtml(section)}</h3>${reportSections[section] || ""}</section>`).join("") : '<section class="report-section"><h3>No sections selected</h3><p>Select at least one report section and update the preview.</p></section>'}`;
 }
 
@@ -2076,6 +2031,34 @@ async function resendAccessEmail(email) {
     return;
   }
   window.alert(`A secure access-reset link was sent to ${email}. The recipient can use it to set a new password and sign in.`);
+}
+
+// Private attachment helpers. All reads are checked again by storage RLS.
+async function uploadWorkspaceFile(file, bucket, folder) {
+  if (!(file instanceof File) || !file.size) return null;
+  if (!["compliance-files","project-files"].includes(bucket)) throw new Error("Invalid document destination.");
+  if (file.size > 25 * 1024 * 1024) throw new Error("Please choose a document smaller than 25 MB.");
+  if (!/\.(pdf|png|jpe?g|webp|heic)$/i.test(file.name)) throw new Error("Choose a PDF or an image (JPG, PNG, WEBP, HEIC).");
+  const client = window.noLimitSupabaseClient;
+  if (!client || !currentAuthSession || !betaConfig()) throw new Error("Sign in before uploading a private document.");
+  const path = `${betaConfig().organizationId}/${folder}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+  const {error} = await client.storage.from(bucket).upload(path,file,{contentType:file.type || undefined,upsert:false});
+  if (error) throw new Error(`Document was not uploaded: ${error.message}`);
+  return {path,name:file.name};
+}
+function privateFileControl(bucket,path,name) {
+  if (!path) return name ? `${escapeHtml(name)} <span class="record-id">Original file needs uploading</span>` : "Not attached";
+  return `<button class="text-button" type="button" data-private-file="${escapeHtml(path)}" data-file-bucket="${escapeHtml(bucket)}">${escapeHtml(name || "Open document")}</button>`;
+}
+async function openPrivateFile(bucket,path,name) {
+  if (!["compliance-files","project-files"].includes(bucket) || !currentAuthSession) return;
+  mediaViewerTitle.textContent = name || "Private document";
+  mediaViewerContent.innerHTML = '<p role="status">Preparing your private document…</p>';
+  mediaViewerDialog.showModal();
+  const {data,error} = await window.noLimitSupabaseClient.storage.from(bucket).createSignedUrl(path,600,{download:true});
+  mediaViewerContent.innerHTML = error || !data?.signedUrl
+    ? `<p role="alert">${escapeHtml(error?.message || "Document unavailable.")}</p>`
+    : `<a class="button" href="${escapeHtml(data.signedUrl)}" target="_blank" rel="noopener">Download document</a><p>This private link expires in 10 minutes.</p>`;
 }
 
 async function openMediaAsset(mediaId) {
@@ -2112,7 +2095,7 @@ async function openMediaAsset(mediaId) {
 async function refreshVisitRequests() {
   if (visitIntake.loading) return;
   visitIntake.loading = true; visitIntake.error = "";
-  if (location.hash === "#requests") renderRoute();
+  if (["#requests","#overview", ""].includes(location.hash)) renderRoute();
   try {
     if (isLocalPreview) visitIntake.items = demoVisitRequests();
     else {
@@ -2134,7 +2117,7 @@ async function refreshVisitRequests() {
     }
     visitIntake.loaded = true;
   } catch (error) { visitIntake.error = error?.message || "Requests could not be loaded."; }
-  finally { visitIntake.loading = false; if ((location.hash.replace(/^#/, "") || "overview") === "requests") renderRoute(); }
+  finally { visitIntake.loading = false; if (["requests","overview"].includes(location.hash.replace(/^#/, "") || "overview")) renderRoute(); }
 }
 async function saveVisitRequestReview(id) {
   const request=visitIntake.items.find((item)=>item.id===id); if(!request)return;
@@ -2153,6 +2136,8 @@ async function toggleVisitRequestDiscarded(id) {
 }
 
 function bindPageEvents(routeName) {
+  content.querySelectorAll("[data-private-file]").forEach(button => button.addEventListener("click", () => openPrivateFile(button.dataset.fileBucket,button.dataset.privateFile,button.textContent)));
+
   content.querySelectorAll("[data-create]").forEach((button) => button.addEventListener("click", () => openDataEntry(button.dataset.create)));
   content.querySelectorAll("[data-edit-client]").forEach((button) => button.addEventListener("click", () => openDataEntry("client", button.dataset.editClient)));
   content.querySelectorAll("[data-edit-project]").forEach((button) => button.addEventListener("click", () => openDataEntry("project", button.dataset.editProject)));
@@ -2205,7 +2190,7 @@ function closeNavigation() {
 
 function renderRoute() {
   const requested = location.hash.replace(/^#/, "") || "overview";
-  const routeName = routes[requested] ? requested : "overview";
+  const routeName = routes[requested] && (!currentBetaUser || routesForBetaRole(currentBetaUser.role).includes(requested)) ? requested : "overview";
   const route = routes[routeName];
   topbarTitle.textContent = route.title;
   document.title = `No Limit | ${route.title}`;
@@ -2233,7 +2218,7 @@ function renderRoute() {
   updatePresence(routeName);
   // An unsuccessful load must stay visible as a single actionable error. Retrying
   // automatically after a failure would re-render this route indefinitely.
-  if (routeName === "requests" && (isLocalPreview || currentAuthSession) && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
+  if (["requests","overview"].includes(routeName) && (isLocalPreview || currentBetaUser?.role === "admin") && (isLocalPreview || currentAuthSession) && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
   if (routeName === "security" && canAccessAuditControls()) refreshSecurityMonitor();
   closeNavigation();
 }

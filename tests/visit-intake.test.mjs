@@ -16,3 +16,8 @@ test('UUID intake maps to private records without overwriting staff review',()=>
  assert.equal(result.preferred_date,null);
  for(const key of ['status','internal_note','discarded_at','attachments','source_request_id']) assert.ok(!(key in result));
 });
+
+test("older Ceiling requests stay visible in the current service filter",()=>{
+ const result=mapWebsiteRequest({id:"12345678-1234-4234-8234-123456789abc",updated_at:"2026-09-18T12:00:00Z",payload:{projectType:"Ceiling"}});
+ assert.equal(result.project_type,"Crown Molding · Ceiling · Coffered Ceiling");
+});

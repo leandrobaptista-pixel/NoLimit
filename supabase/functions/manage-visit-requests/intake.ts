@@ -15,7 +15,7 @@ export function mapWebsiteRequest(row: {id: string; updated_at: string; payload:
     full_name: String(p.name || 'Unnamed request'), email: String(p.email || ''),
     phone: String(p.phone || ''), address: String(p.address || ''), city: String(p.city || ''),
     preferred_date: /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(date)) ? date : null,
-    project_type: String(p.projectType || ''), message: String(p.details || ''),
+    project_type: ['Ceiling', 'Crown Molding', 'Coffered Ceiling'].includes(String(p.projectType)) ? 'Crown Molding · Ceiling · Coffered Ceiling' : String(p.projectType || ''), message: String(p.details || ''),
     source_page_url: String(p.pageUrl || '')
   };
 }

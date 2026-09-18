@@ -70,7 +70,7 @@ Deno.serve(async request => {
     if (error) throw error;
     return reply({request:data});
   } catch (error) {
-    console.error('Visit request operation failed', error instanceof Error ? error.message : 'database error');
+    console.error('Visit request operation failed', error instanceof Error ? error.message : String((error as {code?: string})?.code || 'database error'));
     return reply({error:error instanceof Error ? error.message : 'Request processing failed. Refresh and try again.'},400);
   }
 });

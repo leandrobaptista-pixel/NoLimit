@@ -36,7 +36,7 @@ test('production template requires explicit cost approval and template configura
   assert.equal(body.template.name, 'novo_pedido');
   assert.equal(body.template.components[0].parameters[0].text, visitRequestLink('abc'));
 });
-test('storage failure never notifies; notification failure preserves successful submission', async () => {
+test('deferred integration never notifies, even after successful storage with enabled settings', async () => {
   const original = globalThis.fetch;
   const req = () => new Request('https://nolimitcontractor.net/api/visit-request', {method:'POST',body:JSON.stringify({name:'TEST',email:'test@example.invalid'})});
   try {
@@ -44,11 +44,14 @@ test('storage failure never notifies; notification failure preserves successful 
     globalThis.fetch = async () => { calls++; return new Response('{}',{status:500}); };
     assert.equal((await onRequestPost({request:req(),env:enabled})).status, 502);
     assert.equal(calls,1);
+    let notificationCalls = 0;
     globalThis.fetch = async (url) => {
       if (url.includes('supabase.co')) return new Response(null,{status:201});
-      throw Error('offline');
+      notificationCalls++;
+      throw Error('Notifications must stay disconnected');
     };
     assert.equal((await onRequestPost({request:req(),env:enabled})).status,201);
+    assert.equal(notificationCalls, 0);
   } finally { globalThis.fetch = original; }
 });
 test('deep link finds exact authorized record, including completed/archived requests', () => {

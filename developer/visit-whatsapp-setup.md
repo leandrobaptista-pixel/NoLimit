@@ -1,10 +1,21 @@
 # No Limit — avisos de novos pedidos pelo WhatsApp
 
-Atualizado: 18/09/2026. Status: preparação, envio DESATIVADO.
+Atualizado: 18/09/2026. Status: ESTUDO ADIADO por decisão do proprietário; não implantar nem ativar.
 O site publicado é a versão principal. Cópias locais são apoio/backup.
 Twilio não é utilizado por esta integração.
 
-## Comportamento solicitado
+## Decisão do proprietário — 18/09/2026
+
+A integração foi adiada para quando o negócio estiver movimentando melhor.
+Não concluir a criação do aplicativo Meta, aceitar termos, configurar credenciais,
+ativar testes reais, cadastrar pagamento ou habilitar mensagens sem nova solicitação.
+A autorização anterior para implantação deixou de valer com esta decisão.
+O formulário publicado foi desconectado do adaptador WhatsApp: salvar um pedido
+não chama a Meta, mesmo que variáveis de ativação sejam configuradas por engano.
+Código e documentação permanecem somente como estudo para uma futura retomada.
+As etapas abaixo são referência futura, não trabalho autorizado agora.
+
+## Comportamento estudado
 
 Após salvar um cadastro com sucesso, avisar a equipe de atendimento por WhatsApp:
 “No Limit: novo pedido recebido no site. Abra para atender: {{1}}”.

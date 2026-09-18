@@ -1459,7 +1459,25 @@ function visitStatusClass(status) { return ({to_contact:"amber",waiting_reply:"a
 function visitIsToday(item) { const d=new Date(item.submitted_at||item.created_at||0), n=new Date(); return d.getFullYear()===n.getFullYear()&&d.getMonth()===n.getMonth()&&d.getDate()===n.getDate(); }
 function visitIsNew(item) { const t=new Date(item.submitted_at||item.created_at||0).getTime(); return Number.isFinite(t)&&Date.now()-t<86400000; }
 function safeAttachmentHref(value) { try { const url=new URL(String(value||""),window.location.origin); return ["https:","http:"].includes(url.protocol)?url.href:""; } catch { return ""; } }
-function filteredVisitRequests() { return visitIntake.items.filter((item)=>{ if(visitIntake.showDiscarded?!item.discarded_at:item.discarded_at)return false; if(visitIntake.category!=="all"&&item.project_type!==visitIntake.category)return false; if(visitIntake.filter==="today"&&!visitIsToday(item))return false; return visitIntake.filter!=="pending"||["to_contact","waiting_reply","in_progress"].includes(item.status||"to_contact"); }); }
+function linkedVisitRequest() {
+  const id = new URLSearchParams(location.search).get("visit");
+  return id ? (visitIntake.items.find(item => item.id === id || item.source_record_id === id) || null) : null;
+}
+function openLinkedVisitRequest() {
+  const item = linkedVisitRequest();
+  if (!item) return;
+  const detail = document.getElementById(`visit-detail-${item.id}`);
+  const button = content.querySelector(`[data-toggle-visit="${CSS.escape(item.id)}"]`);
+  if (detail) {
+    detail.hidden = false;
+    button?.setAttribute("aria-expanded", "true");
+    detail.closest("article")?.scrollIntoView({ block: "start" });
+  }
+}
+function filteredVisitRequests() {
+  const linked = linkedVisitRequest();
+  if (linked) return [linked];
+  return visitIntake.items.filter((item)=>{ if(visitIntake.showDiscarded?!item.discarded_at:item.discarded_at)return false; if(visitIntake.category!=="all"&&item.project_type!==visitIntake.category)return false; if(visitIntake.filter==="today"&&!visitIsToday(item))return false; return visitIntake.filter!=="pending"||["to_contact","waiting_reply","in_progress"].includes(item.status||"to_contact"); }); }
 function renderVisitRequestCard(item) { const date=new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short"}).format(new Date(item.submitted_at||item.created_at)); const files=(Array.isArray(item.attachments)?item.attachments:[]).map((file)=>({...file,href:safeAttachmentHref(file.url||file.path)})).filter((file)=>file.href); return `<article class="visit-intake-card${visitIsNew(item)?" is-new":""}"><div class="visit-intake-summary"><div><p class="page-kicker">${escapeHtml(item.project_type||"Other")} · ${escapeHtml(date)}${visitIsNew(item)?" · New":""}</p><h3>${escapeHtml(item.full_name||"Unnamed request")}</h3><p>${escapeHtml([item.phone,item.email].filter(Boolean).join(" · ")||"No contact details provided")}</p></div><div class="visit-intake-actions"><span class="status-pill ${visitStatusClass(item.status)}">${escapeHtml(visitStatusLabel(item.status))}</span><button class="text-button" data-toggle-visit="${escapeHtml(item.id)}" type="button" aria-expanded="false">Open details</button></div></div><div id="visit-detail-${escapeHtml(item.id)}" class="visit-intake-detail" hidden><div class="detail-grid"><div><span>Phone</span><strong>${escapeHtml(item.phone||"Not provided")}</strong></div><div><span>Email</span><strong>${escapeHtml(item.email||"Not provided")}</strong></div><div><span>Address</span><strong>${escapeHtml(item.address||"Not provided")}</strong></div><div><span>Preferred visit</span><strong>${escapeHtml(item.preferred_date||"Not provided")}</strong></div></div><div class="visit-copy"><span>Customer message</span><p>${escapeHtml(item.message||"No details provided")}</p></div><div class="visit-copy"><label for="visit-note-${escapeHtml(item.id)}">Internal note <small>Private — never shown to the customer</small></label><textarea id="visit-note-${escapeHtml(item.id)}" data-visit-note="${escapeHtml(item.id)}" placeholder="Add an internal follow-up note…">${escapeHtml(item.internal_note||"")}</textarea></div><div class="visit-attachments"><span>Customer photos / references</span>${files.length?files.map((file)=>`<a href="${escapeHtml(file.href)}" target="_blank" rel="noopener">${escapeHtml(file.name||"Open attachment")}</a>`).join(""):"<p>No photos or references were provided.</p>"}</div><div class="visit-intake-controls"><a class="button secondary" href="mailto:${encodeURIComponent(item.email||"")}?subject=${encodeURIComponent("No Limit Carpentry — your on-site visit request")}">Contact customer</a><select data-visit-status="${escapeHtml(item.id)}" aria-label="Request status"><option value="to_contact"${item.status==="to_contact"?" selected":""}>To contact</option><option value="waiting_reply"${item.status==="waiting_reply"?" selected":""}>Waiting for reply</option><option value="in_progress"${item.status==="in_progress"?" selected":""}>In progress</option><option value="completed"${item.status==="completed"?" selected":""}>Completed</option></select><button class="button secondary" data-save-visit="${escapeHtml(item.id)}" type="button">Save review</button><button class="text-button danger-button" data-discard-visit="${escapeHtml(item.id)}" type="button">${item.discarded_at?"Restore request":"Discard request"}</button></div></div></article>`; }
 function renderRequests() { const records=filteredVisitRequests(), totals=Object.fromEntries(visitRequestCategories.map((category)=>[category,0])); visitIntake.items.filter((item)=>!item.discarded_at).forEach((item)=>{if(Object.prototype.hasOwnProperty.call(totals,item.project_type))totals[item.project_type]+=1;}); return `<section class="page">${pageHead(routes.requests,'<button class="button secondary" data-refresh-visits type="button">Refresh requests</button>')}<article class="panel visit-intake-overview"><div class="panel-head"><div><h2>Free On-Site Visit requests</h2><p>Private intake review. Opening contact does not change status; only an explicit save does.</p></div><span class="status-pill ${visitIntake.error?"red":"green"}">${escapeHtml(visitIntake.error||(isLocalPreview?"Preview data":"Secure admin view"))}</span></div><div class="visit-filter-row" role="group" aria-label="Request filters"><button class="filter-chip${visitIntake.filter==="today"?" active":""}" data-visit-filter="today" type="button">Today</button><button class="filter-chip${visitIntake.filter==="pending"?" active":""}" data-visit-filter="pending" type="button">Pending</button><button class="filter-chip${visitIntake.filter==="all"?" active":""}" data-visit-filter="all" type="button">All</button><button class="filter-chip${visitIntake.showDiscarded?" active":""}" data-show-discarded type="button">${visitIntake.showDiscarded?"Back to active":"Discarded"}</button><label>Gallery section<select id="visitCategoryFilter"><option value="all">All 13 sections</option>${visitRequestCategories.map((category)=>`<option value="${escapeHtml(category)}"${visitIntake.category===category?" selected":""}>${escapeHtml(category)} (${totals[category]||0})</option>`).join("")}</select></label></div></article><section class="visit-category-grid" aria-label="Request totals by gallery section">${visitRequestCategories.map((category)=>`<button class="visit-category-card${visitIntake.category===category?" active":""}" data-visit-category="${escapeHtml(category)}" type="button"><span>${escapeHtml(category)}</span><strong>${totals[category]||0}</strong></button>`).join("")}</section><section class="panel visit-intake-list"><div class="panel-head"><div><h2>${visitIntake.showDiscarded?"Discarded requests":"Requests to review"}</h2><p>${records.length} request${records.length===1?"":"s"} shown</p></div></div>${records.length?records.map(renderVisitRequestCard).join(""):'<div class="empty-state"><h3>No requests in this view</h3><p>Try another filter or refresh the secure intake.</p></div>'}</section></section>`; }
 
@@ -2187,6 +2205,21 @@ function renderRoute() {
   content.focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "instant" });
   bindPageEvents(routeName);
+  if (routeName === "requests" && new URLSearchParams(location.search).has("visit")) {
+    const notice = document.createElement("div");
+    notice.className = "panel";
+    const message = document.createElement("p");
+    message.textContent = linkedVisitRequest() ? "Request opened from notification." :
+      visitIntake.error ? "The linked request could not be loaded. Refresh requests to try again." :
+      visitIntake.loaded ? "This request is not available in your authorized list yet." : "Loading the linked request…";
+    const back = document.createElement("a");
+    back.className = "button secondary";
+    back.href = "./#requests";
+    back.textContent = "View all requests";
+    notice.append(message, back);
+    content.prepend(notice);
+    openLinkedVisitRequest();
+  }
   applyBetaAccess();
   updatePresence(routeName);
   // An unsuccessful load must stay visible as a single actionable error. Retrying

@@ -1,3 +1,5 @@
+import { notifyVisitRequest } from '../_lib/visit-whatsapp.js';
+
 const SUPABASE_URL = 'https://ecbhaeiwnygplawlbnio.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_LDBZuLzFMUo0xsugiKRpZA_qKeqeXeW';
 
@@ -25,7 +27,7 @@ export async function onRequestGet() {
   return json({ error: 'Method not allowed.' }, 405);
 }
 
-export async function onRequestPost({ request }) {
+export async function onRequestPost({ request, env, waitUntil }) {
   let fields;
 
   try {
@@ -80,5 +82,11 @@ export async function onRequestPost({ request }) {
     return json({ error: 'Unable to save request.' }, 502);
   }
 
+  // Notify only after storage succeeds; provider failure never invalidates a saved request.
+  const notification = notifyVisitRequest(env, record.id).catch(() => {
+    console.error('Visit WhatsApp notification failed.', record.id);
+  });
+  if (waitUntil) waitUntil(notification);
+  else await notification;
   return json({ ok: true }, 201);
 }

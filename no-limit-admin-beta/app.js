@@ -916,7 +916,7 @@ function normalizedSharedState(candidate = {}) {
   }));
   // Older change orders were saved only in the project record. Expose each
   // distinct billable title in the reusable catalog without changing history.
-  merged.changeOrders.forEach((order) => {
+  (Array.isArray(merged.changeOrders) ? merged.changeOrders : []).forEach((order) => {
     const name = order.title || order.description;
     const key = serviceCatalogKey(name);
     if (!key) return;

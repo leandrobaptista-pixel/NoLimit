@@ -173,7 +173,7 @@ jobs:
           base="https://nolimitcontractor.net/no-limit-admin-beta"
           index="$(curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
             "${base}/?release=${GITHUB_RUN_ID}")"
-          for asset in styles.css no-limit-supabase-config.js app.js; do
+          for asset in styles.css vendor/supabase-js.min.js app.js; do
             printf '%s' "$index" | grep -Fq "${asset}?v=${GITHUB_SHA}"
             curl --fail --silent --show-error --retry 5 --retry-delay 4 --max-time 30 \
               "${base}/${asset}?v=${GITHUB_SHA}" > /dev/null

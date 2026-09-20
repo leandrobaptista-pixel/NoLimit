@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": Deno.env.get("ADMIN_APP_ORIGIN") ?? "https://nolimitcontractor.net",
@@ -21,8 +21,7 @@ Deno.serve(async (request) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const organizationId = Deno.env.get("NO_LIMIT_ORGANIZATION_ID");
   const redirectTo = Deno.env.get("NO_LIMIT_INVITE_REDIRECT_URL");
-  const ownerEmail = String(Deno.env.get("NO_LIMIT_OWNER_EMAIL") ?? "").trim().toLowerCase();
-  if (!supabaseUrl || !anonKey || !serviceKey || !organizationId || !redirectTo || !ownerEmail) {
+  if (!supabaseUrl || !anonKey || !serviceKey || !organizationId || !redirectTo) {
     return json(503, { error: "Invitation service is not configured" });
   }
 
@@ -34,8 +33,7 @@ Deno.serve(async (request) => {
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
   const { data: membership } = await admin.from("organization_members").select("role,status")
     .eq("organization_id", organizationId).eq("user_id", callerData.user.id).eq("status", "active").maybeSingle();
-  const isVerifiedOwner = String(callerData.user.email ?? "").toLowerCase() === ownerEmail && Boolean(callerData.user.email_confirmed_at);
-  if ((!membership || !["owner", "admin"].includes(membership.role)) && !isVerifiedOwner) {
+  if (!membership || !["owner", "admin"].includes(membership.role)) {
     return json(403, { error: "Only an administrator can manage user access" });
   }
 
@@ -45,7 +43,7 @@ Deno.serve(async (request) => {
 
   if (body.action === "list") {
     const { data: members, error: membersError } = await admin.from("organization_members")
-      .select("user_id,role,status").eq("organization_id", organizationId);
+      .select("user_id,role,status,linked_person_id").eq("organization_id", organizationId);
     if (membersError) return json(500, { error: "User access records could not be loaded" });
     const usersById = new Map(usersPage.users.map((user) => [user.id, user]));
     return json(200, { users: (members ?? []).map((member) => {
@@ -56,6 +54,7 @@ Deno.serve(async (request) => {
         fullName: String(user?.user_metadata?.full_name ?? user?.email ?? ""),
         role: member.role,
         status: member.status,
+        linkedPersonId: member.linked_person_id || "",
       };
     }) });
   }
@@ -65,6 +64,18 @@ Deno.serve(async (request) => {
   const role = String(body.role ?? "viewer");
   const linkedPersonId = String(body.linkedPersonId ?? "").trim();
   if (!email || !fullName || !allowedRoles.has(role)) return json(400, { error: "Invalid invitation details" });
+
+  if (linkedPersonId) {
+    const {data: workspace,error:workspaceError} = await admin.from("beta_workspaces").select("payload")
+      .eq("organization_id",organizationId).eq("id","shared-v1").single();
+    const person = workspace?.payload?.state?.people?.find((p: {id:string}) => p.id === linkedPersonId);
+    if (workspaceError || !person) return json(400,{error:"Select an existing person or company from this workspace."});
+    if ((role === "vendor" && person.type !== "Vendor") || (role === "subcontractor" && person.type !== "Subcontractor"))
+      return json(400,{error:"The account role must match the linked person's record type."});
+  }
+  if (["vendor","subcontractor","team_member"].includes(role) && !linkedPersonId)
+    return json(400,{error:"Link this account to a person or company so its assigned projects can be shared."});
+  if (body.action === "validate") return json(200,{valid:true,willSendEmail:!usersPage.users.some(user => user.email?.toLowerCase() === email)});
 
   let invitedUser = usersPage.users.find((user) => String(user.email ?? "").toLowerCase() === email);
   let invitationSent = false;
@@ -85,13 +96,9 @@ Deno.serve(async (request) => {
     return json(200, { invited: false, accessAssigned: true, alreadyActive: true, role: existingMember.role });
   }
 
-  const { error: memberError } = await admin.from("organization_members").upsert({ organization_id: organizationId, user_id: invitedUser.id, role, status: "active" }, { onConflict: "organization_id,user_id" });
+  const { error: memberError } = await admin.from("organization_members").upsert({ organization_id: organizationId, user_id: invitedUser.id, role, status: "active", linked_person_id: linkedPersonId || null }, { onConflict: "organization_id,user_id" });
   if (memberError) return json(500, { error: "The account was created, but its role could not be assigned" });
 
-  if (linkedPersonId) {
-    const targetTable = role === "vendor" || role === "subcontractor" ? "partners" : "team_members";
-    await admin.from(targetTable).update({ user_id: invitedUser.id }).eq("id", linkedPersonId).eq("organization_id", organizationId);
-  }
   await admin.from("audit_log").insert({ organization_id: organizationId, actor_user_id: callerData.user.id, action: "user_invited", entity_type: "organization_member", entity_id: invitedUser.id, new_data: { email, full_name: fullName, role, linked_person_id: linkedPersonId || null } });
   return json(200, { invited: invitationSent, accessAssigned: true, alreadyActive: false });
 });

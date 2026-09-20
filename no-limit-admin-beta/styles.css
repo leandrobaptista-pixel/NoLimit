@@ -412,6 +412,9 @@ textarea { min-height: 104px; resize: vertical; line-height: 1.5; }
 .form-section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 12px 0 5px; border-top: 1px solid var(--line); color: var(--ink); }
 .form-section-title strong { font-family: Georgia, serif; font-size: 1rem; font-weight: 400; }
 .form-section-title span { color: var(--muted); font-size: 0.67rem; }
+.inline-action { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 0 2px; }
+.inline-action span { font-weight: 700; }
+.inline-action small { width: 100%; color: var(--muted); }
 
 .report-layout { display: grid; grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1.28fr); gap: 18px; align-items: start; }
 .report-controls { display: grid; gap: 18px; }

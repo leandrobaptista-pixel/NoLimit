@@ -387,7 +387,25 @@ function peopleOptions() {
 }
 
 function vendorOptions() {
-  return state.people.filter((person) => person.type === "Vendor").map((person) => `<option value="${escapeHtml(person.id)}">${escapeHtml(person.name)}</option>`).join("");
+  return state.people
+    .filter((person) => ["Vendor", "Subcontractor"].includes(person.type))
+    .map((person) => `<option value="${escapeHtml(person.id)}">${escapeHtml(person.name)} · ${escapeHtml(person.type)}</option>`)
+    .join("");
+}
+
+function serviceCatalogKey(value = "") {
+  return String(value).trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+function findOrAddCatalogService({ title = "", description = "", unit = "each", unitPrice = 0 } = {}) {
+  const name = String(title || description).trim();
+  const key = serviceCatalogKey(name);
+  if (!key) return null;
+  const existing = state.customServices.find((service) => serviceCatalogKey(service.title) === key);
+  if (existing) return existing;
+  const service = { id: nextId(state.customServices, "SVC"), title: name, description: String(description || "").trim(), unit: String(unit || "each").trim() || "each", unitPrice: Number(unitPrice || 0) };
+  state.customServices.unshift(service);
+  return service;
 }
 
 function reportPeopleOptions() {
@@ -698,7 +716,7 @@ function openDataEntry(type, recordId = "") {
     },
     invoiceItem: {
       title: "Add invoice item",
-      fields: field("Invoice", "invoiceId", { options: invoiceOptions() }) + field("Service category", "category", { options: serviceOptions() }) + field("Service title", "title", { placeholder: "Door installation, casing, baseboard..." }) + field("Description", "description", { placeholder: "Detailed scope for this line" }) + field("Quantity", "quantity", { type: "number", min: 0 }) + field("Unit price", "unitPrice", { type: "number", min: 0 }),
+      fields: field("Invoice", "invoiceId", { options: invoiceOptions() }) + field("Service category", "category", { options: serviceOptions() }) + '<div class="field-wide inline-action"><span>New service</span><button class="button secondary compact-button" data-create-catalog-service type="button">Save new service to catalog</button><small>Creates one reusable service and fills this invoice line.</small></div>' + field("Service title", "title", { placeholder: "Door installation, casing, baseboard..." }) + field("Description", "description", { placeholder: "Detailed scope for this line" }) + field("Quantity", "quantity", { type: "number", min: 0 }) + field("Unit price", "unitPrice", { type: "number", min: 0 }),
     },
     payment: {
       title: "Record client payment",
@@ -789,6 +807,14 @@ function openDataEntry(type, recordId = "") {
       customServiceForm.reset();
       customServiceDialog.showModal();
     }
+  });
+  dataForm.querySelector("[data-create-catalog-service]")?.addEventListener("click", () => {
+    pendingCustomServiceTarget = { mode: "data-form" };
+    customServiceForm.reset();
+    customServiceForm.elements.namedItem("title").value = dataForm.elements.namedItem("title")?.value || "";
+    customServiceForm.elements.namedItem("description").value = dataForm.elements.namedItem("description")?.value || "";
+    customServiceForm.elements.namedItem("unitPrice").value = dataForm.elements.namedItem("unitPrice")?.value || "";
+    customServiceDialog.showModal();
   });
 }
 
@@ -886,6 +912,19 @@ function normalizedSharedState(candidate = {}) {
     renewalNoticeDays: "60,30",
     ...person,
   }));
+  // Older change orders were saved only in the project record. Expose each
+  // distinct billable title in the reusable catalog without changing history.
+  merged.changeOrders.forEach((order) => {
+    const name = order.title || order.description;
+    const key = serviceCatalogKey(name);
+    if (!key) return;
+    let service = merged.customServices.find((item) => serviceCatalogKey(item.title) === key);
+    if (!service) {
+      service = { id: `SVC-CHANGE-${String(order.id || key).replace(/[^A-Za-z0-9_-]+/g, "-")}`, title: String(name).trim(), description: String(order.description || "").trim(), unit: "each", unitPrice: Number(order.unitPrice || 0) };
+      merged.customServices.push(service);
+    }
+    if (!order.customServiceId) order.customServiceId = service.id;
+  });
   return merged;
 }
 
@@ -1303,7 +1342,10 @@ async function saveDataEntry(formData) {
     const quantity = Number(formData.get("quantity"));
     const unitPrice = Number(formData.get("unitPrice") || savedService?.unitPrice || 0);
     const amount = quantity * unitPrice;
-    state.changeOrders.unshift({ id: nextId(state.changeOrders, "CO"), projectId: project.id, projectName: project.name, status: formData.get("status"), category, customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity, unitPrice, amount });
+    const title = formData.get("title") || savedService?.title || category;
+    const description = formData.get("description") || savedService?.description || "";
+    const catalogService = savedService || findOrAddCatalogService({ title, description, unitPrice });
+    state.changeOrders.unshift({ id: nextId(state.changeOrders, "CO"), projectId: project.id, projectName: project.name, status: formData.get("status"), category, customServiceId: catalogService?.id || "", title, description, quantity, unitPrice, amount });
   }
   if (pendingRecordType === "person") {
     const projectId = formData.get("projectId");
@@ -1315,7 +1357,7 @@ async function saveDataEntry(formData) {
     else state.people.unshift(record);
   }
   if (pendingRecordType === "projectVendor") {
-    const vendor = state.people.find((item) => item.id === formData.get("vendorId") && item.type === "Vendor");
+    const vendor = state.people.find((item) => item.id === formData.get("vendorId") && ["Vendor", "Subcontractor"].includes(item.type));
     const projectId = formData.get("projectId");
     if (vendor && projectId) vendor.projectIds = [...new Set([...(vendor.projectIds || []), projectId])];
   }
@@ -1679,13 +1721,13 @@ function renderTeam() {
 }
 
 function renderVendors() {
-  const vendors = state.people.filter((person) => person.type === "Vendor");
+  const vendors = state.people.filter((person) => ["Vendor", "Subcontractor"].includes(person.type));
   return `
     <section class="page">
-      ${pageHead(routes.vendors, '<button class="button" data-create="person" type="button">Add person or company</button><a class="button secondary" href="#team">Open Team & Partners</a>')}
+      ${pageHead(routes.vendors, '<button class="button" data-create="person" type="button">Add vendor or subcontractor</button><a class="button secondary" href="#team">Open Team & Partners</a>')}
       <article class="panel" id="vendorDirectory">
-        <div class="panel-head"><div><h2>Vendors</h2><p>The same vendor records are shown here through a direct navigation entry.</p></div></div>
-        ${vendors.length ? demoTable(["Person or company", "Role / specialty", "Primary contact", "Address", "Linked projects", "Status", ""], vendors.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.role)}</td><td>${escapeHtml(partyContact(person))}</td><td>${escapeHtml(partyLocation(person))}</td><td>${person.projectIds.map((id) => `<button class="text-button" type="button" data-open-project="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join(" · ")}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><button class="text-button" type="button" data-edit-person="${escapeHtml(person.id)}">Edit</button></td></tr>`)) : emptyState("No vendors yet", "Add a person or company and select Vendor as its type.")}
+        <div class="panel-head"><div><h2>Vendors & subcontractors</h2><p>Suppliers and subcontractors are both available here; their commercial type and login access remain separate.</p></div></div>
+        ${vendors.length ? demoTable(["Person or company", "Commercial type", "Role / specialty", "Primary contact", "Address", "Linked projects", "Status", ""], vendors.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.type)}</td><td>${escapeHtml(person.role)}</td><td>${escapeHtml(partyContact(person))}</td><td>${escapeHtml(partyLocation(person))}</td><td>${person.projectIds.map((id) => `<button class="text-button" type="button" data-open-project="${escapeHtml(id)}">${escapeHtml(id)}</button>`).join(" · ")}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><button class="text-button" type="button" data-edit-person="${escapeHtml(person.id)}">Edit</button></td></tr>`)) : emptyState("No vendors or subcontractors yet", "Add a person or company and select Vendor or Subcontractor as its type.")}
       </article>
     </section>`;
 }

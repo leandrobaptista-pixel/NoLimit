@@ -1730,7 +1730,7 @@ function renderMaterials() {
   const total = state.materials.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   return `
     <section class="page">
-      ${pageHead(routes.materials, '<button class="button" data-create="material" type="button">Add material</button><button class="button secondary" data-add-catalog-service type="button">Add new service</button><button class="button secondary" data-create="person" type="button">Add Vendor</button>')}
+      ${pageHead(routes.materials, '<button class="button" data-create="material" type="button">Add Material</button><button class="button secondary" data-create="person" type="button">Add Vendor</button><button class="button secondary" data-add-catalog-service type="button">Add Service</button>')}
       <div class="metric-grid">
         ${metric("Material records", state.materials.length, "Quotes, orders, receipts, and installed items.", "materials")}
         ${metric("Committed value", formatCurrency(total), "Material value recorded across projects.", "materials")}

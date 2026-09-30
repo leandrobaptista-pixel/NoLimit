@@ -13,7 +13,7 @@ const defaultState = {
     { id: "USR-DEMO-002", name: "Alex Morgan (Demo)", email: "alex@example.invalid", role: "Project Manager", linkedPersonId: "PE-DEMO-001", status: "invited", invitedAt: "Sep 12, 2026" },
   ],
   customServices: [
-    { id: "SVC-DEMO-001", title: "Custom door modification", description: "Modify door height or width to fit an existing opening.", unit: "each", unitPrice: 600 },
+    { id: "SVC-DEMO-001", title: "Custom door modification", category: "Outside Doors & Windows", description: "Modify door height or width to fit an existing opening.", unit: "each", unitPrice: 600, archived: false },
   ],
   requests: [
     { id: "REQ-DEMO-001", clientId: "CL-DEMO-001", clientName: "Harbor Residence (Demo)", service: "Custom Trim", submitted: "Sep 8, 2026", status: "to-contact", nextAction: "Site visit · Sep 12" },
@@ -134,6 +134,13 @@ function loadPreviewState() {
     merged.expenseReceipts = merged.expenseReceipts || [];
     merged.insuranceRenewals = merged.insuranceRenewals || [];
     merged.accessUsers = merged.accessUsers || cloneDefaultState().accessUsers;
+    // Legacy reusable services had no category or archive state. Keep them
+    // available and additive; document line snapshots are deliberately untouched.
+    merged.customServices = (merged.customServices || []).map((service) => ({
+      category: "Custom / New Work",
+      archived: false,
+      ...service,
+    }));
     merged.materials = merged.materials.map((item) => ({ ...item, vendor: item.vendor || item.supplier || "" }));
     merged.estimates = merged.estimates.map((estimate) => {
       const linkedContract = merged.contracts.find((contract) => contract.estimateId === estimate.id);
@@ -212,6 +219,12 @@ const routes = {
     kicker: "Financial control",
     heading: "Know the cost, balance, and result of every job.",
     description: "Track proposed and contracted values, materials, labor, subcontractors, payments, receipts, change orders, and project results.",
+  },
+  services: {
+    title: "Service Catalog",
+    kicker: "Reusable services",
+    heading: "Services ready for estimates and invoices.",
+    description: "Keep default pricing and scope in one place. Selecting a service copies it into the document, so later catalog changes never alter existing work.",
   },
   materials: {
     title: "Materials",
@@ -309,6 +322,7 @@ let pendingRecordType = "";
 let pendingRecordId = "";
 let activeDocument = null;
 let pendingCustomServiceTarget = null;
+let editingCatalogServiceId = "";
 let selectedClientId = "";
 let selectedProjectId = "";
 let projectReturnRoute = "projects";
@@ -366,7 +380,7 @@ function clientOptions(selected = "") {
 
 function serviceOptions(selected = "", selectedCustomId = "") {
   const standard = serviceCategories.map((service) => `<option value="${escapeHtml(service)}" ${service === selected && !selectedCustomId ? "selected" : ""}>${escapeHtml(service)}</option>`).join("");
-  const custom = state.customServices.length ? `<optgroup label="Saved Custom / New Jobs">${state.customServices.map((service) => `<option value="custom-service:${escapeHtml(service.id)}" ${service.id === selectedCustomId ? "selected" : ""}>${escapeHtml(service.title)}</option>`).join("")}</optgroup>` : "";
+  const custom = state.customServices.filter((service) => !service.archived).length ? `<optgroup label="Service catalog">${state.customServices.filter((service) => !service.archived).map((service) => `<option value="custom-service:${escapeHtml(service.id)}" ${service.id === selectedCustomId ? "selected" : ""}>${escapeHtml(service.title)} · ${escapeHtml(service.category || "Custom / New Work")}</option>`).join("")}</optgroup>` : "";
   return standard + custom;
 }
 
@@ -402,9 +416,9 @@ function findOrAddCatalogService({ title = "", description = "", unit = "each", 
   const name = String(title || description).trim();
   const key = serviceCatalogKey(name);
   if (!key) return null;
-  const existing = state.customServices.find((service) => serviceCatalogKey(service.title) === key);
+  const existing = state.customServices.find((service) => !service.archived && serviceCatalogKey(service.title) === key);
   if (existing) return existing;
-  const service = { id: nextId(state.customServices, "SVC"), title: name, description: String(description || "").trim(), unit: String(unit || "each").trim() || "each", unitPrice: Number(unitPrice || 0) };
+  const service = { id: nextId(state.customServices, "SVC"), title: name, category: "Custom / New Work", description: String(description || "").trim(), unit: String(unit || "each").trim() || "each", unitPrice: Number(unitPrice || 0), archived: false };
   state.customServices.unshift(service);
   return service;
 }
@@ -551,7 +565,7 @@ function harvestDocumentDraft() {
   activeDocument.draftItems.forEach((item, index) => {
     const selectedCategory = documentCanvas.querySelector(`[name="category"][data-document-item="${index}"]`)?.value || "Custom / New Work";
     const savedService = customServiceFromSelection(selectedCategory);
-    item.category = savedService ? "Custom / New Work" : selectedCategory;
+    item.category = savedService ? savedService.category : selectedCategory;
     item.customServiceId = savedService?.id || (selectedCategory === "Custom / New Work" ? item.customServiceId || "" : "");
     item.title = documentCanvas.querySelector(`[name="title"][data-document-item="${index}"]`)?.value || item.category;
     item.description = documentCanvas.querySelector(`[name="description"][data-document-item="${index}"]`)?.value || "";
@@ -567,15 +581,12 @@ function bindDocumentEditor() {
     const index = Number(select.dataset.documentItem);
     const savedService = customServiceFromSelection(select.value);
     if (savedService) {
-      activeDocument.draftItems[index] = { ...activeDocument.draftItems[index], category: "Custom / New Work", customServiceId: savedService.id, title: savedService.title, description: savedService.description, unitPrice: savedService.unitPrice };
+      activeDocument.draftItems[index] = { ...activeDocument.draftItems[index], category: savedService.category, customServiceId: savedService.id, title: savedService.title, description: savedService.description, unit: savedService.unit, unitPrice: savedService.unitPrice };
       setDocumentEditing(true);
       return;
     }
-    if (select.value === "Custom / New Work") {
-      pendingCustomServiceTarget = { mode: "document", index };
-      customServiceForm.reset();
-      customServiceDialog.showModal();
-    }
+    // Custom / New Work remains a one-off document line. Reusable services
+    // are intentionally created only from the independent Service Catalog.
   }));
   documentCanvas.querySelectorAll("[data-remove-document-item]").forEach((button) => button.addEventListener("click", () => {
     harvestDocumentDraft();
@@ -598,21 +609,34 @@ function addDocumentLineItem() {
 function closeCustomServiceDialog() {
   customServiceDialog.close();
   pendingCustomServiceTarget = null;
+  editingCatalogServiceId = "";
+}
+
+function prepareNewCatalogServiceForm() {
+  editingCatalogServiceId = "";
+  customServiceForm.reset();
+  customServiceDialog.querySelector("#customServiceTitle").textContent = "Add new item";
+  customServiceForm.elements.namedItem("category").innerHTML = serviceCategories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
+  customServiceForm.elements.namedItem("category").value = "Custom / New Work";
 }
 
 function saveCustomService(formData) {
+  const existing = state.customServices.find((item) => item.id === editingCatalogServiceId);
   const service = {
-    id: nextId(state.customServices, "SVC"),
-    title: formData.get("title"),
-    description: formData.get("description"),
-    unit: formData.get("unit"),
+    id: existing?.id || nextId(state.customServices, "SVC"),
+    title: String(formData.get("title") || "").trim(),
+    category: formData.get("category") || "Custom / New Work",
+    description: String(formData.get("description") || "").trim(),
+    unit: String(formData.get("unit") || "each").trim() || "each",
     unitPrice: Number(formData.get("unitPrice")),
+    archived: existing?.archived || false,
   };
-  state.customServices.unshift(service);
+  if (existing) state.customServices = state.customServices.map((item) => item.id === service.id ? service : item);
+  else state.customServices.unshift(service);
   savePreviewState();
   if (pendingCustomServiceTarget?.mode === "document" && activeDocument?.draftItems) {
     const item = activeDocument.draftItems[pendingCustomServiceTarget.index];
-    activeDocument.draftItems[pendingCustomServiceTarget.index] = { ...item, category: "Custom / New Work", customServiceId: service.id, title: service.title, description: service.description, unitPrice: service.unitPrice };
+    activeDocument.draftItems[pendingCustomServiceTarget.index] = { ...item, category: service.category, customServiceId: service.id, title: service.title, description: service.description, unit: service.unit, unitPrice: service.unitPrice };
     customServiceDialog.close();
     pendingCustomServiceTarget = null;
     setDocumentEditing(true);
@@ -631,6 +655,37 @@ function saveCustomService(formData) {
   }
   customServiceDialog.close();
   pendingCustomServiceTarget = null;
+  editingCatalogServiceId = "";
+  if (location.hash === "#services") renderRoute();
+}
+
+function openCatalogServiceForm(serviceId = "") {
+  if (!betaCanCreate("catalogService")) return;
+  const service = state.customServices.find((item) => item.id === serviceId);
+  editingCatalogServiceId = service?.id || "";
+  pendingCustomServiceTarget = null;
+  customServiceForm.reset();
+  customServiceDialog.querySelector("#customServiceTitle").textContent = service ? "Edit service" : "Add new item";
+  customServiceForm.elements.namedItem("category").innerHTML = serviceCategories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
+  if (service) Object.entries(service).forEach(([name, value]) => {
+    const control = customServiceForm.elements.namedItem(name);
+    if (control) control.value = value ?? "";
+  });
+  customServiceDialog.showModal();
+}
+
+function archiveCatalogService(serviceId) {
+  if (!betaCanCreate("catalogService")) return;
+  state.customServices = state.customServices.map((service) => service.id === serviceId ? { ...service, archived: true } : service);
+  savePreviewState();
+  renderRoute();
+}
+
+function restoreCatalogService(serviceId) {
+  if (!betaCanCreate("catalogService")) return;
+  state.customServices = state.customServices.map((service) => service.id === serviceId ? { ...service, archived: false } : service);
+  savePreviewState();
+  renderRoute();
 }
 
 function saveDocumentEdits() {
@@ -717,7 +772,7 @@ function openDataEntry(type, recordId = "") {
     },
     invoiceItem: {
       title: "Add invoice item",
-      fields: field("Invoice", "invoiceId", { options: invoiceOptions() }) + field("Service category", "category", { options: serviceOptions() }) + '<div class="field-wide inline-action"><span>New service</span><button class="button secondary compact-button" data-create-catalog-service type="button">Save new service to catalog</button><small>Creates one reusable service and fills this invoice line.</small></div>' + field("Service title", "title", { placeholder: "Door installation, casing, baseboard..." }) + field("Description", "description", { placeholder: "Detailed scope for this line" }) + field("Quantity", "quantity", { type: "number", min: 0 }) + field("Unit price", "unitPrice", { type: "number", min: 0 }),
+      fields: field("Invoice", "invoiceId", { options: invoiceOptions() }) + field("Service or category", "category", { options: serviceOptions() }) + field("Service title", "title", { placeholder: "Door installation, casing, baseboard..." }) + field("Description", "description", { placeholder: "Detailed scope for this line" }) + field("Quantity", "quantity", { type: "number", min: 0 }) + field("Unit price", "unitPrice", { type: "number", min: 0 }),
     },
     payment: {
       title: "Record client payment",
@@ -781,9 +836,12 @@ function openDataEntry(type, recordId = "") {
       }
     });
     if (type === "estimate" && source.items?.[0]) {
+      const firstItem = source.items[0];
+      const categoryControl = dataForm.elements.namedItem("category");
+      if (categoryControl && firstItem.customServiceId) categoryControl.innerHTML = serviceOptions(firstItem.category, firstItem.customServiceId);
       ["category", "title", "description", "quantity", "unitPrice"].forEach((name) => {
         const control = dataForm.elements.namedItem(name);
-        if (control) control.value = source.items[0][name] ?? (name === "title" ? source.items[0].category : "");
+        if (control && !(name === "category" && firstItem.customServiceId)) control.value = firstItem[name] ?? (name === "title" ? firstItem.category : "");
       });
       const subtotal = source.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
       const taxable = Math.max(0, subtotal - Number(source.discount || 0));
@@ -804,19 +862,6 @@ function openDataEntry(type, recordId = "") {
       if (priceControl) priceControl.value = savedService.unitPrice;
       return;
     }
-    if (categoryControl.value === "Custom / New Work") {
-      pendingCustomServiceTarget = { mode: "data-form" };
-      customServiceForm.reset();
-      customServiceDialog.showModal();
-    }
-  });
-  dataForm.querySelector("[data-create-catalog-service]")?.addEventListener("click", () => {
-    pendingCustomServiceTarget = { mode: "data-form" };
-    customServiceForm.reset();
-    customServiceForm.elements.namedItem("title").value = dataForm.elements.namedItem("title")?.value || "";
-    customServiceForm.elements.namedItem("description").value = dataForm.elements.namedItem("description")?.value || "";
-    customServiceForm.elements.namedItem("unitPrice").value = dataForm.elements.namedItem("unitPrice")?.value || "";
-    customServiceDialog.showModal();
   });
 }
 
@@ -1030,6 +1075,7 @@ function applyBetaAccess() {
   const allowedRoutes = new Set(routesForBetaRole(role));
   nav.querySelectorAll("a[data-route]").forEach((link) => { link.hidden = !allowedRoutes.has(link.dataset.route); });
   content.querySelectorAll("[data-create]").forEach((button) => { button.hidden = !betaCanCreate(button.dataset.create); });
+  content.querySelectorAll("[data-add-catalog-service], [data-edit-catalog-service], [data-remove-catalog-service], [data-restore-catalog-service]").forEach((button) => { button.hidden = !betaCanCreate("catalogService"); });
   if (role !== "admin") {
     content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate], [data-edit-person], [data-renewal-person]").forEach((button) => { button.hidden = true; });
   }
@@ -1295,7 +1341,7 @@ async function saveDataEntry(formData) {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
     const quantity = Number(formData.get("quantity"));
     const savedService = customServiceFromSelection(formData.get("category"));
-    const category = savedService ? "Custom / New Work" : formData.get("category");
+    const category = savedService ? savedService.category : formData.get("category");
     const unitPrice = Number(formData.get("unitPrice") || savedService?.unitPrice || 0);
     const discount = Number(formData.get("discount"));
     const taxPercent = Number(formData.get("taxPercent"));
@@ -1322,7 +1368,7 @@ async function saveDataEntry(formData) {
   if (pendingRecordType === "invoiceItem") {
     const invoice = state.invoices.find((item) => item.id === formData.get("invoiceId"));
     const savedService = customServiceFromSelection(formData.get("category"));
-    const category = savedService ? "Custom / New Work" : formData.get("category");
+    const category = savedService ? savedService.category : formData.get("category");
     invoice.items.push({ category, customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity: Number(formData.get("quantity")), unitPrice: Number(formData.get("unitPrice") || savedService?.unitPrice || 0) });
     invoice.total = invoice.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
     invoice.balance = Math.max(0, invoice.total - Number(invoice.paid || 0));
@@ -1338,14 +1384,13 @@ async function saveDataEntry(formData) {
   if (pendingRecordType === "changeOrder") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
     const savedService = customServiceFromSelection(formData.get("category"));
-    const category = savedService ? "Custom / New Work" : formData.get("category");
+    const category = savedService ? savedService.category : formData.get("category");
     const quantity = Number(formData.get("quantity"));
     const unitPrice = Number(formData.get("unitPrice") || savedService?.unitPrice || 0);
     const amount = quantity * unitPrice;
     const title = formData.get("title") || savedService?.title || category;
     const description = formData.get("description") || savedService?.description || "";
-    const catalogService = savedService || findOrAddCatalogService({ title, description, unitPrice });
-    state.changeOrders.unshift({ id: nextId(state.changeOrders, "CO"), projectId: project.id, projectName: project.name, status: formData.get("status"), category, customServiceId: catalogService?.id || "", title, description, quantity, unitPrice, amount });
+    state.changeOrders.unshift({ id: nextId(state.changeOrders, "CO"), projectId: project.id, projectName: project.name, status: formData.get("status"), category, customServiceId: savedService?.id || "", title, description, quantity, unitPrice, amount });
   }
   if (pendingRecordType === "person") {
     const projectId = formData.get("projectId");
@@ -1641,7 +1686,7 @@ function renderFinancial() {
       <article class="panel">
         <div class="panel-head"><div><h2>Invoices and payment stages</h2><p>Invoices are generated from contracts and remain itemized by service.</p></div><a class="button secondary" href="#reports">Invoice report</a></div>
         ${demoTable(["Invoice", "Contract", "Client", "Project", "Items", "Total", "Paid", "Balance", "Status", "Document"], state.invoices.map((invoice) => `<tr><td><strong>${escapeHtml(invoice.id)}</strong><small class="record-id">Issued ${escapeHtml(invoice.issueDate)}</small></td><td><a href="#documents">${escapeHtml(invoice.contractId)}</a></td><td>${escapeHtml(invoice.clientName)}</td><td><a href="#projects">${escapeHtml(invoice.projectId || "Pending project")}</a></td><td>${invoice.items.length}</td><td>${formatCurrency(invoice.total)}</td><td>${formatCurrency(invoice.paid)}</td><td>${formatCurrency(invoice.balance)}</td><td><span class="status-pill ${statusClass(invoice.status)}">${escapeHtml(formatStatus(invoice.status))}</span></td><td><button class="text-button" data-view-document="invoice" data-document-id="${escapeHtml(invoice.id)}" type="button">Preview / send</button></td></tr>`))}
-        <h3 class="subsection-title">Invoice line items</h3>
+        <div class="panel-head subsection-head"><div><h3 class="subsection-title">Document line items</h3><p>These are historical copies saved on each invoice.</p></div><a class="button secondary compact-button" href="#services">Open service catalog</a></div>
         ${demoTable(["Invoice", "Service category", "Description", "Quantity", "Unit price", "Line total"], state.invoices.flatMap((invoice) => invoice.items.map((item) => `<tr><td>${escapeHtml(invoice.id)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(item.description)}</td><td>${Number(item.quantity).toLocaleString("en-US")}</td><td>${formatCurrency(item.unitPrice)}</td><td>${formatCurrency(Number(item.quantity) * Number(item.unitPrice))}</td></tr>`)))}
         <h3 class="subsection-title">Payment milestones</h3>
         ${demoTable(["Invoice", "Milestone", "Percent", "Amount", "Status"], state.invoices.flatMap((invoice) => invoice.schedule.map((stage) => `<tr><td>${escapeHtml(invoice.id)}</td><td>${escapeHtml(stage.label)}</td><td>${Number(stage.percent).toLocaleString("en-US")}%</td><td>${formatCurrency(stage.amount)}</td><td><span class="status-pill ${statusClass(stage.status)}">${escapeHtml(formatStatus(stage.status))}</span></td></tr>`)))}
@@ -1655,6 +1700,31 @@ function renderFinancial() {
         ${demoTable(["Date", "Transaction", "Project", "Category", "Related party", "Amount", "Status"], state.transactions.map((item) => `<tr><td>${escapeHtml(item.date)}</td><td><strong>${escapeHtml(item.id)}</strong></td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(item.party)}</td><td>${formatCurrency(item.amount)}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
       </article>
     </section>`;
+}
+
+function renderServices() {
+  const active = state.customServices.filter((service) => !service.archived);
+  const archived = state.customServices.filter((service) => service.archived);
+  const rows = (services, isArchived = false) => services.map((service) => `<tr>
+    <td><strong>${escapeHtml(service.title)}</strong><small class="record-id">${escapeHtml(service.id)}</small></td>
+    <td>${escapeHtml(service.category || "Custom / New Work")}</td>
+    <td>${escapeHtml(service.description || "—")}</td>
+    <td>${escapeHtml(service.unit || "each")}</td>
+    <td>${formatCurrency(service.unitPrice)}</td>
+    <td>${isArchived ? '<span class="status-pill amber">Archived</span>' : '<span class="status-pill green">Active</span>'}</td>
+    <td>${isArchived ? `<button class="text-button" data-restore-catalog-service="${escapeHtml(service.id)}" type="button">Restore</button>` : `<button class="text-button" data-edit-catalog-service="${escapeHtml(service.id)}" type="button">Edit</button><small class="record-id"><button class="text-button" data-remove-catalog-service="${escapeHtml(service.id)}" type="button">Remove</button></small>`}</td>
+  </tr>`).join("");
+  return `<section class="page">
+    ${pageHead(routes.services, '<button class="button" data-add-catalog-service type="button">Add new item</button>')}
+    <article class="panel">
+      <div class="panel-head"><div><h2>Active services</h2><p>Defaults are copied into estimates and invoices; document quantities and prices remain independent.</p></div></div>
+      ${active.length ? demoTable(["Service", "Category", "Description", "Billing unit", "Default price", "Status", ""], rows(active)) : emptyState("No services yet", "Add a service to make it available on future estimates and invoices.")}
+    </article>
+    <article class="panel">
+      <div class="panel-head"><div><h2>Archived services</h2><p>Removed services stay here for recovery and never modify existing documents.</p></div></div>
+      ${archived.length ? demoTable(["Service", "Category", "Description", "Billing unit", "Default price", "Status", ""], rows(archived, true)) : emptyState("No archived services", "Archived services can be restored whenever they are needed again.")}
+    </article>
+  </section>`;
 }
 
 function renderMaterials() {
@@ -1872,6 +1942,7 @@ const renderers = {
   clients: renderClients,
   projects: renderProjects,
   financial: renderFinancial,
+  services: renderServices,
   materials: renderMaterials,
   team: renderTeam,
   vendors: renderVendors,
@@ -2185,6 +2256,10 @@ function bindPageEvents(routeName) {
   content.querySelectorAll("[data-edit-project]").forEach((button) => button.addEventListener("click", () => openDataEntry("project", button.dataset.editProject)));
   content.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openDataEntry("person", button.dataset.editPerson)));
   content.querySelectorAll("[data-edit-estimate]").forEach((button) => button.addEventListener("click", () => openDataEntry("estimate", button.dataset.editEstimate)));
+  content.querySelector("[data-add-catalog-service]")?.addEventListener("click", () => openCatalogServiceForm());
+  content.querySelectorAll("[data-edit-catalog-service]").forEach((button) => button.addEventListener("click", () => openCatalogServiceForm(button.dataset.editCatalogService)));
+  content.querySelectorAll("[data-remove-catalog-service]").forEach((button) => button.addEventListener("click", () => archiveCatalogService(button.dataset.removeCatalogService)));
+  content.querySelectorAll("[data-restore-catalog-service]").forEach((button) => button.addEventListener("click", () => restoreCatalogService(button.dataset.restoreCatalogService)));
   content.querySelectorAll("[data-view-document]").forEach((button) => button.addEventListener("click", () => openBusinessDocument(button.dataset.viewDocument, button.dataset.documentId)));
   content.querySelectorAll("[data-convert-estimate]").forEach((button) => button.addEventListener("click", () => convertEstimateToContract(button.dataset.convertEstimate)));
   content.querySelectorAll("[data-send-contract]").forEach((button) => button.addEventListener("click", () => prepareContractSend(button.dataset.sendContract)));

@@ -45,6 +45,7 @@
           <a href="#clients" data-route="clients"><span>CL</span>Clients</a>
           <a href="#projects" data-route="projects"><span>PR</span>Projects</a>
           <a href="#financial" data-route="financial"><span>FI</span>Financial</a>
+          <a href="#services" data-route="services"><span>SV</span>Service Catalog</a>
           <a href="#materials" data-route="materials"><span>MT</span>Materials</a>
           <a href="#team" data-route="team"><span>TP</span>Team &amp; Partners</a>
           <a href="#vendors" data-route="vendors"><span>VE</span>Vendors</a>
@@ -133,17 +134,18 @@
         <div class="dialog-head">
           <div>
             <p class="page-kicker">Reusable service library</p>
-            <h2 id="customServiceTitle">Create Custom / New Work</h2>
+            <h2 id="customServiceTitle">Add new item</h2>
           </div>
           <button class="icon-button" id="closeCustomService" aria-label="Close custom service form" type="button">×</button>
         </div>
         <div class="form-grid">
-          <label>Service title<input name="title" required placeholder="Custom door modification" /></label>
+          <label>Service name<input name="title" required placeholder="Custom door modification" /></label>
+          <label>Category<select name="category" required></select></label>
           <label>Default unit<input name="unit" required placeholder="each, linear foot, day..." /></label>
           <label class="field-wide">Default description<textarea name="description" required placeholder="Describe the work included in this reusable service"></textarea></label>
           <label>Default price<input name="unitPrice" type="number" min="0" step="0.01" inputmode="decimal" required placeholder="$0.00" /></label>
         </div>
-        <p class="dialog-note">After saving, this service becomes available in future Proposals, Invoices, and projects in this private workspace.</p>
+        <p class="dialog-note">After saving, this service is available for future estimates and invoices. Those documents receive their own editable copy.</p>
         <div class="button-row dialog-actions">
           <button class="button secondary" id="cancelCustomService" type="button">Cancel</button>
           <button class="button" type="submit">Save reusable service</button>

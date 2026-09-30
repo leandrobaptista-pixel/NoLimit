@@ -2255,7 +2255,7 @@ function bindPageEvents(routeName) {
   content.querySelectorAll("[data-edit-project]").forEach((button) => button.addEventListener("click", () => openDataEntry("project", button.dataset.editProject)));
   content.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openDataEntry("person", button.dataset.editPerson)));
   content.querySelectorAll("[data-edit-estimate]").forEach((button) => button.addEventListener("click", () => openDataEntry("estimate", button.dataset.editEstimate)));
-  content.querySelector("[data-add-catalog-service]")?.addEventListener("click", () => openCatalogServiceForm());
+  content.querySelectorAll("[data-add-catalog-service]").forEach((button) => button.addEventListener("click", () => openCatalogServiceForm()));
   content.querySelectorAll("[data-edit-catalog-service]").forEach((button) => button.addEventListener("click", () => openCatalogServiceForm(button.dataset.editCatalogService)));
   content.querySelectorAll("[data-remove-catalog-service]").forEach((button) => button.addEventListener("click", () => archiveCatalogService(button.dataset.removeCatalogService)));
   content.querySelectorAll("[data-restore-catalog-service]").forEach((button) => button.addEventListener("click", () => restoreCatalogService(button.dataset.restoreCatalogService)));

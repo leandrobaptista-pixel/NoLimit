@@ -1725,7 +1725,10 @@ function renderFinancial() {
 }
 
 function renderServiceCatalogPanels() {
-  const services = Array.isArray(state.customServices) ? state.customServices : [];
+  // A workspace saved before the catalog existed can contain null placeholders
+  // or incomplete legacy entries. Ignore those records here; they must not
+  // block the entire Materials / Services screen from replacing the prior view.
+  const services = Array.isArray(state.customServices) ? state.customServices.filter((service) => service && typeof service === "object") : [];
   const active = services.filter((service) => !service.archived);
   const archived = services.filter((service) => service.archived);
   const rows = (services, isArchived = false) => services.map((service) => `<tr>
@@ -1753,8 +1756,8 @@ function renderMaterials() {
   // Older shared workspaces can omit one of these collections. A missing
   // catalog must never prevent Materials / Services or its creation actions
   // from rendering for authorized users.
-  const materials = Array.isArray(state.materials) ? state.materials : [];
-  const people = Array.isArray(state.people) ? state.people : [];
+  const materials = Array.isArray(state.materials) ? state.materials.filter((item) => item && typeof item === "object") : [];
+  const people = Array.isArray(state.people) ? state.people.filter((person) => person && typeof person === "object") : [];
   const total = materials.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   return `
     <section class="page">
@@ -2350,10 +2353,16 @@ function renderRoute() {
   topbarTitle.textContent = route.title;
   document.title = `No Limit | ${route.title}`;
   nav.querySelectorAll("a[data-route]").forEach((link) => link.classList.toggle("active", link.dataset.route === routeName));
-  content.innerHTML = renderers[routeName]();
+  try {
+    content.innerHTML = renderers[routeName]();
+  } catch (error) {
+    console.error(`Could not render ${routeName}`, error);
+    content.innerHTML = `<section class="page"><article class="panel"><h1>${escapeHtml(route.title)}</h1><p>This view could not be loaded because one or more older records need to be refreshed. The rest of the workspace remains unchanged.</p><button class="button" type="button" data-retry-route>Try again</button></article></section>`;
+  }
   content.focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "instant" });
   bindPageEvents(routeName);
+  content.querySelector("[data-retry-route]")?.addEventListener("click", renderRoute);
   if (routeName === "requests" && new URLSearchParams(location.search).has("visit")) {
     const notice = document.createElement("div");
     notice.className = "panel";

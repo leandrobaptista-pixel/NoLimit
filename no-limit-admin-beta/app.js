@@ -227,10 +227,10 @@ const routes = {
     description: "Keep default pricing and scope in one place. Selecting a service copies it into the document, so later catalog changes never alter existing work.",
   },
   materials: {
-    title: "Materials",
-    kicker: "Project purchasing",
-    heading: "Every material, Vendor, cost, and project in one record.",
-    description: "Track quotes, purchase orders, quantities, unit costs, totals, receipts, delivery status, and the project that received each item.",
+    title: "Materials / Services",
+    kicker: "Purchasing and service catalog",
+    heading: "Manage project materials and reusable services.",
+    description: "Track project purchases and maintain independent services ready for estimates and invoices.",
   },
   team: {
     title: "Team & Partners",
@@ -656,7 +656,7 @@ function saveCustomService(formData) {
   customServiceDialog.close();
   pendingCustomServiceTarget = null;
   editingCatalogServiceId = "";
-  if (location.hash === "#services") renderRoute();
+  if (["#materials", "#services"].includes(location.hash)) renderRoute();
 }
 
 function openCatalogServiceForm(serviceId = "") {
@@ -1686,7 +1686,7 @@ function renderFinancial() {
       <article class="panel">
         <div class="panel-head"><div><h2>Invoices and payment stages</h2><p>Invoices are generated from contracts and remain itemized by service.</p></div><a class="button secondary" href="#reports">Invoice report</a></div>
         ${demoTable(["Invoice", "Contract", "Client", "Project", "Items", "Total", "Paid", "Balance", "Status", "Document"], state.invoices.map((invoice) => `<tr><td><strong>${escapeHtml(invoice.id)}</strong><small class="record-id">Issued ${escapeHtml(invoice.issueDate)}</small></td><td><a href="#documents">${escapeHtml(invoice.contractId)}</a></td><td>${escapeHtml(invoice.clientName)}</td><td><a href="#projects">${escapeHtml(invoice.projectId || "Pending project")}</a></td><td>${invoice.items.length}</td><td>${formatCurrency(invoice.total)}</td><td>${formatCurrency(invoice.paid)}</td><td>${formatCurrency(invoice.balance)}</td><td><span class="status-pill ${statusClass(invoice.status)}">${escapeHtml(formatStatus(invoice.status))}</span></td><td><button class="text-button" data-view-document="invoice" data-document-id="${escapeHtml(invoice.id)}" type="button">Preview / send</button></td></tr>`))}
-        <div class="panel-head subsection-head"><div><h3 class="subsection-title">Document line items</h3><p>These are historical copies saved on each invoice.</p></div><a class="button secondary compact-button" href="#services">Open service catalog</a></div>
+        <div class="panel-head subsection-head"><div><h3 class="subsection-title">Document line items</h3><p>These are historical copies saved on each invoice.</p></div><a class="button secondary compact-button" href="#materials">Open Materials / Services</a></div>
         ${demoTable(["Invoice", "Service category", "Description", "Quantity", "Unit price", "Line total"], state.invoices.flatMap((invoice) => invoice.items.map((item) => `<tr><td>${escapeHtml(invoice.id)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(item.description)}</td><td>${Number(item.quantity).toLocaleString("en-US")}</td><td>${formatCurrency(item.unitPrice)}</td><td>${formatCurrency(Number(item.quantity) * Number(item.unitPrice))}</td></tr>`)))}
         <h3 class="subsection-title">Payment milestones</h3>
         ${demoTable(["Invoice", "Milestone", "Percent", "Amount", "Status"], state.invoices.flatMap((invoice) => invoice.schedule.map((stage) => `<tr><td>${escapeHtml(invoice.id)}</td><td>${escapeHtml(stage.label)}</td><td>${Number(stage.percent).toLocaleString("en-US")}%</td><td>${formatCurrency(stage.amount)}</td><td><span class="status-pill ${statusClass(stage.status)}">${escapeHtml(formatStatus(stage.status))}</span></td></tr>`)))}
@@ -1702,7 +1702,7 @@ function renderFinancial() {
     </section>`;
 }
 
-function renderServices() {
+function renderServiceCatalogPanels() {
   const active = state.customServices.filter((service) => !service.archived);
   const archived = state.customServices.filter((service) => service.archived);
   const rows = (services, isArchived = false) => services.map((service) => `<tr>
@@ -1714,10 +1714,9 @@ function renderServices() {
     <td>${isArchived ? '<span class="status-pill amber">Archived</span>' : '<span class="status-pill green">Active</span>'}</td>
     <td>${isArchived ? `<button class="text-button" data-restore-catalog-service="${escapeHtml(service.id)}" type="button">Restore</button>` : `<button class="text-button" data-edit-catalog-service="${escapeHtml(service.id)}" type="button">Edit</button><small class="record-id"><button class="text-button" data-remove-catalog-service="${escapeHtml(service.id)}" type="button">Remove</button></small>`}</td>
   </tr>`).join("");
-  return `<section class="page">
-    ${pageHead(routes.services, '<button class="button" data-add-catalog-service type="button">Add new item</button>')}
+  return `<section class="service-catalog-section" aria-labelledby="servicesHeading">
     <article class="panel">
-      <div class="panel-head"><div><h2>Active services</h2><p>Defaults are copied into estimates and invoices; document quantities and prices remain independent.</p></div></div>
+      <div class="panel-head"><div><h2 id="servicesHeading">Services</h2><p>Defaults are copied into estimates and invoices; document quantities and prices remain independent.</p></div><button class="button secondary" data-add-catalog-service type="button">Add new service</button></div>
       ${active.length ? demoTable(["Service", "Category", "Description", "Billing unit", "Default price", "Status", ""], rows(active)) : emptyState("No services yet", "Add a service to make it available on future estimates and invoices.")}
     </article>
     <article class="panel">
@@ -1731,13 +1730,14 @@ function renderMaterials() {
   const total = state.materials.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   return `
     <section class="page">
-      ${pageHead(routes.materials, '<button class="button" data-create="material" type="button">Add material</button><button class="button secondary" data-create="person" type="button">Add Vendor</button>')}
+      ${pageHead(routes.materials, '<button class="button" data-create="material" type="button">Add material</button><button class="button secondary" data-add-catalog-service type="button">Add new service</button><button class="button secondary" data-create="person" type="button">Add Vendor</button>')}
       <div class="metric-grid">
         ${metric("Material records", state.materials.length, "Quotes, orders, receipts, and installed items.", "materials")}
         ${metric("Committed value", formatCurrency(total), "Material value recorded across projects.", "materials")}
         ${metric("Vendors", state.people.filter((person) => person.type === "Vendor").length, "Registered material and service Vendors.", "team")}
         ${metric("Awaiting receipt", state.materials.filter((item) => item.status === "ordered").length, "Orders that have not been marked received.", "materials")}
       </div>
+      ${renderServiceCatalogPanels()}
       <article class="panel">
         <div class="panel-head"><div><h2>Materials by project</h2><p>Every line connects quantity, unit cost, Vendor, purchasing reference, and project.</p></div></div>
         ${demoTable(["Material", "Project", "Vendor", "Quantity", "Unit cost", "Total", "PO / receipt / quote", "Date", "Status"], state.materials.map((item) => `<tr><td><strong>${escapeHtml(item.description)}</strong><small class="record-id">${escapeHtml(item.id)}</small></td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td><a href="#team">${escapeHtml(item.vendor || "Not entered")}</a></td><td>${Number(item.quantity || 0).toLocaleString("en-US")} ${escapeHtml(item.unit || "")}</td><td>${formatCurrency(item.unitCost || 0)}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.reference || "—")}</td><td>${escapeHtml(item.purchaseDate || "—")}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
@@ -1942,7 +1942,6 @@ const renderers = {
   clients: renderClients,
   projects: renderProjects,
   financial: renderFinancial,
-  services: renderServices,
   materials: renderMaterials,
   team: renderTeam,
   vendors: renderVendors,
@@ -2306,7 +2305,8 @@ function closeNavigation() {
 }
 
 function renderRoute() {
-  const requested = location.hash.replace(/^#/, "") || "overview";
+  const requestedHash = location.hash.replace(/^#/, "") || "overview";
+  const requested = requestedHash === "services" ? "materials" : requestedHash;
   const routeName = routes[requested] && (!currentBetaUser || routesForBetaRole(currentBetaUser.role).includes(requested)) ? requested : "overview";
   const route = routes[routeName];
   topbarTitle.textContent = route.title;

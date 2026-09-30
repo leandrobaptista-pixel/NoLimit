@@ -1,0 +1,32 @@
+name: Service catalog checks
+
+on:
+  pull_request:
+    paths:
+      - 'no-limit-admin-beta/**'
+      - 'tests/service-catalog.test.mjs'
+      - '.github/workflows/service-catalog-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  service-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated DOM test dependency
+        run: npm install --no-save --ignore-scripts --package-lock=false jsdom@26.1.0
+      - name: Check JavaScript syntax
+        run: |
+          node --check no-limit-admin-beta/app.js
+          node --check no-limit-admin-beta/service-catalog.js
+      - name: Test catalog and existing document integration
+        run: node --test tests/service-catalog.test.mjs

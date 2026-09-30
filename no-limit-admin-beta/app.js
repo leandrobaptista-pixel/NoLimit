@@ -1703,8 +1703,9 @@ function renderFinancial() {
 }
 
 function renderServiceCatalogPanels() {
-  const active = state.customServices.filter((service) => !service.archived);
-  const archived = state.customServices.filter((service) => service.archived);
+  const services = Array.isArray(state.customServices) ? state.customServices : [];
+  const active = services.filter((service) => !service.archived);
+  const archived = services.filter((service) => service.archived);
   const rows = (services, isArchived = false) => services.map((service) => `<tr>
     <td><strong>${escapeHtml(service.title)}</strong><small class="record-id">${escapeHtml(service.id)}</small></td>
     <td>${escapeHtml(service.category || "Custom / New Work")}</td>
@@ -1727,20 +1728,25 @@ function renderServiceCatalogPanels() {
 }
 
 function renderMaterials() {
-  const total = state.materials.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  // Older shared workspaces can omit one of these collections. A missing
+  // catalog must never prevent Materials / Services or its creation actions
+  // from rendering for authorized users.
+  const materials = Array.isArray(state.materials) ? state.materials : [];
+  const people = Array.isArray(state.people) ? state.people : [];
+  const total = materials.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   return `
     <section class="page">
       ${pageHead(routes.materials, '<button class="button" data-create="material" type="button">Add Material</button><button class="button secondary" data-create="person" type="button">Add Vendor</button><button class="button secondary" data-add-catalog-service type="button">Add Service</button>')}
       <div class="metric-grid">
-        ${metric("Material records", state.materials.length, "Quotes, orders, receipts, and installed items.", "materials")}
+        ${metric("Material records", materials.length, "Quotes, orders, receipts, and installed items.", "materials")}
         ${metric("Committed value", formatCurrency(total), "Material value recorded across projects.", "materials")}
-        ${metric("Vendors", state.people.filter((person) => person.type === "Vendor").length, "Registered material and service Vendors.", "team")}
-        ${metric("Awaiting receipt", state.materials.filter((item) => item.status === "ordered").length, "Orders that have not been marked received.", "materials")}
+        ${metric("Vendors", people.filter((person) => person.type === "Vendor").length, "Registered material and service Vendors.", "team")}
+        ${metric("Awaiting receipt", materials.filter((item) => item.status === "ordered").length, "Orders that have not been marked received.", "materials")}
       </div>
       ${renderServiceCatalogPanels()}
       <article class="panel">
         <div class="panel-head"><div><h2>Materials by project</h2><p>Every line connects quantity, unit cost, Vendor, purchasing reference, and project.</p></div></div>
-        ${demoTable(["Material", "Project", "Vendor", "Quantity", "Unit cost", "Total", "PO / receipt / quote", "Date", "Status"], state.materials.map((item) => `<tr><td><strong>${escapeHtml(item.description)}</strong><small class="record-id">${escapeHtml(item.id)}</small></td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td><a href="#team">${escapeHtml(item.vendor || "Not entered")}</a></td><td>${Number(item.quantity || 0).toLocaleString("en-US")} ${escapeHtml(item.unit || "")}</td><td>${formatCurrency(item.unitCost || 0)}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.reference || "—")}</td><td>${escapeHtml(item.purchaseDate || "—")}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
+        ${demoTable(["Material", "Project", "Vendor", "Quantity", "Unit cost", "Total", "PO / receipt / quote", "Date", "Status"], materials.map((item) => `<tr><td><strong>${escapeHtml(item.description)}</strong><small class="record-id">${escapeHtml(item.id)}</small></td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td><a href="#team">${escapeHtml(item.vendor || "Not entered")}</a></td><td>${Number(item.quantity || 0).toLocaleString("en-US")} ${escapeHtml(item.unit || "")}</td><td>${formatCurrency(item.unitCost || 0)}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.reference || "—")}</td><td>${escapeHtml(item.purchaseDate || "—")}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
       </article>
     </section>`;
 }

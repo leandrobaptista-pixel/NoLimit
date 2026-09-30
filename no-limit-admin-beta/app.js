@@ -1753,6 +1753,15 @@ function renderServiceCatalogPanels() {
 }
 
 function renderMaterials() {
+  const actions = '<button class="button" data-create="material" type="button">Add Material</button><button class="button secondary" data-create="person" type="button">Add Vendor</button><button class="button secondary" data-add-catalog-service type="button">Add Service</button>';
+  const fallback = () => `<section class="page">
+    ${pageHead(routes.materials, actions)}
+    <article class="panel">
+      <div class="panel-head"><div><h2>Services</h2><p>Create independent services here, then select them later from estimates and invoices.</p></div><button class="button secondary" data-add-catalog-service type="button">Add new service</button></div>
+      <p class="privacy-note">Some older material records could not be listed. They remain preserved in the shared workspace and do not prevent adding materials, vendors, or services.</p>
+    </article>
+  </section>`;
+  try {
   // Older shared workspaces can omit one of these collections. A missing
   // catalog must never prevent Materials / Services or its creation actions
   // from rendering for authorized users.
@@ -1761,7 +1770,7 @@ function renderMaterials() {
   const total = materials.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   return `
     <section class="page">
-      ${pageHead(routes.materials, '<button class="button" data-create="material" type="button">Add Material</button><button class="button secondary" data-create="person" type="button">Add Vendor</button><button class="button secondary" data-add-catalog-service type="button">Add Service</button>')}
+      ${pageHead(routes.materials, actions)}
       <div class="metric-grid">
         ${metric("Material records", materials.length, "Quotes, orders, receipts, and installed items.", "materials")}
         ${metric("Committed value", formatCurrency(total), "Material value recorded across projects.", "materials")}
@@ -1774,6 +1783,10 @@ function renderMaterials() {
         ${demoTable(["Material", "Project", "Vendor", "Quantity", "Unit cost", "Total", "PO / receipt / quote", "Date", "Status"], materials.map((item) => `<tr><td><strong>${escapeHtml(item.description)}</strong><small class="record-id">${escapeHtml(item.id)}</small></td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td><a href="#team">${escapeHtml(item.vendor || "Not entered")}</a></td><td>${Number(item.quantity || 0).toLocaleString("en-US")} ${escapeHtml(item.unit || "")}</td><td>${formatCurrency(item.unitCost || 0)}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.reference || "—")}</td><td>${escapeHtml(item.purchaseDate || "—")}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
       </article>
     </section>`;
+  } catch (error) {
+    console.error("Could not render one or more legacy material records", error);
+    return fallback();
+  }
 }
 
 function renderTeam() {

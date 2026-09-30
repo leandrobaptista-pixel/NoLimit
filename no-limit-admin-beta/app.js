@@ -1070,12 +1070,34 @@ function betaCanCreate(type) {
   return currentBetaUser?.role === "admin";
 }
 
+function canStartCreate(type) {
+  // During a session refresh the shell can render before the membership lookup
+  // returns. Keep the action available to the signed-in user, then re-check the
+  // real membership immediately before opening the form or writing anything.
+  return betaCanCreate(type) || Boolean(!currentBetaUser && currentAuthSession?.user);
+}
+
+async function confirmCreateAccess(type) {
+  if (!currentBetaUser && currentAuthSession?.user && window.noLimitSupabaseClient) {
+    const { data: { session } } = await window.noLimitSupabaseClient.auth.getSession();
+    const user = session ? await userFromSession(session) : null;
+    if (user) {
+      currentAuthSession = session;
+      currentBetaUser = user;
+      applyBetaAccess();
+    }
+  }
+  if (betaCanCreate(type)) return true;
+  window.alert("Your account can view assigned records. Contact the office to request changes.");
+  return false;
+}
+
 function applyBetaAccess() {
   const role = currentBetaUser?.role || "admin";
   const allowedRoutes = new Set(routesForBetaRole(role));
   nav.querySelectorAll("a[data-route]").forEach((link) => { link.hidden = !allowedRoutes.has(link.dataset.route); });
-  content.querySelectorAll("[data-create]").forEach((button) => { button.hidden = !betaCanCreate(button.dataset.create); });
-  content.querySelectorAll("[data-add-catalog-service], [data-edit-catalog-service], [data-remove-catalog-service], [data-restore-catalog-service]").forEach((button) => { button.hidden = !betaCanCreate("catalogService"); });
+  content.querySelectorAll("[data-create]").forEach((button) => { button.hidden = !canStartCreate(button.dataset.create); });
+  content.querySelectorAll("[data-add-catalog-service], [data-edit-catalog-service], [data-remove-catalog-service], [data-restore-catalog-service]").forEach((button) => { button.hidden = !canStartCreate("catalogService"); });
   if (role !== "admin") {
     content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate], [data-edit-person], [data-renewal-person]").forEach((button) => { button.hidden = true; });
   }
@@ -2256,15 +2278,25 @@ async function toggleVisitRequestDiscarded(id) {
 function bindPageEvents(routeName) {
   content.querySelectorAll("[data-private-file]").forEach(button => button.addEventListener("click", () => openPrivateFile(button.dataset.fileBucket,button.dataset.privateFile,button.textContent)));
 
-  content.querySelectorAll("[data-create]").forEach((button) => button.addEventListener("click", () => openDataEntry(button.dataset.create)));
+  content.querySelectorAll("[data-create]").forEach((button) => button.addEventListener("click", async () => {
+    if (await confirmCreateAccess(button.dataset.create)) openDataEntry(button.dataset.create);
+  }));
   content.querySelectorAll("[data-edit-client]").forEach((button) => button.addEventListener("click", () => openDataEntry("client", button.dataset.editClient)));
   content.querySelectorAll("[data-edit-project]").forEach((button) => button.addEventListener("click", () => openDataEntry("project", button.dataset.editProject)));
   content.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openDataEntry("person", button.dataset.editPerson)));
   content.querySelectorAll("[data-edit-estimate]").forEach((button) => button.addEventListener("click", () => openDataEntry("estimate", button.dataset.editEstimate)));
-  content.querySelectorAll("[data-add-catalog-service]").forEach((button) => button.addEventListener("click", () => openCatalogServiceForm()));
-  content.querySelectorAll("[data-edit-catalog-service]").forEach((button) => button.addEventListener("click", () => openCatalogServiceForm(button.dataset.editCatalogService)));
-  content.querySelectorAll("[data-remove-catalog-service]").forEach((button) => button.addEventListener("click", () => archiveCatalogService(button.dataset.removeCatalogService)));
-  content.querySelectorAll("[data-restore-catalog-service]").forEach((button) => button.addEventListener("click", () => restoreCatalogService(button.dataset.restoreCatalogService)));
+  content.querySelectorAll("[data-add-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
+    if (await confirmCreateAccess("catalogService")) openCatalogServiceForm();
+  }));
+  content.querySelectorAll("[data-edit-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
+    if (await confirmCreateAccess("catalogService")) openCatalogServiceForm(button.dataset.editCatalogService);
+  }));
+  content.querySelectorAll("[data-remove-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
+    if (await confirmCreateAccess("catalogService")) archiveCatalogService(button.dataset.removeCatalogService);
+  }));
+  content.querySelectorAll("[data-restore-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
+    if (await confirmCreateAccess("catalogService")) restoreCatalogService(button.dataset.restoreCatalogService);
+  }));
   content.querySelectorAll("[data-view-document]").forEach((button) => button.addEventListener("click", () => openBusinessDocument(button.dataset.viewDocument, button.dataset.documentId)));
   content.querySelectorAll("[data-convert-estimate]").forEach((button) => button.addEventListener("click", () => convertEstimateToContract(button.dataset.convertEstimate)));
   content.querySelectorAll("[data-send-contract]").forEach((button) => button.addEventListener("click", () => prepareContractSend(button.dataset.sendContract)));

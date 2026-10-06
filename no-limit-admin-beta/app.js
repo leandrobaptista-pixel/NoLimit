@@ -380,7 +380,7 @@ function clientOptions(selected = "") {
 
 function serviceOptions(selected = "", selectedCustomId = "") {
   const standard = serviceCategories.map((service) => `<option value="${escapeHtml(service)}" ${service === selected && !selectedCustomId ? "selected" : ""}>${escapeHtml(service)}</option>`).join("");
-  const custom = state.customServices.filter((service) => !service.archived).length ? `<optgroup label="Service catalog">${state.customServices.filter((service) => !service.archived).map((service) => `<option value="custom-service:${escapeHtml(service.id)}" ${service.id === selectedCustomId ? "selected" : ""}>${escapeHtml(service.title)} · ${escapeHtml(service.category || "Custom / New Work")}</option>`).join("")}</optgroup>` : "";
+  const custom = state.customServices.filter(NoLimitServiceCatalog.billable).length ? `<optgroup label="Service catalog">${state.customServices.filter(NoLimitServiceCatalog.billable).map((service) => `<option value="custom-service:${escapeHtml(service.id)}" ${service.id === selectedCustomId ? "selected" : ""}>${escapeHtml(service.title)} · ${escapeHtml(service.category || "Custom / New Work")}${service.unitPrice == null ? " · price not entered" : ""}</option>`).join("")}</optgroup>` : "";
   return standard + custom;
 }
 
@@ -474,7 +474,7 @@ function projectAddress(project) {
 }
 
 function editableDocumentCell(value, name, index, type = "text") {
-  const step = type === "number" ? ' step="0.01" min="0" inputmode="decimal"' : "";
+  const step = type === "number" ? ' step="0.01" min="0" inputmode="decimal" required' : "";
   return `<input class="document-input" type="${type}" name="${name}" data-document-item="${index}" value="${escapeHtml(value)}"${step} />`;
 }
 
@@ -570,7 +570,7 @@ function harvestDocumentDraft() {
     item.title = documentCanvas.querySelector(`[name="title"][data-document-item="${index}"]`)?.value || item.category;
     item.description = documentCanvas.querySelector(`[name="description"][data-document-item="${index}"]`)?.value || "";
     item.quantity = Number(documentCanvas.querySelector(`[name="quantity"][data-document-item="${index}"]`)?.value || 0);
-    item.unitPrice = Number(documentCanvas.querySelector(`[name="unitPrice"][data-document-item="${index}"]`)?.value || 0);
+    item.unitPrice = NoLimitServiceCatalog.price(documentCanvas.querySelector(`[name="unitPrice"][data-document-item="${index}"]`)?.value);
   });
   activeDocument.draftNotes = documentCanvas.querySelector('[name="documentNotes"]')?.value || "";
 }
@@ -581,7 +581,7 @@ function bindDocumentEditor() {
     const index = Number(select.dataset.documentItem);
     const savedService = customServiceFromSelection(select.value);
     if (savedService) {
-      activeDocument.draftItems[index] = { ...activeDocument.draftItems[index], category: savedService.category, customServiceId: savedService.id, title: savedService.title, description: savedService.description, unit: savedService.unit, unitPrice: savedService.unitPrice };
+      activeDocument.draftItems[index] = { ...activeDocument.draftItems[index], category: savedService.category, customServiceId: savedService.id, title: savedService.title, description: savedService.description, product: savedService.product || "", type: savedService.type || "", unit: savedService.unit, unitPrice: savedService.unitPrice };
       setDocumentEditing(true);
       return;
     }
@@ -606,34 +606,52 @@ function addDocumentLineItem() {
   setDocumentEditing(true);
 }
 
+let catalogSaveBusy = false;
 function closeCustomServiceDialog() {
+  if (catalogSaveBusy) return;
   customServiceDialog.close();
   pendingCustomServiceTarget = null;
   editingCatalogServiceId = "";
+}
+
+function catalogCategoryOptions(selected = "") {
+  const categories = [...new Set([...serviceCategories, ...state.customServices.filter(Boolean).map(item => item.category), selected].filter(Boolean))];
+  return categories.map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
 }
 
 function prepareNewCatalogServiceForm() {
   editingCatalogServiceId = "";
   customServiceForm.reset();
   customServiceDialog.querySelector("#customServiceTitle").textContent = "Add new item";
-  customServiceForm.elements.namedItem("category").innerHTML = serviceCategories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
+  customServiceForm.elements.namedItem("category").innerHTML = catalogCategoryOptions();
   customServiceForm.elements.namedItem("category").value = "Custom / New Work";
 }
 
-function saveCustomService(formData) {
+async function saveCustomService(formData) {
   const existing = state.customServices.find((item) => item.id === editingCatalogServiceId);
+  const name = String(formData.get("title") || "").trim();
+  if (!name) throw new Error("Enter a service name.");
+  if (state.customServices.some(item => item && item.id !== existing?.id && NoLimitServiceCatalog.key(item.title) === NoLimitServiceCatalog.key(name))) {
+    throw new Error("This name already exists in the catalog, including archived items. Edit or restore that item instead.");
+  }
   const service = {
+    ...existing,
     id: existing?.id || nextId(state.customServices, "SVC"),
+    product: String(formData.get("product") || "").trim(),
+    type: String(formData.get("type") || "").trim(),
     title: String(formData.get("title") || "").trim(),
     category: formData.get("category") || "Custom / New Work",
     description: String(formData.get("description") || "").trim(),
-    unit: String(formData.get("unit") || "each").trim() || "each",
-    unitPrice: Number(formData.get("unitPrice")),
+    unit: String(formData.get("unit") || "").trim(),
+    unitPrice: NoLimitServiceCatalog.price(formData.get("unitPrice")),
     archived: existing?.archived || false,
   };
-  if (existing) state.customServices = state.customServices.map((item) => item.id === service.id ? service : item);
-  else state.customServices.unshift(service);
-  savePreviewState();
+  const previous = state.customServices;
+  state.customServices = existing ? previous.map((item) => item.id === service.id ? service : item) : [service, ...previous];
+  if (!await savePreviewState()) {
+    state.customServices = previous;
+    throw new Error("The service could not be saved. Refresh after resolving the cloud sync error, then try again.");
+  }
   if (pendingCustomServiceTarget?.mode === "document" && activeDocument?.draftItems) {
     const item = activeDocument.draftItems[pendingCustomServiceTarget.index];
     activeDocument.draftItems[pendingCustomServiceTarget.index] = { ...item, category: service.category, customServiceId: service.id, title: service.title, description: service.description, unit: service.unit, unitPrice: service.unitPrice };
@@ -666,11 +684,16 @@ function openCatalogServiceForm(serviceId = "") {
   pendingCustomServiceTarget = null;
   customServiceForm.reset();
   customServiceDialog.querySelector("#customServiceTitle").textContent = service ? "Edit service" : "Add new item";
-  customServiceForm.elements.namedItem("category").innerHTML = serviceCategories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
+  customServiceForm.elements.namedItem("category").innerHTML = catalogCategoryOptions(service?.category);
+  if (service?.type && !Array.from(customServiceForm.elements.namedItem("type").options).some(option => option.value === service.type)) {
+    const option = document.createElement("option"); option.value = service.type; option.textContent = service.type; customServiceForm.elements.namedItem("type").append(option);
+  }
+  if (!service) { customServiceForm.elements.namedItem("type").value = "Service"; customServiceForm.elements.namedItem("category").value = "Custom / New Work"; }
   if (service) Object.entries(service).forEach(([name, value]) => {
     const control = customServiceForm.elements.namedItem(name);
     if (control) control.value = value ?? "";
   });
+  document.getElementById("serviceSaveStatus").textContent = "";
   customServiceDialog.showModal();
 }
 
@@ -689,6 +712,10 @@ function restoreCatalogService(serviceId) {
 }
 
 function saveDocumentEdits() {
+  if (Array.from(documentCanvas.querySelectorAll('input[type="number"]')).some(input => !input.reportValidity())) {
+    documentNotice.textContent = "Enter a quantity and price for every document item. A price of zero must be entered explicitly.";
+    return;
+  }
   if (!activeDocument) return;
   const context = documentContext(activeDocument.type, activeDocument.id);
   if (!context) return;
@@ -1097,7 +1124,7 @@ function applyBetaAccess() {
   const allowedRoutes = new Set(routesForBetaRole(role));
   nav.querySelectorAll("a[data-route]").forEach((link) => { link.hidden = !allowedRoutes.has(link.dataset.route); });
   content.querySelectorAll("[data-create]").forEach((button) => { button.hidden = !canStartCreate(button.dataset.create); });
-  content.querySelectorAll("[data-add-catalog-service], [data-edit-catalog-service], [data-remove-catalog-service], [data-restore-catalog-service]").forEach((button) => { button.hidden = !canStartCreate("catalogService"); });
+  content.querySelectorAll("[data-import-catalog-services], [data-add-catalog-service], [data-edit-catalog-service], [data-remove-catalog-service], [data-restore-catalog-service]").forEach((button) => { button.hidden = !canStartCreate("catalogService"); });
   if (role !== "admin") {
     content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate], [data-edit-person], [data-renewal-person]").forEach((button) => { button.hidden = true; });
   }
@@ -1132,7 +1159,7 @@ async function activateBetaUser(user, session = currentAuthSession) {
   presenceHeartbeat = window.setInterval(() => updatePresence(location.hash.replace(/^#/, "") || "overview"), 60000);
   window.clearInterval(workspaceRefreshTimer);
   workspaceRefreshTimer = window.setInterval(() => {
-    if (!dataDialog.open && !documentDialog.open && !customServiceDialog.open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
+    if (!dataDialog.open && !documentDialog.open && !customServiceDialog.open && !document.getElementById("serviceImportDialog").open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
   }, 15000);
 }
 
@@ -1369,7 +1396,7 @@ async function saveDataEntry(formData) {
     const taxPercent = Number(formData.get("taxPercent"));
     const taxable = Math.max(0, quantity * unitPrice - discount);
     const existing = state.estimates.find((item) => item.id === pendingRecordId);
-    const record = { id: pendingRecordId || nextId(state.estimates, "EST"), requestId: formData.get("requestId"), clientId: client.id, clientName: client.name, projectId: formData.get("projectId"), issueDate: readableDate(formData.get("issueDate")), status: formData.get("status"), revision: existing ? Number(existing.revision || 1) + 1 : 1, validUntil: readableDate(formData.get("validUntil")), discount, tax: taxable * taxPercent / 100, items: [{ category, customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity, unitPrice }], total: taxable * (1 + taxPercent / 100), contractId: existing?.contractId || "", notes: formData.get("notes") };
+    const record = { id: pendingRecordId || nextId(state.estimates, "EST"), requestId: formData.get("requestId"), clientId: client.id, clientName: client.name, projectId: formData.get("projectId"), issueDate: readableDate(formData.get("issueDate")), status: formData.get("status"), revision: existing ? Number(existing.revision || 1) + 1 : 1, validUntil: readableDate(formData.get("validUntil")), discount, tax: taxable * taxPercent / 100, items: [{ category, product: savedService?.product || "", type: savedService?.type || "", unit: savedService?.unit || "", customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity, unitPrice }], total: taxable * (1 + taxPercent / 100), contractId: existing?.contractId || "", notes: formData.get("notes") };
     if (pendingRecordId) state.estimates = state.estimates.map((item) => item.id === pendingRecordId ? record : item);
     else state.estimates.unshift(record);
   }
@@ -1391,7 +1418,7 @@ async function saveDataEntry(formData) {
     const invoice = state.invoices.find((item) => item.id === formData.get("invoiceId"));
     const savedService = customServiceFromSelection(formData.get("category"));
     const category = savedService ? savedService.category : formData.get("category");
-    invoice.items.push({ category, customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity: Number(formData.get("quantity")), unitPrice: Number(formData.get("unitPrice") || savedService?.unitPrice || 0) });
+    invoice.items.push({ category, product: savedService?.product || "", type: savedService?.type || "", unit: savedService?.unit || "", customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity: Number(formData.get("quantity")), unitPrice: Number(formData.get("unitPrice") || savedService?.unitPrice || 0) });
     invoice.total = invoice.items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
     invoice.balance = Math.max(0, invoice.total - Number(invoice.paid || 0));
   }
@@ -1733,21 +1760,23 @@ function renderServiceCatalogPanels() {
   const archived = services.filter((service) => service.archived);
   const rows = (services, isArchived = false) => services.map((service) => `<tr>
     <td><strong>${escapeHtml(service.title)}</strong><small class="record-id">${escapeHtml(service.id)}</small></td>
+    <td>${escapeHtml(service.product || "Not entered")}</td>
+    <td>${escapeHtml(service.type || "Not entered")}</td>
     <td>${escapeHtml(service.category || "Custom / New Work")}</td>
-    <td>${escapeHtml(service.description || "—")}</td>
-    <td>${escapeHtml(service.unit || "each")}</td>
-    <td>${formatCurrency(service.unitPrice)}</td>
+    <td>${escapeHtml(service.description || "Not entered")}</td>
+    <td>${escapeHtml(service.unit || "Not entered")}</td>
+    <td>${service.unitPrice == null || service.unitPrice === "" ? "Not entered" : formatCurrency(service.unitPrice)}</td>
     <td>${isArchived ? '<span class="status-pill amber">Archived</span>' : '<span class="status-pill green">Active</span>'}</td>
     <td>${isArchived ? `<button class="text-button" data-restore-catalog-service="${escapeHtml(service.id)}" type="button">Restore</button>` : `<button class="text-button" data-edit-catalog-service="${escapeHtml(service.id)}" type="button">Edit</button><small class="record-id"><button class="text-button" data-remove-catalog-service="${escapeHtml(service.id)}" type="button">Remove</button></small>`}</td>
-  </tr>`).join("");
+  </tr>`);
   return `<section class="service-catalog-section" aria-labelledby="servicesHeading">
     <article class="panel">
-      <div class="panel-head"><div><h2 id="servicesHeading">Services</h2><p>Defaults are copied into estimates and invoices; document quantities and prices remain independent.</p></div><button class="button secondary" data-add-catalog-service type="button">Add new service</button></div>
-      ${active.length ? demoTable(["Service", "Category", "Description", "Billing unit", "Default price", "Status", ""], rows(active)) : emptyState("No services yet", "Add a service to make it available on future estimates and invoices.")}
+      <div class="panel-head"><div><h2 id="servicesHeading">Services</h2><p>Defaults are copied into estimates and invoices; document quantities and prices remain independent.</p></div><div class="button-row"><button class="button secondary" data-import-catalog-services type="button">Import QuickBooks</button><button class="button secondary" data-add-catalog-service type="button">Add new service</button></div></div>
+      ${active.length ? demoTable(["Service Full Name", "Product", "Type", "Category", "Memo / Description", "Billing unit (Quantity)", "Sales Price", "Status", ""], rows(active)) : emptyState("No services yet", "Add a service to make it available on future estimates and invoices.")}
     </article>
     <article class="panel">
       <div class="panel-head"><div><h2>Archived services</h2><p>Removed services stay here for recovery and never modify existing documents.</p></div></div>
-      ${archived.length ? demoTable(["Service", "Category", "Description", "Billing unit", "Default price", "Status", ""], rows(archived, true)) : emptyState("No archived services", "Archived services can be restored whenever they are needed again.")}
+      ${archived.length ? demoTable(["Service Full Name", "Product", "Type", "Category", "Memo / Description", "Billing unit (Quantity)", "Sales Price", "Status", ""], rows(archived, true)) : emptyState("No archived services", "Archived services can be restored whenever they are needed again.")}
     </article>
   </section>`;
 }
@@ -2301,6 +2330,7 @@ function bindPageEvents(routeName) {
   content.querySelectorAll("[data-edit-project]").forEach((button) => button.addEventListener("click", () => openDataEntry("project", button.dataset.editProject)));
   content.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openDataEntry("person", button.dataset.editPerson)));
   content.querySelectorAll("[data-edit-estimate]").forEach((button) => button.addEventListener("click", () => openDataEntry("estimate", button.dataset.editEstimate)));
+  content.querySelectorAll("[data-import-catalog-services]").forEach(button => button.addEventListener("click", async () => { if (await confirmCreateAccess("catalogService")) openServiceImport(); }));
   content.querySelectorAll("[data-add-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
     if (await confirmCreateAccess("catalogService")) openCatalogServiceForm();
   }));
@@ -2450,11 +2480,79 @@ emailDocumentButton.addEventListener("click", () => prepareDocumentDelivery("ema
 messageDocumentButton.addEventListener("click", () => prepareDocumentDelivery("message"));
 closeCustomServiceButton.addEventListener("click", closeCustomServiceDialog);
 cancelCustomServiceButton.addEventListener("click", closeCustomServiceDialog);
-customServiceForm.addEventListener("submit", (event) => {
+customServiceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!customServiceForm.reportValidity()) return;
-  saveCustomService(new FormData(customServiceForm));
+  if (catalogSaveBusy) return;
+  if (!customServiceForm.reportValidity() || !await confirmCreateAccess("catalogService")) return;
+  const button = customServiceForm.querySelector('[type="submit"]');
+  catalogSaveBusy = true;
+  button.disabled = true;
+  try { await saveCustomService(new FormData(customServiceForm)); }
+  catch (error) { document.getElementById("serviceSaveStatus").textContent = error.message; }
+  finally { catalogSaveBusy = false; button.disabled = false; }
 });
+customServiceDialog.addEventListener("cancel", event => { if (catalogSaveBusy) event.preventDefault(); });
+
+let pendingServiceImport = [];
+let serviceImportBusy = false;
+const serviceImportDialog = document.getElementById("serviceImportDialog");
+const serviceImportSummary = document.getElementById("serviceImportSummary");
+const confirmServiceImport = document.getElementById("confirmServiceImport");
+function openServiceImport() {
+  if (!betaCanCreate("catalogService")) return;
+  pendingServiceImport = [];
+  document.getElementById("serviceImportForm").reset();
+  document.getElementById("serviceImportPreview").innerHTML = "";
+  serviceImportSummary.textContent = "Choose a file to review its items.";
+  confirmServiceImport.disabled = true;
+  serviceImportDialog.showModal();
+}
+function closeServiceImport() { if (!serviceImportBusy) serviceImportDialog.close(); }
+document.getElementById("closeServiceImport").addEventListener("click", closeServiceImport);
+document.getElementById("cancelServiceImport").addEventListener("click", closeServiceImport);
+serviceImportDialog.addEventListener("cancel", event => { if (serviceImportBusy) event.preventDefault(); });
+let serviceImportRead = 0;
+document.getElementById("serviceImportFile").addEventListener("change", async event => {
+  const sequence = ++serviceImportRead;
+  pendingServiceImport = []; confirmServiceImport.disabled = true;
+  document.getElementById("serviceImportPreview").innerHTML = "";
+  const file = event.target.files[0]; if (!file) return;
+  try {
+    if (file.size > 5 * 1024 * 1024) throw new Error("Choose an import file smaller than 5 MB.");
+    const input = await file.text();
+    if (sequence !== serviceImportRead) return;
+    pendingServiceImport = NoLimitServiceCatalog.parse(input, file.name);
+    const plan = NoLimitServiceCatalog.plan(state.customServices, pendingServiceImport);
+    const locations = plan.additions.filter(item => !NoLimitServiceCatalog.billable(item)).length;
+    const missingPrices = plan.additions.filter(item => item.unitPrice == null).length;
+    serviceImportSummary.textContent = `${plan.additions.length} new items · ${plan.skipped.length} existing names skipped · ${locations} locations · ${missingPrices} prices not entered. Existing records and documents are preserved.`;
+    document.getElementById("serviceImportPreview").innerHTML = demoTable(["Service Full Name", "Product", "Type", "Description", "Unit", "Sales Price"], plan.additions.map(item => `<tr><td>${escapeHtml(item.title)}</td><td>${escapeHtml(item.product || "Not entered")}</td><td>${escapeHtml(item.type || "Not entered")}</td><td>${escapeHtml(item.description || "Not entered")}</td><td>${escapeHtml(item.unit || "Not entered")}</td><td>${item.unitPrice == null ? "Not entered" : formatCurrency(item.unitPrice)}</td></tr>`));
+    confirmServiceImport.disabled = !plan.additions.length;
+  } catch (error) { pendingServiceImport = []; serviceImportSummary.textContent = error.message; }
+});
+document.getElementById("serviceImportForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (serviceImportBusy || !pendingServiceImport.length || !await confirmCreateAccess("catalogService")) return;
+  serviceImportBusy = true; confirmServiceImport.disabled = true;
+  document.getElementById("serviceImportFile").disabled = true;
+  const previous = state.customServices;
+  try {
+    const plan = NoLimitServiceCatalog.plan(previous, pendingServiceImport);
+    if (!plan.additions.length) throw new Error("These names already exist in the catalog. Nothing was imported.");
+    const additions = [];
+    for (const item of plan.additions) {
+      const id = nextId([...previous, ...additions], "SVC");
+      additions.push({ ...item, id });
+    }
+    state.customServices = [...previous, ...additions];
+    serviceImportSummary.textContent = "Saving imported items…";
+    if (!await savePreviewState()) throw new Error("Import was not saved. Resolve the cloud sync error, refresh and try again.");
+    pendingServiceImport = [];
+    serviceImportDialog.close(); renderRoute();
+  } catch (error) { state.customServices = previous; serviceImportSummary.textContent = error.message; }
+  finally { serviceImportBusy = false; confirmServiceImport.disabled = !pendingServiceImport.length; document.getElementById("serviceImportFile").disabled = false; }
+});
+
 window.addEventListener("hashchange", renderRoute);
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeNavigation();

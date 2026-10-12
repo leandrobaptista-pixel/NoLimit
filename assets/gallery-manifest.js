@@ -170,6 +170,7 @@ window.GALLERY_MANIFEST = {
     "assets/Wainscoting/Wainscoting 20.JPG"
   ],
   "Stairs": [
+    "assets/Stairs/Stairs 46.jpeg",
     "assets/Stairs/Stairs 01.jpeg",
     "assets/Stairs/Stairs 02.JPG",
     "assets/Stairs/Stairs 03.jpg",
@@ -663,5 +664,4 @@ window.GALLERY_MANIFEST = {
     "assets/Wall Paneling/Wall Paneling 125.jpeg",
     "assets/Wall Paneling/Wall Paneling 126.jpeg"
   ]
-}
-;
+};

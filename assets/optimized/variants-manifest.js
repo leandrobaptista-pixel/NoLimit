@@ -1,4 +1,8 @@
 window.OPTIMIZED_IMAGE_VARIANTS = {
+  "assets/Stairs/Stairs 46.jpeg": {
+    "feature": "assets/Stairs/Stairs 46.jpeg",
+    "thumb": "assets/optimized/thumb/Stairs/Stairs 46.jpg"
+  },
   "assets/Ceiling/Ceiling 01.JPG": {
     "feature": "assets/optimized/feature/Ceiling/138_1759.jpg",
     "thumb": "assets/optimized/thumb/Ceiling/138_1759.jpg"

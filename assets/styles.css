@@ -509,6 +509,12 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
   color:var(--brand-2);
 }
 
+#galleryStart{
+  scroll-margin-top:calc(var(--header-h) + 8px);
+}
+#gallery{
+  overflow-anchor:none;
+}
 .gallery-controls{
   display:flex;
   flex-wrap:wrap;

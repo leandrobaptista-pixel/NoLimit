@@ -83,12 +83,24 @@ function closeMobileNav() {
 function scrollToSection(hash, { updateHistory = true } = {}) {
   const id = String(hash || '').replace(/^#/, '').trim();
   if (!id) return false;
-  const target = document.getElementById(id);
+  const target = document.getElementById(id === 'gallery' ? 'galleryStart' : id);
   if (!target) return false;
 
   target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (updateHistory) history.replaceState(null, '', `#${id}`);
   return true;
+}
+
+function scrollToGalleryStart() {
+  const target = document.getElementById('galleryStart');
+  if (!target) return;
+  syncHeaderHeight();
+  // Category replacement can shrink the page and move the browser's scroll
+  // anchor. Align the new gallery after layout, without an old smooth-scroll
+  // animation continuing toward the previous category's position.
+  requestAnimationFrame(() => {
+    target.scrollIntoView({ behavior: 'instant', block: 'start' });
+  });
 }
 
 function slugify(value) {
@@ -1241,6 +1253,7 @@ function renderGallery(categorySlug, galleryData) {
 function updateGalleryHistory(categorySlug) {
   const url = new URL(location.href);
   url.searchParams.set('cat', categorySlug);
+  url.hash = 'gallery';
   history.replaceState(null, '', url.toString());
 }
 
@@ -1272,12 +1285,14 @@ async function initGallery() {
 
   let currentCategory = getInitialCategory(galleryData.categories);
   const handleCategoryChange = (nextCategory) => {
+    const activeGallery = galleryUiState.data || galleryData;
     currentCategory = nextCategory;
     galleryUiState.categorySlug = currentCategory;
     if (!galleryUiState.visibleBySlug[currentCategory]) galleryUiState.visibleBySlug[currentCategory] = GALLERY_BATCH_SIZE;
-    renderGalleryControls(galleryData.categories, currentCategory, handleCategoryChange);
+    renderGalleryControls(activeGallery.categories, currentCategory, handleCategoryChange);
     updateGalleryHistory(currentCategory);
-    renderGallery(currentCategory, galleryData);
+    renderGallery(currentCategory, activeGallery);
+    scrollToGalleryStart();
   };
 
   galleryUiState.data = galleryData;

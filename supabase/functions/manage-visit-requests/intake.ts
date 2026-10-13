@@ -1,4 +1,13 @@
 export const allowedStaffRoles = new Set(['owner', 'admin', 'manager', 'office']);
+export async function listWithOptionalSync<T>(sync: () => Promise<void>, list: () => Promise<T>) {
+  let syncWarning = '';
+  try {
+    await sync();
+  } catch {
+    syncWarning = 'Showing saved requests. The previous website source is temporarily unavailable.';
+  }
+  return { requests: await list(), syncWarning };
+}
 export function bearerToken(header: string | null) {
   return /^Bearer\s+(.+)$/i.exec(header || '')?.[1]?.trim() || '';
 }

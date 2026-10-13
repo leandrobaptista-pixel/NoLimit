@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { allowedStaffRoles, bearerToken, mapWebsiteRequest } from './intake.ts';
+import { allowedStaffRoles, bearerToken, mapWebsiteRequest, listWithOptionalSync } from './intake.ts';
 
 const adminUrl = Deno.env.get('SUPABASE_URL')!;
 const adminServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -48,7 +48,7 @@ Deno.serve(async request => {
     if (!member || !allowedStaffRoles.has(member.role)) return reply({error:'Your account is not authorized to review website requests.'},403);
     const body = await request.json();
     if (body.action === 'sync_and_list') {
-      await syncWebsiteRequests(admin);
+      const result = await listWithOptionalSync(() => syncWebsiteRequests(admin), async () => {
       const requests = [];
       for (let offset = 0; ; offset += 500) {
         const {data,error} = await admin.from('admin_visit_requests').select('*').order('submitted_at',{ascending:false}).order('id').range(offset,offset+499);
@@ -56,7 +56,9 @@ Deno.serve(async request => {
         requests.push(...(data || []));
         if (!data || data.length < 500) break;
       }
-      return reply({requests});
+      return requests;
+      });
+      return reply(result);
     }
     if (!/^[0-9a-f-]{36}$/i.test(String(body.id || ''))) return reply({error:'A valid request ID is required.'},400);
     let updates;

@@ -1,5 +1,5 @@
-const SUPABASE_URL = 'https://ecbhaeiwnygplawlbnio.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_LDBZuLzFMUo0xsugiKRpZA_qKeqeXeW';
+const SUPABASE_URL = 'https://powxzhcscqkhtaicxkyt.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_Gw7E39Yd7wR3C0llQavA2w_909B4VpG';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -38,37 +38,15 @@ export async function onRequestPost({ request }) {
   const email = String(fields?.email || '').trim();
   if (!name || !email) return json({ error: 'Name and email are required.' }, 400);
 
-  const submittedAt = new Date().toISOString();
-  const record = {
-    tenant: 'nolimit',
-    kind: 'visitRequest',
-    id: crypto.randomUUID(),
-    updated_at: submittedAt,
-    payload: {
-      source: 'website',
-      submittedAt,
-      pageUrl: String(fields?.pageUrl || ''),
-      name,
-      email,
-      phone: String(fields?.phone || '').trim(),
-      address: String(fields?.address || '').trim(),
-      city: String(fields?.city || '').trim(),
-      preferredDate: String(fields?.date || '').trim(),
-      projectType: String(fields?.type || '').trim(),
-      details: String(fields?.details || '').trim()
-    }
-  };
-
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/app_records?on_conflict=tenant,kind,id`, {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/submit-visit-request`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        Prefer: 'resolution=merge-duplicates,return=minimal'
       },
-      body: JSON.stringify(record)
+      body: JSON.stringify(fields)
     });
 
     if (!response.ok) {

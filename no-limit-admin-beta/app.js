@@ -531,13 +531,16 @@ function renderBusinessDocument(context, editing = false, itemDraft = null) {
     </section>
     ${stages}
     ${isProposal ? '<section class="document-approval"><div><span>Client approval</span><i></i></div><div><span>Date</span><i></i></div></section>' : ""}
-    <footer class="document-footer"><span>No Limit Carpentry</span><span>Crafted for the way you live.</span></footer>`;
+    <footer class="document-footer"><span>No Limit Carpentry</span><span>Crafted for the way you live.</span></footer>
+    ${isProposal && record.materialTakeoff && project ? `<div class="takeoff-attachment">${NoLimitTakeoff.documentHTML(record.materialTakeoff, project, client)}</div>` : ""}`;
 }
 
 function openBusinessDocument(type, id) {
   const context = documentContext(type, id);
   if (!context) return;
   activeDocument = { type, id, editing: false };
+  emailDocumentButton.hidden = false;
+  messageDocumentButton.hidden = false;
   documentDialogTitle.textContent = type === "proposal" ? "Proposal preview" : "Invoice preview";
   documentCanvas.innerHTML = renderBusinessDocument(context, false);
   documentNotice.textContent = "Nothing is sent automatically. Review the document before preparing a message.";
@@ -1159,7 +1162,7 @@ async function activateBetaUser(user, session = currentAuthSession) {
   presenceHeartbeat = window.setInterval(() => updatePresence(location.hash.replace(/^#/, "") || "overview"), 60000);
   window.clearInterval(workspaceRefreshTimer);
   workspaceRefreshTimer = window.setInterval(() => {
-    if (!dataDialog.open && !documentDialog.open && !customServiceDialog.open && !document.getElementById("serviceImportDialog").open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
+    if (!document.getElementById("takeoffEditor")?.open && !dataDialog.open && !documentDialog.open && !customServiceDialog.open && !document.getElementById("serviceImportDialog").open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
   }, 15000);
 }
 
@@ -1396,7 +1399,7 @@ async function saveDataEntry(formData) {
     const taxPercent = Number(formData.get("taxPercent"));
     const taxable = Math.max(0, quantity * unitPrice - discount);
     const existing = state.estimates.find((item) => item.id === pendingRecordId);
-    const record = { id: pendingRecordId || nextId(state.estimates, "EST"), requestId: formData.get("requestId"), clientId: client.id, clientName: client.name, projectId: formData.get("projectId"), issueDate: readableDate(formData.get("issueDate")), status: formData.get("status"), revision: existing ? Number(existing.revision || 1) + 1 : 1, validUntil: readableDate(formData.get("validUntil")), discount, tax: taxable * taxPercent / 100, items: [{ category, product: savedService?.product || "", type: savedService?.type || "", unit: savedService?.unit || "", customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity, unitPrice }], total: taxable * (1 + taxPercent / 100), contractId: existing?.contractId || "", notes: formData.get("notes") };
+    const record = { ...(existing?.projectId === formData.get("projectId") && existing?.materialTakeoff ? { materialTakeoff: existing.materialTakeoff } : {}), id: pendingRecordId || nextId(state.estimates, "EST"), requestId: formData.get("requestId"), clientId: client.id, clientName: client.name, projectId: formData.get("projectId"), issueDate: readableDate(formData.get("issueDate")), status: formData.get("status"), revision: existing ? Number(existing.revision || 1) + 1 : 1, validUntil: readableDate(formData.get("validUntil")), discount, tax: taxable * taxPercent / 100, items: [{ category, product: savedService?.product || "", type: savedService?.type || "", unit: savedService?.unit || "", customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity, unitPrice }], total: taxable * (1 + taxPercent / 100), contractId: existing?.contractId || "", notes: formData.get("notes") };
     if (pendingRecordId) state.estimates = state.estimates.map((item) => item.id === pendingRecordId ? record : item);
     else state.estimates.unshift(record);
   }
@@ -1404,7 +1407,7 @@ async function saveDataEntry(formData) {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
     const existingProject = state.projects.find((item) => item.id === pendingRecordId);
     const submittedStartDate = String(formData.get("startDate") || "");
-    const project = { id: pendingRecordId || nextId(state.projects, "PR"), name: formData.get("name"), clientId: client.id, clientName: client.name, status: formData.get("status"), service: formData.get("service"), siteStreet: formData.get("siteStreet"), siteCity: formData.get("siteCity"), siteState: formData.get("siteState"), sitePostalCode: formData.get("sitePostalCode"), startDate: submittedStartDate ? readableDate(submittedStartDate) : existingProject?.startDate || "To be scheduled", progress: Number(formData.get("progress")), contractValue: Number(formData.get("contractValue")), cost: Number(formData.get("cost")), outstanding: Number(formData.get("outstanding")), managerId: existingProject?.managerId || "" };
+    const project = { materialTakeoffs: existingProject?.materialTakeoffs || [], id: pendingRecordId || nextId(state.projects, "PR"), name: formData.get("name"), clientId: client.id, clientName: client.name, status: formData.get("status"), service: formData.get("service"), siteStreet: formData.get("siteStreet"), siteCity: formData.get("siteCity"), siteState: formData.get("siteState"), sitePostalCode: formData.get("sitePostalCode"), startDate: submittedStartDate ? readableDate(submittedStartDate) : existingProject?.startDate || "To be scheduled", progress: Number(formData.get("progress")), contractValue: Number(formData.get("contractValue")), cost: Number(formData.get("cost")), outstanding: Number(formData.get("outstanding")), managerId: existingProject?.managerId || "" };
     if (pendingRecordId) state.projects = state.projects.map((item) => item.id === pendingRecordId ? project : item);
     else state.projects.unshift(project);
     state.clients.forEach((item) => { item.projectIds = (item.projectIds || []).filter((id) => id !== project.id); });
@@ -1644,6 +1647,80 @@ function renderClients() {
     </section>`;
 }
 
+let takeoffAttachmentBusy = false;
+
+function renderProjectTakeoffs(project) {
+  const takeoffs=project.materialTakeoffs||[],proposals=state.estimates.filter(item=>item.projectId===project.id);
+  return `<article class="panel" id="projectTakeoffs"><div class="panel-head"><div><h2>Material takeoffs</h2><p>Prepare quantities by floor, calculate waste, and save a takeoff for this project.</p></div><button class="button" type="button" data-new-takeoff="${escapeHtml(project.id)}">New takeoff</button></div>${takeoffs.length?demoTable(['Takeoff','Waste','Updated','Actions'],takeoffs.map(item=>`<tr><td><strong>${escapeHtml(item.title)}</strong></td><td>${Number(item.wastePercent)}%</td><td>${escapeHtml(readableDate(item.updatedAt?.slice(0,10)))}</td><td><div class="button-row"><button class="button secondary compact-button" type="button" data-edit-takeoff="${escapeHtml(item.id)}" data-takeoff-project="${escapeHtml(project.id)}">Edit</button><button class="button secondary compact-button" type="button" data-preview-takeoff="${escapeHtml(item.id)}" data-takeoff-project="${escapeHtml(project.id)}">Preview / PDF</button></div></td></tr>`)):'<p>No takeoffs saved yet. Start with the No Limit trim template.</p>'}<h3>Proposal attachments</h3><p>A proposal receives its own saved copy. Editing a project takeoff does not change a previously attached copy.</p>${proposals.length?demoTable(['Proposal','Takeoff copy','Actions'],proposals.map(proposal=>`<tr><td><strong>${escapeHtml(proposal.id)}</strong><small class="record-id">${escapeHtml(formatStatus(proposal.status))} · R${Number(proposal.revision||1)}</small></td><td>${escapeHtml(proposal.materialTakeoff?.title||'None attached')}<label class="takeoff-choose">Select saved takeoff<select aria-label="Takeoff for ${escapeHtml(proposal.id)}" data-takeoff-for="${escapeHtml(proposal.id)}"><option value="">Choose takeoff</option>${takeoffs.map(item=>`<option value="${escapeHtml(item.id)}" ${item.id===proposal.materialTakeoff?.id?'selected':''}>${escapeHtml(item.title)}</option>`).join('')}</select></label></td><td><div class="button-row"><button class="button secondary compact-button" type="button" data-attach-takeoff="${escapeHtml(proposal.id)}" ${takeoffs.length?'':'disabled'}>Attach / replace copy</button>${proposal.materialTakeoff?`<button class="text-button" type="button" data-preview-attached="${escapeHtml(proposal.id)}">View copy</button><button class="text-button" type="button" data-detach-takeoff="${escapeHtml(proposal.id)}">Remove attachment</button>`:''}<button class="text-button" type="button" data-view-document="proposal" data-document-id="${escapeHtml(proposal.id)}">Open proposal</button></div></td></tr>`)):'<p>Create a proposal linked to this project in Estimates &amp; Contracts. It will appear here for attachment.</p>'}</article>`;
+}
+
+function previewTakeoff(project, takeoff) {
+  if (!project || !takeoff) return;
+  activeDocument=null;
+  documentDialogTitle.textContent='Material takeoff preview';
+  documentCanvas.innerHTML=NoLimitTakeoff.documentHTML(takeoff,project,state.clients.find(item=>item.id===project.clientId)||{});
+  for(const button of [editDocumentButton,addDocumentItemButton,saveDocumentButton,emailDocumentButton,messageDocumentButton])button.hidden=true;
+  documentNotice.textContent='Use Print / Save PDF to download this takeoff with No Limit letterhead and watermark.';
+  documentDialog.showModal();
+}
+
+async function openTakeoffEditor(projectId, takeoffId='') {
+  if(!await confirmCreateAccess('takeoff'))return;
+  const project=state.projects.find(item=>item.id===projectId);if(!project)return;
+  let draft=NoLimitTakeoff.clone((project.materialTakeoffs||[]).find(item=>item.id===takeoffId)||NoLimitTakeoff.template());
+  let dialog=document.getElementById('takeoffEditor');
+  if(!dialog){dialog=document.createElement('dialog');dialog.id='takeoffEditor';dialog.className='data-dialog takeoff-editor';dialog.setAttribute('aria-labelledby','takeoffEditorTitle');document.body.append(dialog);}
+  let saving=false;
+  const collect=()=>{
+    const form=dialog.querySelector('form');draft.title=form.elements.title.value;draft.wastePercent=form.elements.wastePercent.value;draft.notes=form.elements.notes.value;
+    draft.floors=Array.from(form.querySelectorAll('[data-takeoff-floor]')).map(card=>({name:card.querySelector('[data-floor-name]').value,...Object.fromEntries(NoLimitTakeoff.fields.map(key=>[key,card.querySelector(`[data-quantity="${key}"]`).value]))}));return draft;
+  };
+  const labels={doorCasing:'Door casing (LF)',windowCasing:'Window casing (LF)',extension:'Extension trim (LF)',base:'Baseboard (LF)',doubleDoors:'Double door sets',pocketDoors:'Pocket doors',singleDoors:'Single doors',windows:'Window count'};
+  const draw=()=>{
+    dialog.innerHTML=`<form class="dialog-card"><div class="dialog-head"><div><h2 id="takeoffEditorTitle">${takeoffId?'Edit':'New'} material takeoff</h2><p>${escapeHtml(project.name)}</p></div><button class="icon-button" type="button" data-close-takeoff aria-label="Close takeoff editor">×</button></div><div class="form-grid"><label>Takeoff title<input name="title" value="${escapeHtml(draft.title)}" required maxlength="160"/></label><label>Waste allowance (%)<input name="wastePercent" type="number" min="0" max="100" step="0.1" value="${escapeHtml(draft.wastePercent)}" required/></label></div><p>Enter linear feet for trim and whole numbers for counts. Blank quantities count as zero. Combined windows may use less casing.</p><div class="takeoff-floors">${draft.floors.map((floor,index)=>`<fieldset data-takeoff-floor><legend>Floor ${index+1}</legend><div class="takeoff-floor-head"><label>Floor name<input data-floor-name value="${escapeHtml(floor.name)}" required maxlength="60"/></label><button class="text-button" type="button" data-remove-floor="${index}" ${draft.floors.length===1?'disabled':''}>Remove floor</button></div><div class="takeoff-quantity-grid">${NoLimitTakeoff.fields.map(key=>`<label>${labels[key]}<input data-quantity="${key}" type="number" min="0" step="${['doorCasing','windowCasing','extension','base'].includes(key)?'0.01':'1'}" value="${escapeHtml(floor[key])}" /></label>`).join('')}</div></fieldset>`).join('')}</div><button class="button secondary" type="button" data-add-floor>Add floor</button><label class="takeoff-notes-field">Notes for the printed document<textarea name="notes" rows="4">${escapeHtml(draft.notes)}</textarea></label><p role="status" id="takeoffSaveStatus"></p><div class="button-row dialog-actions"><button class="button secondary" type="button" data-close-takeoff>Cancel</button><button class="button" type="submit">Save takeoff</button></div></form>`;
+    dialog.querySelectorAll('[data-close-takeoff]').forEach(button=>button.onclick=()=>{if(!saving)dialog.close();});
+    dialog.querySelector('[data-add-floor]').onclick=()=>{collect();draft.floors.push(NoLimitTakeoff.blankFloor(`Floor ${draft.floors.length+1}`));draw();};
+    dialog.querySelectorAll('[data-remove-floor]').forEach(button=>button.onclick=()=>{collect();draft.floors.splice(Number(button.dataset.removeFloor),1);draw();});
+    dialog.querySelector('form').onsubmit=async event=>{
+      event.preventDefault();if(saving)return;const form=event.currentTarget;if(!form.reportValidity())return;
+      const status=dialog.querySelector('#takeoffSaveStatus');
+      try {
+        if(!await confirmCreateAccess('takeoff'))return;
+        const record=NoLimitTakeoff.normalize(collect());
+        if(!Object.values(NoLimitTakeoff.totals(record).net).some(value=>value>0))throw new Error('Enter at least one measurement or count before saving.');
+        record.id=takeoffId||`TK-${crypto.randomUUID()}`;record.updatedAt=new Date().toISOString();
+        // Keep the live project record after an asynchronous access check or refresh.
+        const liveProject=state.projects.find(item=>item.id===projectId);if(!liveProject)throw new Error('This project is no longer available.');
+        saving=true;form.querySelectorAll('button,input,textarea').forEach(el=>el.disabled=true);status.textContent='Saving takeoff…';
+        liveProject.materialTakeoffs ||= [];
+        await NoLimitTakeoff.persist(liveProject.materialTakeoffs,record,savePreviewState);
+        dialog.close();renderRoute();
+      } catch(error){status.textContent=error.message;}
+      finally{saving=false;form.querySelectorAll('button,input,textarea').forEach(el=>el.disabled=false);}
+    };
+  };
+  dialog.oncancel=event=>{if(saving)event.preventDefault();};draw();dialog.showModal();
+}
+
+function bindTakeoffEvents() {
+  content.querySelectorAll('[data-new-takeoff]').forEach(button=>button.onclick=()=>void openTakeoffEditor(button.dataset.newTakeoff));
+  content.querySelectorAll('[data-edit-takeoff]').forEach(button=>button.onclick=()=>void openTakeoffEditor(button.dataset.takeoffProject,button.dataset.editTakeoff));
+  content.querySelectorAll('[data-preview-takeoff]').forEach(button=>button.onclick=()=>{const project=state.projects.find(item=>item.id===button.dataset.takeoffProject);previewTakeoff(project,project?.materialTakeoffs?.find(item=>item.id===button.dataset.previewTakeoff));});
+  content.querySelectorAll('[data-preview-attached]').forEach(button=>button.onclick=()=>{const estimate=state.estimates.find(item=>item.id===button.dataset.previewAttached);previewTakeoff(state.projects.find(item=>item.id===estimate?.projectId),estimate?.materialTakeoff);});
+  content.querySelectorAll('[data-attach-takeoff],[data-detach-takeoff]').forEach(button=>button.onclick=async()=>{
+    if(!await confirmCreateAccess('takeoff'))return;
+    const id=button.dataset.attachTakeoff||button.dataset.detachTakeoff,estimate=state.estimates.find(item=>item.id===id);if(!estimate)return;
+    const project=state.projects.find(item=>item.id===estimate.projectId),selection=content.querySelector(`[data-takeoff-for="${CSS.escape(id)}"]`)?.value;
+    const takeoff=button.dataset.detachTakeoff?null:project?.materialTakeoffs?.find(item=>item.id===selection);
+    if(!button.dataset.detachTakeoff&&!takeoff){window.alert('Choose a saved takeoff first.');return;}
+    if(takeoffAttachmentBusy)return;
+    takeoffAttachmentBusy=true;button.disabled=true;
+    try{await NoLimitTakeoff.attach(estimate,takeoff,savePreviewState);renderRoute();}
+    catch(error){window.alert(error.message);button.disabled=false;}
+    finally{takeoffAttachmentBusy=false;}
+  });
+}
+
 function renderProjects() {
   const selectedProject = state.projects.find((project) => project.id === selectedProjectId);
   if (selectedProject) {
@@ -1670,6 +1747,7 @@ function renderProjects() {
           <div><span>Progress</span><strong>${Number(selectedProject.progress || 0).toLocaleString("en-US")}%</strong></div>
           ${canViewFinancials ? `<div><span>Contract value</span><strong>${formatCurrency(selectedProject.contractValue)}</strong></div><div><span>Actual cost</span><strong>${formatCurrency(projectActualCost(selectedProject))}</strong></div>` : ""}
         </div>
+        ${canViewFinancials ? renderProjectTakeoffs(selectedProject) : ""}
         ${canViewFinancials ? `
           <div class="metric-grid project-financial-metrics">
             ${metric("Invoiced", formatCurrency(invoiced), `${projectInvoices.length} invoice${projectInvoices.length === 1 ? "" : "s"} for this project.`, "projects")}
@@ -2322,6 +2400,7 @@ async function toggleVisitRequestDiscarded(id) {
 }
 
 function bindPageEvents(routeName) {
+  bindTakeoffEvents();
   content.querySelectorAll("[data-private-file]").forEach(button => button.addEventListener("click", () => openPrivateFile(button.dataset.fileBucket,button.dataset.privateFile,button.textContent)));
 
   content.querySelectorAll("[data-create]").forEach((button) => button.addEventListener("click", async () => {

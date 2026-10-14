@@ -598,3 +598,58 @@ textarea { min-height: 104px; resize: vertical; line-height: 1.5; }
 #serviceImportSummary, #serviceSaveStatus { white-space: pre-wrap; }
 .service-catalog-section table th:last-child,
 .service-catalog-section table td:last-child { position: sticky; right: 0; background: var(--surface-solid); min-width: 76px; }
+
+/* Material takeoffs belong to the project and print as a branded appendix. */
+.takeoff-editor { width: min(980px, calc(100vw - 24px)); }
+.takeoff-editor .dialog-card { max-width: none; }
+.takeoff-floors { display: grid; gap: 18px; margin: 18px 0; }
+.takeoff-floors fieldset { min-width: 0; border: 1px solid var(--line, #d9d0c4); border-radius: 12px; padding: 16px; }
+.takeoff-floor-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.takeoff-floor-head label { flex: 1; }
+.takeoff-quantity-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; }
+.takeoff-notes-field { display: grid; margin-top: 20px; }
+.takeoff-choose { display: grid; gap: 6px; margin-top: 10px; min-width: 150px; }
+.takeoff-paper { position: relative; color: #292a29; background: #fffdf9; padding: 28px 0; font-family: Arial, sans-serif; font-size: 12px; }
+.takeoff-paper-content { position: relative; }
+.takeoff-watermark { position: absolute; top: 32%; left: 17%; width: 66%; opacity: .065; pointer-events: none; }
+.takeoff-letterhead { display: flex; align-items: center; gap: 22px; border-bottom: 1px solid #a98762; padding-bottom: 20px; margin-bottom: 24px; }
+.takeoff-letterhead img { width: 85px; height: 85px; object-fit: contain; }
+.takeoff-letterhead h2 { font: 26px Georgia, serif; margin: 0 0 8px; }
+.takeoff-letterhead p { color: #a98762; font-size: 10px; letter-spacing: .08em; }
+.takeoff-paper h1 { font: 30px Georgia, serif; margin: 0 0 12px; }
+.takeoff-project { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+.takeoff-paper h3 { color: #a98762; text-transform: uppercase; font-size: 11px; margin: 26px 0 10px; }
+.takeoff-paper table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.takeoff-paper th { background: #292a29; color: #fffdf9; padding: 10px 8px; }
+.takeoff-paper td { border-bottom: 1px solid #d9d0c4; padding: 10px 8px; background: transparent; }
+.takeoff-paper td:not(:first-child),.takeoff-paper th:not(:first-child) { text-align: right; }
+.takeoff-paper td:last-child { font-weight: 700; }
+.takeoff-notes { margin-top: 26px; font-size: 10px; color: #716b63; }
+.takeoff-notes p { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.takeoff-paper footer { border-top: 1px solid #d9d0c4; margin-top: 30px; padding-top: 12px; font-size: 10px; color: #716b63; line-height: 1.6; }
+.takeoff-attachment { margin-top: 60px; }
+@media(max-width:700px) { .takeoff-quantity-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .takeoff-floor-head { align-items: center; } }
+@media print {
+  .takeoff-attachment { break-before: page; margin-top: 0; }
+  .takeoff-paper { padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .takeoff-paper table { table-layout: fixed; font-size: 9px; }
+  .takeoff-paper th:first-child,.takeoff-paper td:first-child { width: 35%; }
+  .takeoff-paper th,.takeoff-paper td { padding: 8px 6px; overflow-wrap: anywhere; }
+  .takeoff-paper tr { break-inside: avoid; }
+  .takeoff-paper h3 { break-after: avoid; }
+  .takeoff-paper thead { display: table-header-group; }
+}
+.business-document:has(> .takeoff-paper) { min-width: 0; }
+.takeoff-paper table { table-layout: fixed; }
+.takeoff-paper th:first-child,.takeoff-paper td:first-child { width: 35%; }
+.takeoff-paper th,.takeoff-paper td { white-space: normal; overflow-wrap: anywhere; }
+@media(max-width:700px) {
+  .business-document:has(> .takeoff-paper) { padding: 22px; }
+  .takeoff-letterhead { gap: 12px; }
+  .takeoff-letterhead img { width: 65px; height: 65px; }
+  .takeoff-letterhead h2 { font-size: 21px; }
+  .takeoff-paper table { font-size: 9px; }
+  .takeoff-paper th,.takeoff-paper td { padding: 8px 4px; }
+}
+@media print { .business-document:has(> .takeoff-paper) { padding: 0 !important; } }
+.takeoff-paper table { min-width: 0; }

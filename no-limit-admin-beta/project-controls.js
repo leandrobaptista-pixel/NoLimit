@@ -53,9 +53,16 @@
     const ledger=valid.filter(p=>!start||day(p.date)>=start).map(p=>({id:p.id,date:day(p.date),amount:cents(p.amount),reference:p.checkNumber||p.milestone||'',method:p.method||'',projectId}));
     if(invoices.length){
       const linked=payments.filter(p=>ids.has(p.invoiceId)),standalone=payments.filter(p=>!ids.has(p.invoiceId));
-      const documented=linked.filter(p=>day(p.date)).reduce((n,p)=>n+cents(p.amount),0),recorded=invoices.reduce((n,i)=>n+cents(i.paid),0);
-      const total=Math.max(recorded,linked.filter(p=>day(p.date)&&day(p.date)<=end).reduce((n,p)=>n+cents(p.amount),0))+standalone.filter(p=>day(p.date)&&day(p.date)<=end).reduce((n,p)=>n+cents(p.amount),0);
-      return {total:start?ledger.reduce((n,p)=>n+p.amount,0):total,rows:ledger,undated:Math.max(0,recorded-documented)+standalone.filter(p=>!day(p.date)).reduce((n,p)=>n+cents(p.amount),0),basis:'invoice balances and separate project receipts'};
+      const legacy=list(s,'transactions').filter(t=>t.projectId===projectId&&t.type==='receivable'&&t.status==='paid'&&!payments.some(p=>p.legacyTransactionId===t.id));
+      const recorded=invoices.reduce((n,i)=>n+cents(i.paid),0);
+      // Older projects can have received cash before an invoice existed. Preserve
+      // that historical balance, but never add the duplicated ledger twice.
+      const historical=Math.max(recorded,legacy.filter(t=>!day(t.date)||day(t.date)<=end).reduce((n,t)=>n+cents(t.amount),0),linked.filter(p=>day(p.date)&&day(p.date)<=end).reduce((n,p)=>n+cents(p.amount),0));
+      const historyRows=linked.length?linked:legacy;
+      const historyDated=historyRows.filter(p=>day(p.date)).map(p=>({id:p.id,date:day(p.date),amount:cents(p.amount),reference:p.checkNumber||p.milestone||p.category||'',method:p.method||'Legacy receipt',projectId}));
+      const standaloneDated=standalone.filter(p=>day(p.date)).map(p=>({id:p.id,date:day(p.date),amount:cents(p.amount),reference:p.checkNumber||p.milestone||'',method:p.method||'',projectId}));
+      const rows=[...historyDated,...standaloneDated].filter(p=>p.date<=end&&(!start||p.date>=start));
+      return {total:start?rows.reduce((n,p)=>n+p.amount,0):historical+standaloneDated.filter(p=>p.date<=end).reduce((n,p)=>n+p.amount,0),rows,undated:Math.max(0,historical-historyDated.reduce((n,p)=>n+p.amount,0))+standalone.filter(p=>!day(p.date)).reduce((n,p)=>n+cents(p.amount),0),basis:'reconciled invoice / legacy balance and separate project receipts'};
     }
     const tx=list(s,'transactions').filter(t=>t.projectId===projectId&&t.type==='receivable'&&t.status==='paid'&&!payments.some(p=>p.legacyTransactionId===t.id));
     // Older undocumented payment ledgers remain authoritative. New standalone

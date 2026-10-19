@@ -64,7 +64,7 @@ test('standalone receipts preserve legacy cash and remain additive to invoice ba
  const s=base();s.transactions=[{id:'legacy',projectId:'p',type:'receivable',status:'paid',date:'2026-10-01',amount:1000}];s.payments=[{id:'new',projectId:'p',invoiceId:'',source:'client-receipt',date:'2026-10-19',status:'received',amount:200}];
  assert.equal(C.clientCash(s,'p').total,120000);assert.equal(C.clientCash(s,'p','2026-10-19','2026-10-25').total,20000);
  s.invoices=[{id:'invoice',projectId:'p',paid:500}];s.payments.push({id:'invoice-pay',invoiceId:'invoice',projectId:'p',date:'2026-10-19',amount:500,status:'cleared'});
- assert.equal(C.clientCash(s,'p').total,70000);assert.equal(C.weekly(s,'2026-10-19').projects[0].received,70000);
+ assert.equal(C.clientCash(s,'p').total,120000);assert.equal(C.weekly(s,'2026-10-19').projects[0].received,70000);
 });
 test('a failed shared save rolls back all project ledgers and does not claim success',async()=>{
  const app=readFileSync(new URL('../no-limit-admin-beta/app.js',import.meta.url),'utf8');
@@ -74,4 +74,10 @@ test('a failed shared save rolls back all project ledgers and does not claim suc
  await assert.rejects(vm.runInContext('saveDataEntry(input)',ctx),/not saved/);
  assert.equal(ctx.state.projectEngagements.length,0);assert.equal(ctx.state.people[0].projectIds.length,0);
  ctx.savePreviewState=async()=>true;await vm.runInContext('saveDataEntry(input)',ctx);assert.equal(ctx.state.projectEngagements.length,1);assert.equal(ctx.pendingRecordId,ctx.state.projectEngagements[0].id);
+});
+test('creating an invoice after legacy cash was received cannot erase project receipts',()=>{
+ const s=base();s.invoices=[{id:'later-invoice',projectId:'p',paid:0}];s.transactions=[{id:'old-receipt',projectId:'p',type:'receivable',status:'paid',date:'2026-10-19',amount:18400}];
+ assert.equal(C.clientCash(s,'p').total,1840000);assert.equal(C.weekly(s,'2026-10-19').projects[0].received,1840000);
+ s.payments=[{id:'migrated',invoiceId:'later-invoice',projectId:'p',date:'2026-10-19',amount:18400,status:'cleared'}];s.invoices[0].paid=18400;
+ assert.equal(C.clientCash(s,'p').total,1840000);assert.equal(C.weekly(s,'2026-10-19').projects[0].received,1840000);
 });

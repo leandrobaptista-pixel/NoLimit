@@ -56,3 +56,10 @@ test('Edge Function also rejects arbitrary fields and reports storage failure wi
  assert.equal((await run({event:'page_view',dimension:'home'})).status,204);
  fail=true;assert.equal((await run({event:'page_view',dimension:'home'})).status,503);
 });
+
+test('the default gallery counts when it becomes visible, without requiring a category click',()=>{
+ class Observer {constructor(callback){this.callback=callback;}observe(target){this.callback([{target,isIntersecting:true}]);}unobserve(){}}
+ const document={visibilityState:'visible',referrer:'',addEventListener:()=>{},removeEventListener:()=>{},getElementById:id=>id==='gallery'?{id}:null,querySelector:()=>({dataset:{cat:'Trim'}})};
+ const h=frontend({document,location:{hostname:'nolimitcontractor.net',pathname:'/',search:''},window:{IntersectionObserver:Observer},IntersectionObserver:Observer});
+ assert.equal(h.calls.filter(x=>x.body.event==='gallery_view'&&x.body.dimension==='trim').length,1);
+});

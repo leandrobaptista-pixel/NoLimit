@@ -49,7 +49,14 @@
     if (categories.has(category)) once('gallery_view',category);
     if ('IntersectionObserver' in window) {
       const observer = new IntersectionObserver(entries => entries.forEach(entry => {
-        if (entry.isIntersecting) { once('section_view',entry.target.id); observer.unobserve(entry.target); }
+        if (entry.isIntersecting) {
+          once('section_view',entry.target.id);
+          if (entry.target.id === 'gallery') {
+            const selected=categoryName(new URLSearchParams(location.search).get('cat') || document.querySelector('#galleryControls .active')?.dataset.cat);
+            if(categories.has(selected))once('gallery_view',selected);
+          }
+          observer.unobserve(entry.target);
+        }
       }), {threshold:0.01});
       ['about','services','gallery','catalogs','process','visit'].forEach(id => { const section=document.getElementById(id); if(section)observer.observe(section); });
     }

@@ -63,3 +63,10 @@ test('the default gallery counts when it becomes visible, without requiring a ca
  const h=frontend({document,location:{hostname:'nolimitcontractor.net',pathname:'/',search:''},window:{IntersectionObserver:Observer},IntersectionObserver:Observer});
  assert.equal(h.calls.filter(x=>x.body.event==='gallery_view'&&x.body.dimension==='trim').length,1);
 });
+
+test('Cloudflare canonical extensionless catalog and photo routes are measured',()=>{
+ for(const [path,page] of [['/catalogs','catalogs'],['/catalogs.html','catalogs'],['/viewer','photo'],['/viewer.html','photo']]){
+  const h=frontend({location:{hostname:'nolimitcontractor.net',pathname:path,search:''}});
+  assert.ok(h.calls.some(x=>x.body.event==='page_view'&&x.body.dimension===page));
+ }
+});

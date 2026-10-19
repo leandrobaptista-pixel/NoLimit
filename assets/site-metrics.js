@@ -1,7 +1,8 @@
 /* Aggregate website measurement. No visitor IDs, full URLs, form values or IPs. */
 (() => {
   if (!['nolimitcontractor.net', 'www.nolimitcontractor.net'].includes(location.hostname)) return;
-  if (!['/', '/index.html', '/catalogs.html', '/viewer.html'].includes(location.pathname)) return;
+  const route=location.pathname.replace(/\.html$/, '');
+  if (!['/', '/index', '/catalogs', '/viewer'].includes(route)) return;
   const optedOut = () => {
     try { return navigator.globalPrivacyControl === true || navigator.doNotTrack === '1' || localStorage.getItem('nolimitAnalyticsOptOut') === '1'; }
     catch { return true; }
@@ -12,7 +13,7 @@
     const slug=String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
     return ['ceiling','crown-molding','coffered-ceiling'].includes(slug) ? 'crown-molding-ceiling-coffered-ceiling' : slug;
   };
-  const page = location.pathname.endsWith('catalogs.html') ? 'catalogs' : location.pathname.endsWith('viewer.html') ? 'photo' : 'home';
+  const page = route === '/catalogs' ? 'catalogs' : route === '/viewer' ? 'photo' : 'home';
   const seen = new Set();
   function metric(event, dimension) {
     if (optedOut() || document.visibilityState === 'hidden') return;

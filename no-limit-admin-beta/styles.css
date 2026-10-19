@@ -653,3 +653,15 @@ textarea { min-height: 104px; resize: vertical; line-height: 1.5; }
 }
 @media print { .business-document:has(> .takeoff-paper) { padding: 0 !important; } }
 .takeoff-paper table { min-width: 0; }
+
+/* Owner/Developer website reporting entry and private report */
+.insights-shortcut{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:white;color:var(--ink);text-decoration:none;font-size:.75rem;font-weight:700;flex-shrink:0}
+.insights-shortcut:focus-visible,.insights-period select:focus-visible{outline:3px solid var(--bronze);outline-offset:3px}
+.primary-nav [data-report-access]{min-height:44px}.primary-nav [data-report-access] svg{width:18px;height:18px}
+.insights-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.insights-page h2{font-family:Georgia,serif;font-weight:400;font-size:1.25rem;margin:0 0 14px}
+.insights-period{display:grid;gap:5px;color:var(--muted);font-size:.75rem}.insights-period select{max-width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;background:white;color:var(--ink)}
+.insights-notice{padding:14px 16px;border:1px solid var(--bronze-soft);border-radius:12px;background:#faf4e9;font-size:.8rem;line-height:1.6}.insights-notice.is-error{border-color:var(--red);color:var(--red)}.insights-range,.insights-empty{font-size:.8rem;line-height:1.6;color:var(--muted)}
+.insights-table{width:100%;overflow:auto;max-height:380px}.insights-table table{width:100%;border-collapse:collapse;font-size:.8rem}.insights-table th,.insights-table td{padding:12px 10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.insights-table th{position:sticky;top:0;background:white;color:var(--muted);font-size:.7rem}
+.insights-page .metric-card{cursor:default}.insights-page .metric-note{line-height:1.5}.insights-page .security-row{gap:16px;flex-wrap:wrap}
+@media(max-width:850px){.insights-shortcut span{display:none}.insights-shortcut{width:44px;padding:10px}.insights-grid{grid-template-columns:1fr}}
+@media(max-width:560px){.insights-page .page-head .button-row{width:100%;align-items:stretch}.insights-period{flex:1;min-width:0}.insights-page .security-row .status-pill{white-space:normal}.insights-table th,.insights-table td{padding:10px 6px}}

@@ -11,3 +11,11 @@ Reports include pages, approximate tab visits, gallery interest, broad traffic s
 Security reporting is separate: existing RLS protects administrative data, existing workspace snapshots/backups remain in place, and a new trigger records removed record counts with the authorized account. Staff Visit Request edits use one service-only transaction to update and append audit metadata. Public counters cannot identify anonymous visitors. Account audit records contain operational metadata only, without customer messages, photos or internal notes. Review an account action before treating it as misconduct.
 
 Existing backups preserve application records and storage manifests, not copies of file bytes. WAF alerts, failed authentication reports, MFA enforcement and independent storage-file recovery are separate capabilities, not implicitly enabled by this change. Do not claim complete intrusion monitoring or file recovery.
+
+## Protected Admin entry
+
+The topbar chart/shield icon and `Website Insights` navigation item open `#website-insights`. Production visibility follows active Owner/Developer membership, matching existing audit controls. Ordinary Admin, Manager and other memberships do not receive access. Direct navigation shows a restricted message; hiding the icon is not the authorization boundary.
+
+The `get-site-report` Edge Function validates the signed-in user and current active membership on every read. The service-only `get_private_site_report` RPC repeats membership validation and bounds the Today, Yesterday, Last 7 days and last completed 8 PM reporting periods on the server. Browser roles cannot execute this RPC directly. Responses use `Cache-Control: no-store`; report data is cleared on sign-out/account changes, and entering the view revalidates access. No secrets or management token are delivered to the browser.
+
+The report displays verified MFA enrollment for the caller only. It does not enroll factors, change credentials, enforce MFA or configure copies of uploaded file bytes. These remaining safeguards are labeled explicitly. Local preview contains layout placeholders and never calls the protected report service.

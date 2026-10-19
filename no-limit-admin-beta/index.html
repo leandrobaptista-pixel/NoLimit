@@ -53,6 +53,7 @@
           <a href="#map" data-route="map"><span>MP</span>Project Map</a>
           <a href="#compliance" data-route="compliance"><span>CO</span>Compliance</a>
           <a href="#reports" data-route="reports"><span>RP</span>Reports</a>
+          <a href="#website-insights" data-route="website-insights" data-report-access hidden><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V11m6 9V5m6 15v-7M2 21h20M15 3l6 3v4c0 3-3 5-3 5s-3-2-3-5V3Z"/></svg></span>Website Insights</a>
           <a href="#security" data-route="security"><span>SE</span>Security &amp; Settings</a>
         </nav>
 
@@ -73,6 +74,7 @@
             <strong id="topbarTitle">Overview</strong>
           </div>
           <div class="topbar-actions">
+            <a class="insights-shortcut" href="#website-insights" data-report-access hidden title="Website Insights &amp; Security" aria-label="Open private Website Insights and Security report"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V11m6 9V5m6 15v-7M2 21h20M15 3l6 3v4c0 3-3 5-3 5s-3-2-3-5V3Z"/></svg><span>Website Insights</span></a>
             <span class="sync-badge" id="syncBadge">Connecting…</span>
 
             <span class="preview-badge">Private access</span>
@@ -181,6 +183,7 @@
     <script src="vendor/supabase-js.min.js?v=__RELEASE__"></script>
     <script src="service-catalog.js?v=__RELEASE__" defer></script>
     <script src="takeoff.js?v=__RELEASE__" defer></script>
+    <script src="site-insights.js?v=__RELEASE__" defer></script>
     <script src="app.js?v=__RELEASE__" defer></script>
   </body>
 </html>

@@ -165,6 +165,9 @@ let currentAuthSession = null;
 let cloudSaveTimer = null;
 let workspaceRefreshTimer = 0;
 let lastWorkspaceUpdatedAt = null;
+let lastRenderedRoute = null;
+let websiteInsights = {period:"today",data:null,loading:false,error:"",requestId:0};
+
 let visitIntake = { items: [], loaded: false, loading: false, error: "", warning: "", filter: "pending", category: "all", showDiscarded: false };
 
 function savePreviewState() {
@@ -184,6 +187,7 @@ function savePreviewState() {
 }
 
 const routes = {
+  "website-insights": { title:"Website Insights", kicker:"Private website report", heading:"Website Insights & Security", description:"Anonymous audience totals and private account audit." },
   overview: {
     title: "Overview",
     kicker: "Operational summary",
@@ -1084,7 +1088,7 @@ async function pushBetaWorkspace() {
 }
 
 function routesForBetaRole(role = "viewer") {
-  if (role === "admin") return Object.keys(routes);
+  if (role === "admin") return Object.keys(routes).filter(route => route !== "website-insights" || canAccessAuditControls());
   return ["overview", "projects", "schedule", "media", "team", "map"];
 }
 
@@ -1131,6 +1135,7 @@ function applyBetaAccess() {
   if (role !== "admin") {
     content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate], [data-edit-person], [data-renewal-person]").forEach((button) => { button.hidden = true; });
   }
+  document.querySelectorAll("[data-report-access]").forEach(link => { link.hidden = !canAccessAuditControls(); });
   const name = currentBetaUser?.name || "No Limit user";
   const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   const profileParts = profileButton?.querySelectorAll("span");
@@ -1142,6 +1147,7 @@ function applyBetaAccess() {
 }
 
 async function activateBetaUser(user, session = currentAuthSession) {
+  websiteInsights = {period:"today",data:null,loading:false,error:"",requestId:websiteInsights.requestId+1};
   currentBetaUser = user;
   currentAuthSession = session;
   visitIntake.error = "";
@@ -1356,6 +1362,11 @@ async function startBeta() {
   // expired token and report a misleading cloud-sync failure after an hour.
   window.noLimitSupabaseClient.auth.onAuthStateChange((_event, refreshedSession) => {
     currentAuthSession = refreshedSession || null;
+    if (!refreshedSession) {
+      websiteInsights = {period:"today",data:null,loading:false,error:"",requestId:websiteInsights.requestId+1};
+      document.querySelectorAll('[data-report-access]').forEach(link => { link.hidden=true; });
+      if(location.hash === '#website-insights') content.replaceChildren();
+    }
   });
   const { data: { session } } = await window.noLimitSupabaseClient.auth.getSession();
   if (session) {
@@ -2040,10 +2051,10 @@ function renderSecurity() {
     ["Individual authentication", "Every authorized person signs in with a separate account.", "Active"],
     ["Role-based permissions", "Routes and creation rights are limited by the assigned role.", "Active"],
     ["Administrator invitations", "Only an administrator can prepare and send a user invitation.", "Active"],
-    ["Two-factor authentication", "Required for administrator accounts.", "Planned"],
+    ["Two-factor authentication", "Account enrollment is shown in Website Insights. Mandatory enforcement has not been verified.", "Not verified"],
     ["Audit history", "Important changes are recorded with the user, time, area, and affected record.", "Active"],
     ["Work-hour location controls", "Explicit check-in consent, project-area verification, and automatic stop at 6:00 PM.", "Planned"],
-    ["Backup and recovery", "Automatic backups plus a tested recovery procedure.", "Planned"],
+    ["Backup and recovery", "Application snapshots are active. Independent copies of uploaded file bytes are not configured here.", "Partial protection"],
   ];
   return `
     <section class="page">
@@ -2086,6 +2097,28 @@ function renderSecurity() {
     </section>`;
 }
 
+function renderWebsiteInsights() {
+  if (!canAccessAuditControls()) return `<section class="page"><article class="panel"><h1>Restricted report</h1><p>Only the Owner and approved Developers can view website insights and security audit information.</p></article></section>`;
+  return `<section class="page insights-page">${window.NoLimitSiteInsights.render(websiteInsights,{preview:isLocalPreview})}</section>`;
+}
+async function refreshWebsiteInsights() {
+  if(isLocalPreview || !canAccessAuditControls() || !currentAuthSession) return;
+  const requestId=++websiteInsights.requestId, userId=currentAuthSession.user.id, period=websiteInsights.period;
+  websiteInsights.loading=true;websiteInsights.error="";websiteInsights.data=null;
+  if(location.hash==='#website-insights')renderRoute();
+  try {
+    const {data,error}=await window.noLimitSupabaseClient.functions.invoke('get-site-report',{body:{period}});
+    if(error||!data?.report)throw new Error(error?.context?.status===403?'Your account is not authorized to view this private report.':'The report could not be loaded. Refresh to try again.');
+    if(requestId!==websiteInsights.requestId||currentAuthSession?.user.id!==userId||!canAccessAuditControls())return;
+    websiteInsights.data=data.report;
+  } catch(error) {
+    if(requestId!==websiteInsights.requestId)return;
+    websiteInsights.error=error.message||'The report could not be loaded.';
+  } finally {
+    if(requestId===websiteInsights.requestId){websiteInsights.loading=false;if(location.hash==='#website-insights')renderRoute();}
+  }
+}
+
 const renderers = {
   overview: renderOverview,
   requests: renderRequests,
@@ -2102,6 +2135,7 @@ const renderers = {
   compliance: renderCompliance,
   reports: renderReports,
   security: renderSecurity,
+  "website-insights": renderWebsiteInsights,
 };
 
 function contractTemplateFor(estimate, project, client) {
@@ -2400,6 +2434,10 @@ async function toggleVisitRequestDiscarded(id) {
 }
 
 function bindPageEvents(routeName) {
+  if(routeName==='website-insights' && canAccessAuditControls()) {
+    content.querySelector('[data-refresh-insights]')?.addEventListener('click',()=>void refreshWebsiteInsights());
+    content.querySelector('#insightsPeriod')?.addEventListener('change',event=>{websiteInsights.period=event.target.value;void refreshWebsiteInsights();});
+  }
   bindTakeoffEvents();
   content.querySelectorAll("[data-private-file]").forEach(button => button.addEventListener("click", () => openPrivateFile(button.dataset.fileBucket,button.dataset.privateFile,button.textContent)));
 
@@ -2471,7 +2509,10 @@ function closeNavigation() {
 function renderRoute() {
   const requestedHash = location.hash.replace(/^#/, "") || "overview";
   const requested = requestedHash === "services" ? "materials" : requestedHash;
-  const routeName = routes[requested] && (!currentBetaUser || routesForBetaRole(currentBetaUser.role).includes(requested)) ? requested : "overview";
+  const routeName = requested === "website-insights" ? "website-insights" : routes[requested] && (!currentBetaUser || routesForBetaRole(currentBetaUser.role).includes(requested)) ? requested : "overview";
+  const enteringInsights=routeName === "website-insights" && lastRenderedRoute !== "website-insights";
+  lastRenderedRoute=routeName;
+  if(enteringInsights && !isLocalPreview){websiteInsights.data=null;websiteInsights.error="";}
   const route = routes[routeName];
   topbarTitle.textContent = route.title;
   document.title = `No Limit | ${route.title}`;
@@ -2507,6 +2548,7 @@ function renderRoute() {
   // automatically after a failure would re-render this route indefinitely.
   if (["requests","overview"].includes(routeName) && (isLocalPreview || currentBetaUser?.role === "admin") && (isLocalPreview || currentAuthSession) && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
   if (routeName === "security" && canAccessAuditControls()) refreshSecurityMonitor();
+  if(routeName === "website-insights" && canAccessAuditControls() && !isLocalPreview && currentAuthSession && !websiteInsights.data && !websiteInsights.loading && !websiteInsights.error) void refreshWebsiteInsights();
   closeNavigation();
 }
 
@@ -2702,6 +2744,9 @@ profileButton.addEventListener("click", async () => {
   if (window.noLimitSupabaseClient) await window.noLimitSupabaseClient.auth.signOut();
   currentBetaUser = null;
   currentAuthSession = null;
+  websiteInsights = {period:"today",data:null,loading:false,error:"",requestId:websiteInsights.requestId+1};
+  document.querySelectorAll("[data-report-access]").forEach(link => { link.hidden=true; });
+  if(location.hash === "#website-insights") content.replaceChildren();
   document.body.classList.add("auth-required");
   authStatus.textContent = "You have signed out.";
 });

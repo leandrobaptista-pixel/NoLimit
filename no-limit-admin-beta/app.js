@@ -8,6 +8,9 @@ const NO_LIMIT_SUPABASE_CONFIG = Object.freeze({
 });
 
 const defaultState = {
+  projectEngagements: [],
+  providerMilestones: [],
+  providerPayments: [],
   accessUsers: [
     { id: "USR-DEMO-001", name: "Leandro Baptista", email: "leandrobaptista@me.com", role: "Administrator", linkedPersonId: "", status: "active", invitedAt: "Sep 12, 2026" },
     { id: "USR-DEMO-002", name: "Alex Morgan (Demo)", email: "alex@example.invalid", role: "Project Manager", linkedPersonId: "PE-DEMO-001", status: "invited", invitedAt: "Sep 12, 2026" },
@@ -252,7 +255,7 @@ const routes = {
     title: "Work Schedule",
     kicker: "Individual assignments",
     heading: "Everyone sees the right work for the next day.",
-    description: "Administrators assign work by person, company, project, date, and shift. Future private accounts will show each authorized user only the schedule that concerns them.",
+    description: "Assign people and companies to projects by day, record work values and payments, and review weekly project cash flow. Partners see only their own assignments.",
   },
   media: {
     title: "Media Library",
@@ -778,6 +781,7 @@ function field(label, name, options = {}) {
 function openDataEntry(type, recordId = "") {
   pendingRecordType = type;
   pendingRecordId = recordId;
+  if (ProjectControlsUI.handles(type)) { ProjectControlsUI.open(type, recordId, { projectId: selectedProjectId }); return; }
   const statusOptions = (items) => items.map((item) => `<option value="${item}">${formatStatus(item)}</option>`).join("");
   const forms = {
     request: {
@@ -810,7 +814,7 @@ function openDataEntry(type, recordId = "") {
     },
     payment: {
       title: "Record client payment",
-      fields: field("Invoice", "invoiceId", { options: invoiceOptions() }) + field("Payment date", "date", { type: "date" }) + field("Payment method", "method", { options: '<option>Check</option><option>ACH / Bank transfer</option><option>Credit card</option><option>Cash</option><option>Other</option>' }) + field("Check or reference number", "checkNumber", { required: false }) + field("Project milestone", "milestone", { placeholder: "Initial deposit, midpoint, completion..." }) + field("Amount", "amount", { type: "number", min: 0 }) + field("Status", "status", { options: statusOptions(["received", "pending", "cleared", "returned"]) }),
+      fields: field("Project", "projectId", { options: projectOptions() }) + field("Invoice (optional; must belong to this project)", "invoiceId", { required: false, options: '<option value="">Project receipt without invoice</option>' + invoiceOptions() }) + field("Payment date", "date", { type: "date" }) + field("Payment method", "method", { options: '<option>Check</option><option>ACH / Bank transfer</option><option>Credit card</option><option>Cash</option><option>Other</option>' }) + field("Check or reference number", "checkNumber", { required: false }) + field("Project milestone", "milestone", { placeholder: "Initial deposit, midpoint, completion..." }) + field("Amount", "amount", { type: "number", min: 0 }) + field("Status", "status", { options: statusOptions(["received", "pending", "cleared", "returned"]) }),
     },
     changeOrder: {
       title: "Add change order / new work",
@@ -936,7 +940,7 @@ function projectReceiptTotal(projectId) {
 }
 
 function projectActualCost(project) {
-  return Number(project.cost || 0) + projectReceiptTotal(project.id);
+  return Number(project.cost || 0) + projectReceiptTotal(project.id) + window.NoLimitProjectControls.dollars(window.NoLimitProjectControls.projectSummary(state, project).earned);
 }
 
 function prepareInsuranceRenewal(personId) {
@@ -1386,6 +1390,15 @@ async function startBeta() {
 
 async function saveDataEntry(formData) {
   if (!betaCanCreate(pendingRecordType)) throw new Error("Your account can view assigned records. Contact the office to request changes.");
+  if (ProjectControlsUI.handles(pendingRecordType)) {
+    const prior = state;
+    const result = window.NoLimitProjectControls.apply(state, pendingRecordType, formData, pendingRecordId, currentBetaUser?.id || currentBetaUser?.name || "office");
+    state = result.state;
+    try { if (!(await savePreviewState())) throw new Error("The record was not saved to the shared workspace. Restore the connection and retry."); }
+    catch (error) { state = prior; throw error; }
+    pendingRecordId = result.record.id;
+    return;
+  }
   const stateBeforeSave = isLocalPreview ? null : structuredClone(state);
   if (pendingRecordType === "request") {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
@@ -1438,11 +1451,19 @@ async function saveDataEntry(formData) {
   }
   if (pendingRecordType === "payment") {
     const invoice = state.invoices.find((item) => item.id === formData.get("invoiceId"));
+    const project = state.projects.find((item) => item.id === formData.get("projectId"));
     const amount = Number(formData.get("amount"));
-    state.payments.unshift({ id: nextId(state.payments, "PAY"), invoiceId: invoice.id, projectId: invoice.projectId, date: readableDate(formData.get("date")), method: formData.get("method"), checkNumber: formData.get("checkNumber"), milestone: formData.get("milestone"), amount, status: formData.get("status") });
-    if (["received", "cleared"].includes(formData.get("status"))) invoice.paid = Number(invoice.paid || 0) + amount;
-    invoice.balance = Math.max(0, invoice.total - invoice.paid);
-    invoice.status = invoice.balance === 0 ? "paid" : invoice.paid > 0 ? "partially-paid" : "open";
+    const date = window.NoLimitProjectControls.day(formData.get("date"));
+    const paymentStatus = String(formData.get("status"));
+    if (!project || (invoice && invoice.projectId !== project.id)) throw new Error("Select the project associated with this invoice.");
+    if (!Number.isFinite(amount) || amount <= 0 || !date || !["received","cleared","pending","returned"].includes(paymentStatus)) throw new Error("Enter a valid receipt amount, date and status.");
+    if (["received","cleared"].includes(paymentStatus) && date > window.NoLimitProjectControls.today()) throw new Error("Future receipts must remain pending until the money is received.");
+    state.payments.unshift({ id: nextId(state.payments, "PAY"), invoiceId: invoice?.id || "", projectId: project.id, date, method: formData.get("method"), checkNumber: formData.get("checkNumber"), milestone: formData.get("milestone"), amount, status: paymentStatus, source: "client-receipt" });
+    if (invoice) {
+      if (["received", "cleared"].includes(paymentStatus)) invoice.paid = Number(invoice.paid || 0) + amount;
+      invoice.balance = Math.max(0, invoice.total - Number(invoice.paid || 0));
+      invoice.status = invoice.balance === 0 ? "paid" : invoice.paid > 0 ? "partially-paid" : "open";
+    }
   }
   if (pendingRecordType === "changeOrder") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
@@ -1577,7 +1598,8 @@ function renderOverview() {
   if (currentBetaUser && currentBetaUser.role !== "admin") return `<section class="page">${pageHead({kicker:"Your workspace",heading:"Your assigned projects and schedule",description:"The office shares your assignments and approved documents here. Contact the office to request changes."})}<div class="metric-grid">${metric("Projects",state.projects.length,"Projects assigned to your account.","projects")}${metric("Assignments",state.schedule.length,"Your work schedule.","schedule")}${metric("Shared files",state.media.length,"Approved files for your projects.","media")}</div></section>`;
   const active = state.projects.filter(item => item.status === "active").length;
   const pending = visitIntake.items.filter(item => !item.discarded_at && ["to_contact","waiting_reply","in_progress"].includes(item.status));
-  return `<section class="page">${pageHead(routes.overview,'<a class="button" href="#requests">Review website requests</a><a class="button secondary" href="#reports">Build a report</a>')}<div class="metric-grid">${metric("Requests to review",visitIntake.loaded?pending.length:"—",visitIntake.error?"Open Visit Requests to retry.":"Shared website requests.","requests")}${metric("Active projects",active,"Projects currently in execution.","projects")}${metric("Clients",state.clients.length,"Client records in the shared workspace.","clients")}${metric("People & companies",state.people.length,"Team members, vendors and subcontractors.","team")}</div><article class="panel"><div class="panel-head"><div><h2>Next requests to review</h2><p>Most recent pending website requests.</p></div></div>${pending.length?pending.slice(0,5).map(item=>`<p><a href="?visit=${encodeURIComponent(item.id)}#requests">${escapeHtml(item.full_name)}</a> · ${escapeHtml(item.project_type)} · ${escapeHtml(visitStatusLabel(item.status))}</p>`).join(""):"<p>Open Visit Requests to review the current list.</p>"}</article><p class="privacy-note">Existing records marked Demo or TESTE remain available for review. Review their contents before using them in operational reports.</p></section>`;
+  return `<section class="page">${pageHead(routes.overview,'<a class="button" href="#requests">Review website requests</a><a class="button secondary" href="#reports">Build a report</a>')}<div class="metric-grid">${metric("Requests to review",visitIntake.loaded?pending.length:"—",visitIntake.error?"Open Visit Requests to retry.":"Shared website requests.","requests")}${metric("Active projects",active,"Projects currently in execution.","projects")}${metric("Clients",state.clients.length,"Client records in the shared workspace.","clients")}${metric("People & companies",state.people.length,"Team members, vendors and subcontractors.","team")}</div>${ProjectControlsUI.attention()}
+      <article class="panel"><div class="panel-head"><div><h2>Next requests to review</h2><p>Most recent pending website requests.</p></div></div>${pending.length?pending.slice(0,5).map(item=>`<p><a href="?visit=${encodeURIComponent(item.id)}#requests">${escapeHtml(item.full_name)}</a> · ${escapeHtml(item.project_type)} · ${escapeHtml(visitStatusLabel(item.status))}</p>`).join(""):"<p>Open Visit Requests to review the current list.</p>"}</article><p class="privacy-note">Existing records marked Demo or TESTE remain available for review. Review their contents before using them in operational reports.</p></section>`;
 }
 
 function demoVisitRequests() { return state.requests.map((item, index) => ({ id:item.id, submitted_at:new Date(Date.now()-(index+1)*86400000).toISOString(), full_name:item.clientName, email:`client${index+1}@example.invalid`, phone:"(555) 010-0000", project_type:index===0?"Trim":index===1?"Stairs":"Kitchen & Vanities", message:`Preview request for ${item.service}. The original customer message and any reference photos remain attached to this request.`, status:index===0?"to_contact":index===1?"waiting_reply":"in_progress", internal_note:"", discarded_at:null, attachments:[] })); }
@@ -1741,10 +1763,10 @@ function renderProjects() {
     const projectReceipts = state.expenseReceipts.filter((item) => item.projectId === selectedProject.id);
     const projectMaterials = state.materials.filter((item) => item.projectId === selectedProject.id);
     const materialVendorIds = new Set(projectMaterials.map((item) => item.vendorId).filter(Boolean));
-    const projectVendors = state.people.filter((person) => person.type === "Vendor" && ((person.projectIds || []).includes(selectedProject.id) || materialVendorIds.has(person.id)));
+    const projectVendors = state.people.filter((person) => ((person.projectIds || []).includes(selectedProject.id) || materialVendorIds.has(person.id) || state.schedule.some(row => row.personId === person.id && row.projectId === selectedProject.id)));
     const canViewFinancials = (currentBetaUser?.role || "admin") === "admin";
     const invoiced = projectInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
-    const paid = projectInvoices.reduce((sum, invoice) => sum + Number(invoice.paid || 0), 0);
+    const paid = window.NoLimitProjectControls.dollars(window.NoLimitProjectControls.clientCash(state, selectedProject.id).total);
     const changeOrderValue = projectChanges.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     return `
       <section class="page project-record-page" id="projectDetail">
@@ -1758,11 +1780,12 @@ function renderProjects() {
           <div><span>Progress</span><strong>${Number(selectedProject.progress || 0).toLocaleString("en-US")}%</strong></div>
           ${canViewFinancials ? `<div><span>Contract value</span><strong>${formatCurrency(selectedProject.contractValue)}</strong></div><div><span>Actual cost</span><strong>${formatCurrency(projectActualCost(selectedProject))}</strong></div>` : ""}
         </div>
+        ${ProjectControlsUI.project(selectedProject)}
         ${canViewFinancials ? renderProjectTakeoffs(selectedProject) : ""}
         ${canViewFinancials ? `
           <div class="metric-grid project-financial-metrics">
             ${metric("Invoiced", formatCurrency(invoiced), `${projectInvoices.length} invoice${projectInvoices.length === 1 ? "" : "s"} for this project.`, "projects")}
-            ${metric("Received", formatCurrency(paid), "Payments recorded on this project's invoices.", "projects")}
+            ${metric("Received", formatCurrency(paid), "Client receipts recorded for this project, including separate project deposits.", "projects")}
             ${metric("Change Orders", formatCurrency(changeOrderValue), `${projectChanges.length} linked change order${projectChanges.length === 1 ? "" : "s"}.`, "projects")}
             ${metric("Receipts / expenses", formatCurrency(projectReceiptTotal(selectedProject.id)), `${projectReceipts.length} cost record${projectReceipts.length === 1 ? "" : "s"} for this location.`, "projects")}
           </div>
@@ -1779,8 +1802,8 @@ function renderProjects() {
             ${projectReceipts.length ? demoTable(["Receipt", "Vendor / store", "Category", "Date", "Amount", "Payment", "Attachment"], projectReceipts.map((item) => `<tr><td><strong>${escapeHtml(item.id)}</strong><small class="record-id">${escapeHtml(item.reference || "No reference")}</small></td><td>${escapeHtml(item.vendor)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(readableDate(item.purchaseDate))}</td><td>${formatCurrency(item.amount)}</td><td>${escapeHtml(item.paymentMethod)}</td><td>${privateFileControl("project-files",item.receiptFilePath,item.receiptFileName)}</td></tr>`)) : emptyState("No receipts or expenses", "No cost receipt is linked to this project yet.")}
           </article>` : ""}
         <article class="panel">
-          <div class="panel-head"><div><h2>Vendors involved</h2><p>People or companies linked to this project through assignments or materials.</p></div>${canViewFinancials ? '<button class="button secondary" data-create="projectVendor" type="button">+ Link vendor</button>' : ""}</div>
-          ${projectVendors.length ? demoTable(["Vendor", "Responsibility", "Contact", "Status", ""], projectVendors.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.role || "Not entered")}</td><td>${escapeHtml(partyContact(person))}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><a class="text-button" href="#vendors">Open vendor directory</a></td></tr>`)) : emptyState("No vendors linked", "No vendor assignment or material supplier is linked to this project.")}
+          <div class="panel-head"><div><h2>People & companies involved</h2><p>All registered people and companies linked through project assignments or materials.</p></div>${canViewFinancials ? '<button class="button secondary" data-create="projectVendor" type="button">+ Link vendor</button>' : ""}</div>
+          ${projectVendors.length ? demoTable(["Person / company", "Responsibility", "Contact", "Status", ""], projectVendors.map((person) => `<tr><td><strong>${escapeHtml(person.name)}</strong><small class="record-id">${escapeHtml(person.id)}</small></td><td>${escapeHtml(person.role || "Not entered")}</td><td>${escapeHtml(partyContact(person))}</td><td><span class="status-pill ${statusClass(person.status)}">${escapeHtml(formatStatus(person.status))}</span></td><td><a class="text-button" href="#team">Open Team & Partners</a></td></tr>`)) : emptyState("No people or companies linked", "Link a provider and payment terms, or a material supplier, to this project.")}
         </article>
       </section>`;
   }
@@ -1809,18 +1832,19 @@ function renderProjects() {
 
 function renderFinancial() {
   const contracted = state.projects.reduce((sum, item) => sum + Number(item.contractValue || 0), 0);
-  const received = state.transactions.filter((item) => item.type === "receivable" && item.status === "paid").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const received = state.projects.reduce((sum, item) => sum + window.NoLimitProjectControls.dollars(window.NoLimitProjectControls.clientCash(state,item.id).total), 0);
   const actualCost = state.projects.reduce((sum, item) => sum + projectActualCost(item), 0);
   const outstanding = state.transactions.filter((item) => item.type === "receivable" && item.status !== "paid").reduce((sum, item) => sum + Number(item.amount || 0), 0);
   return `
     <section class="page">
-      ${pageHead(routes.financial, '<button class="button" data-create="payment" type="button">Record payment</button><button class="button secondary" data-create="invoiceItem" type="button">Add invoice item</button><button class="button secondary" data-create="transaction" type="button">Add expense</button>')}
+      ${pageHead(routes.financial, '<button class="button" data-create="payment" type="button">Record client receipt</button><button class="button secondary" data-create="invoiceItem" type="button">Add invoice item</button><button class="button secondary" data-create="transaction" type="button">Add expense</button>')}
       <div class="metric-grid">
         ${metric("Contracted value", formatCurrency(contracted), "Total value of current project contracts.", "financial")}
         ${metric("Received", formatCurrency(received), "Client payments received.", "financial")}
-        ${metric("Actual cost", formatCurrency(actualCost), "Materials, labor, subcontractors, and expenses.", "financial")}
+        ${metric("Actual cost", formatCurrency(actualCost), "Manual cost baseline + receipts + earned provider work.", "financial")}
         ${metric("Outstanding", formatCurrency(outstanding), "Open client balances.", "financial")}
       </div>
+      ${ProjectControlsUI.financial()}
       <article class="panel">
         <div class="panel-head"><div><h2>Invoices and payment stages</h2><p>Invoices are generated from contracts and remain itemized by service.</p></div><a class="button secondary" href="#reports">Invoice report</a></div>
         ${demoTable(["Invoice", "Contract", "Client", "Project", "Items", "Total", "Paid", "Balance", "Status", "Document"], state.invoices.map((invoice) => `<tr><td><strong>${escapeHtml(invoice.id)}</strong><small class="record-id">Issued ${escapeHtml(invoice.issueDate)}</small></td><td><a href="#documents">${escapeHtml(invoice.contractId)}</a></td><td>${escapeHtml(invoice.clientName)}</td><td><a href="#projects">${escapeHtml(invoice.projectId || "Pending project")}</a></td><td>${invoice.items.length}</td><td>${formatCurrency(invoice.total)}</td><td>${formatCurrency(invoice.paid)}</td><td>${formatCurrency(invoice.balance)}</td><td><span class="status-pill ${statusClass(invoice.status)}">${escapeHtml(formatStatus(invoice.status))}</span></td><td><button class="text-button" data-view-document="invoice" data-document-id="${escapeHtml(invoice.id)}" type="button">Preview / send</button></td></tr>`))}
@@ -1830,8 +1854,8 @@ function renderFinancial() {
         ${demoTable(["Invoice", "Milestone", "Percent", "Amount", "Status"], state.invoices.flatMap((invoice) => invoice.schedule.map((stage) => `<tr><td>${escapeHtml(invoice.id)}</td><td>${escapeHtml(stage.label)}</td><td>${Number(stage.percent).toLocaleString("en-US")}%</td><td>${formatCurrency(stage.amount)}</td><td><span class="status-pill ${statusClass(stage.status)}">${escapeHtml(formatStatus(stage.status))}</span></td></tr>`)))}
       </article>
       <article class="panel">
-        <div class="panel-head"><div><h2>Deposits, checks, and payments</h2><p>Each payment is tied to an invoice, project milestone, and reference number.</p></div></div>
-        ${demoTable(["Payment", "Invoice", "Date", "Method", "Check / reference", "Milestone", "Amount", "Status"], state.payments.map((payment) => `<tr><td><strong>${escapeHtml(payment.id)}</strong></td><td>${escapeHtml(payment.invoiceId)}</td><td>${escapeHtml(payment.date)}</td><td>${escapeHtml(payment.method)}</td><td>${escapeHtml(payment.checkNumber || "—")}</td><td>${escapeHtml(payment.milestone)}</td><td>${formatCurrency(payment.amount)}</td><td><span class="status-pill ${statusClass(payment.status)}">${escapeHtml(formatStatus(payment.status))}</span></td></tr>`))}
+        <div class="panel-head"><div><h2>Deposits, checks, and payments</h2><p>Client receipts remain tied to a project, date and reference; an invoice link is optional.</p></div></div>
+        ${demoTable(["Payment", "Project", "Invoice", "Date", "Method", "Check / reference", "Milestone", "Amount", "Status"], state.payments.map((payment) => `<tr><td><strong>${escapeHtml(payment.id)}</strong></td><td>${escapeHtml(state.projects.find(p=>p.id===payment.projectId)?.name || state.projects.find(p=>p.id===state.invoices.find(i=>i.id===payment.invoiceId)?.projectId)?.name || "Not linked")}</td><td>${escapeHtml(payment.invoiceId || "Project receipt")}</td><td>${escapeHtml(payment.date)}</td><td>${escapeHtml(payment.method)}</td><td>${escapeHtml(payment.checkNumber || "—")}</td><td>${escapeHtml(payment.milestone)}</td><td>${formatCurrency(payment.amount)}</td><td><span class="status-pill ${statusClass(payment.status)}">${escapeHtml(formatStatus(payment.status))}</span></td></tr>`))}
       </article>
       <article class="panel">
         <div class="panel-head"><div><h2>Transactions by project</h2><p>Every amount is connected to a project and related party.</p></div></div>
@@ -1960,21 +1984,7 @@ function renderVendors() {
 }
 
 function renderSchedule() {
-  return `
-    <section class="page">
-      ${pageHead(routes.schedule, '<button class="button" data-create="schedule" type="button">Add assignment</button><button class="button secondary" data-assignment-history type="button">View previous assignments</button>')}
-      <div class="metric-grid">
-        ${metric("Scheduled", state.schedule.filter((item) => item.status === "scheduled").length, "Assignments awaiting completion.", "schedule")}
-        ${metric("Confirmed", state.schedule.filter((item) => item.status === "confirmed").length, "People who confirmed their next workday.", "schedule")}
-        ${metric("People scheduled", new Set(state.schedule.map(item => item.personId)).size, "People with recorded work assignments.", "map")}
-        ${metric("Completed", state.schedule.filter((item) => item.status === "completed").length, "Completed assignments.", "schedule")}
-      </div>
-      <article class="panel" id="assignmentHistory" tabindex="-1">
-        <div class="panel-head"><div><h2>Previous and current assignments</h2><p>This history stays separate from the empty Add assignment form.</p></div></div>
-        ${demoTable(["Date", "Team Member / Vendor / Subcontractor", "Type", "Project", "Shift", "Instructions", "Status"], state.schedule.map((item) => `<tr><td>${escapeHtml(item.workDate)}</td><td><strong>${escapeHtml(item.personName)}</strong></td><td>${escapeHtml(item.personType)}</td><td><a href="#projects">${escapeHtml(item.projectName)}</a></td><td>${escapeHtml(item.shift)}</td><td>${escapeHtml(item.instructions)}</td><td><span class="status-pill ${statusClass(item.status)}">${escapeHtml(formatStatus(item.status))}</span></td></tr>`))}
-      </article>
-      <article class="panel"><h2>Individual access</h2><p>Each account sees the assignments shared with it. Schedules can be consulted at any time; automatic GPS tracking is not active.</p></article>
-    </section>`;
+  return `<section class="page">${pageHead(routes.schedule, currentBetaUser?.role === "admin" ? '<button class="button" type="button" data-pc="engagement">Link provider & terms</button>' : "")}${ProjectControlsUI.schedule()}<article class="panel"><h2>Individual access</h2><p>Each partner sees only their shared assignments. Financial terms and payment reports are restricted to authorized office accounts.</p></article></section>`;
 }
 
 function renderMedia() {
@@ -2434,6 +2444,7 @@ async function toggleVisitRequestDiscarded(id) {
 }
 
 function bindPageEvents(routeName) {
+  ProjectControlsUI.bind();
   if(routeName==='website-insights' && canAccessAuditControls()) {
     content.querySelector('[data-refresh-insights]')?.addEventListener('click',()=>void refreshWebsiteInsights());
     content.querySelector('#insightsPeriod')?.addEventListener('change',event=>{websiteInsights.period=event.target.value;void refreshWebsiteInsights();});

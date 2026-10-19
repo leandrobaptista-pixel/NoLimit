@@ -5,6 +5,7 @@
   Cache-Control: no-cache, max-age=0, must-revalidate
 
 /no-limit-admin-beta/*
+  X-Frame-Options: DENY
   Cache-Control: no-cache, max-age=0, must-revalidate
 
 /no-limit-admin-beta/app.js
@@ -18,3 +19,7 @@
 
 /.well-known/nolimit-release.json
   Cache-Control: no-store, max-age=0
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

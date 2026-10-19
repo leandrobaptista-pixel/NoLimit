@@ -18,7 +18,7 @@
       .viewer-header strong { font:300 1.55rem/1 "Newsreader", Georgia, serif; letter-spacing:-.04em; }
       .viewer-main { display: grid; place-items: center; padding: 34px 22px 96px; background: var(--ivory); }
       .viewer-main img { max-width: min(1100px,94vw); max-height: calc(100vh - 224px); border-radius: 0; box-shadow: none; cursor: zoom-out; }
-      .viewer-footer { display: flex; justify-content: center; align-items: center; padding: 15px 22px 22px; color: var(--soft); font-weight:300; background:var(--ivory); }
+      .viewer-footer { gap:12px; flex-wrap:wrap; display: flex; justify-content: center; align-items: center; padding: 15px 22px 22px; color: var(--soft); font-weight:300; background:var(--ivory); }
       .viewer-actions { position: fixed; bottom: 22px; right: 22px; display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
       .viewer-actions a,
       .viewer-actions button { background: var(--paper); color: var(--ink); border: 1px solid var(--bronze); padding: 10px 14px; border-radius: 0; cursor: pointer; font:400 .95rem/1 "Newsreader",Georgia,serif; }
@@ -51,6 +51,7 @@
         .viewer-close{top:17px;right:14px}
       }
     </style>
+      <script src="assets/site-metrics.js?v=20261019" defer></script>
   </head>
   <body class="viewer-page">
     <div class="viewer-wrap">
@@ -66,7 +67,8 @@
       </main>
       <footer class="viewer-footer">
         <span id="meta"></span>
-      </footer>
+      <a href="/website-privacy.html">Privacy &amp; measurement</a>
+    </footer>
       <div class="viewer-actions">
         <button id="prevBtn" type="button">Previous</button>
         <button id="nextBtn" type="button">Next</button>

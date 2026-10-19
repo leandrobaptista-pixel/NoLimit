@@ -1486,11 +1486,13 @@ form?.addEventListener('submit', async (event) => {
     const result = await submitVisitRequest(fields);
 
     if (result.mode !== 'saved') throw new Error('Could not submit request.');
+    document.dispatchEvent(new Event('nolimit:visit-saved'));
     resetVisitForm();
     setFormNote('');
     openVisitSuccessDialog();
   } catch (error) {
     console.error(error);
+    document.dispatchEvent(new Event('nolimit:visit-failed'));
     setFormNote(error.message || 'We could not submit your request at this time. Please try again shortly.', 'error');
   } finally {
     delete form.dataset.submitting;

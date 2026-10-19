@@ -79,7 +79,7 @@ Deno.serve(async request => {
     } else if (body.action === 'discard' && typeof body.discarded === 'boolean') {
       updates = {discarded_at:body.discarded ? new Date().toISOString() : null,updated_at:new Date().toISOString()};
     } else return reply({error:'Unsupported action.'},400);
-    const {data,error} = await admin.from('admin_visit_requests').update(updates).eq('id',body.id).select().single();
+    const {data,error} = await admin.rpc('review_visit_request',{target_id:body.id,actor_id:user.id,organization:organizationId,changes:updates}).single();
     if (error) throw error;
     return reply({request:await withAttachmentLinks(admin,data)});
   } catch (error) {

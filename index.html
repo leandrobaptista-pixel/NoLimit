@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="assets/styles.css?v=20261012-gallery-navigation" />
+    <link rel="stylesheet" href="assets/styles.css?v=20261016-visit-attachments" />
     <link rel="stylesheet" href="assets/homepage-preview.css?v=20260909-all-site-photos" />
   </head>
   <body>
@@ -389,6 +389,13 @@
                       <small class="field-help">A few practical details here usually makes the first consultation much smoother.</small>
                       <small class="field-error" aria-live="polite"></small>
                     </label>
+                    <div class="field full" data-field="attachments">
+                      <label class="field-label" for="visitAttachments">Photos &amp; project references <span>(optional)</span></label>
+                      <p id="visitAttachmentsHelp" class="field-help">Show us the work area, a problem, or your project ideas. You can also attach shop drawings as PDF files. Up to 5 files, 10 MB each, 25 MB total. JPG, PNG, WebP, HEIC or PDF.</p>
+                      <input id="visitAttachments" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf" aria-describedby="visitAttachmentsHelp visitAttachmentsError" />
+                      <ul id="visitAttachmentList" class="visit-attachment-list" aria-label="Selected files"></ul>
+                      <small id="visitAttachmentsError" class="field-error" role="status" aria-live="polite"></small>
+                    </div>
                   </div>
                 </section>
 
@@ -496,7 +503,7 @@
     <script src="assets/catalogs-data.js" defer></script>
     <script src="assets/contact-config.js" defer></script>
     <script src="assets/homepage-preview.js" defer></script>
-    <script src="assets/script.js?v=20261012-gallery-navigation" defer></script>
+    <script src="assets/script.js?v=20261016-visit-attachments" defer></script>
     <script src="assets/photo-harmony.js?v=20260909-all-site-photos" defer></script>
   </body>
   </html>

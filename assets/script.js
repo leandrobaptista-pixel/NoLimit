@@ -540,31 +540,46 @@ async function submitVisitRequest(fields) {
     ? 'https://nolimitcontractor.pages.dev/api/visit-request'
     : '/api/visit-request';
 
-  const response = await fetch(requestUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      pageUrl: window.location.href,
-      name: fields.name,
-      email: fields.email,
-      phone: fields.phone || '',
-      address: fields.address || '',
-      city: fields.city || '',
-      date: fields.date || '',
-      type: fields.type || '',
-      details: fields.details || ''
-    })
-  });
-
+  const body = new FormData();
+  ['name', 'email', 'phone', 'address', 'city', 'date', 'type', 'details'].forEach(key => body.append(key, fields[key] || ''));
+  body.append('pageUrl', window.location.href);
+  visitAttachments.forEach(file => body.append('attachments', file, file.name));
+  const response = await fetch(requestUrl, { method: 'POST', body });
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(errorText || 'Could not submit request.');
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || 'Could not submit request. Please try again shortly.');
   }
 
   return { mode: 'saved' };
 }
+
+const attachmentInput = document.getElementById('visitAttachments');
+const attachmentList = document.getElementById('visitAttachmentList');
+let visitAttachments = [];
+function renderVisitAttachments() {
+  attachmentList?.replaceChildren();
+  visitAttachments.forEach((file, index) => {
+    const item = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = `${file.name} (${file.size < 1048576 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / 1048576).toFixed(1)} MB`})`;
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove ${file.name}`);
+    remove.addEventListener('click', () => { visitAttachments.splice(index, 1); renderVisitAttachments(); attachmentInput?.focus(); });
+    item.append(name, remove); attachmentList?.append(item);
+  });
+}
+attachmentInput?.addEventListener('change', () => {
+  const next = [...visitAttachments, ...Array.from(attachmentInput.files || [])];
+  const error = next.length > 5 ? 'Choose up to 5 files.'
+    : next.some(file => !/\.(jpe?g|png|webp|heic|heif|pdf)$/i.test(file.name)) ? 'Please choose JPG, PNG, WebP, HEIC or PDF files.'
+    : next.some(file => !file.size || file.size > 10 * 1048576) ? 'Each file must be between 1 byte and 10 MB.'
+    : next.reduce((sum, file) => sum + file.size, 0) > 25 * 1048576 ? 'The combined file size must be 25 MB or less.' : '';
+  document.getElementById('visitAttachmentsError').textContent = error;
+  attachmentInput.setAttribute('aria-invalid', String(Boolean(error)));
+  if (!error) { visitAttachments = next; renderVisitAttachments(); }
+  attachmentInput.value = '';
+});
 
 function getFields() {
   const data = {};
@@ -677,6 +692,11 @@ function syncFieldStates(fields, errors, forceReveal = false) {
 
 function resetVisitForm() {
   form?.reset();
+  visitAttachments = [];
+  renderVisitAttachments();
+  if (attachmentInput) attachmentInput.setAttribute('aria-invalid', 'false');
+  const attachmentError = document.getElementById('visitAttachmentsError');
+  if (attachmentError) attachmentError.textContent = '';
   ['name', 'email', 'phone', 'city', 'address', 'date', 'type', 'details', 'agree'].forEach((name) => {
     const wrapper = getFieldWrapper(name);
     if (!wrapper) return;
@@ -1442,6 +1462,7 @@ form?.querySelectorAll('input, select, textarea').forEach((field) => {
 
 form?.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (form.dataset.submitting === 'true') return;
   setFormNote('');
 
   const fields = getFields();
@@ -1453,6 +1474,9 @@ form?.addEventListener('submit', async (event) => {
     return;
   }
 
+  form.dataset.submitting = 'true';
+  if (attachmentInput) attachmentInput.disabled = true;
+  attachmentList?.querySelectorAll('button').forEach(button => { button.disabled = true; });
   if (submitButton) {
     submitButton.disabled = true;
     submitButton.textContent = 'Sending...';
@@ -1467,8 +1491,11 @@ form?.addEventListener('submit', async (event) => {
     openVisitSuccessDialog();
   } catch (error) {
     console.error(error);
-    setFormNote('We could not submit your request at this time. Please try again shortly.', 'error');
+    setFormNote(error.message || 'We could not submit your request at this time. Please try again shortly.', 'error');
   } finally {
+    delete form.dataset.submitting;
+    if (attachmentInput) attachmentInput.disabled = false;
+    attachmentList?.querySelectorAll('button').forEach(button => { button.disabled = false; });
     if (submitButton) {
       submitButton.disabled = false;
       submitButton.textContent = 'Send Request';

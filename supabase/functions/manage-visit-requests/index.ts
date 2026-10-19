@@ -15,6 +15,17 @@ const corsHeaders = {
 function reply(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {status, headers: corsHeaders});
 }
+// Only authenticated, authorized staff reach this helper. Never persist temporary URLs.
+async function withAttachmentLinks(admin: ReturnType<typeof createClient>, item: any) {
+  const attachments = await Promise.all((Array.isArray(item.attachments) ? item.attachments : []).map(async (file: any) => {
+    if (file.bucket !== 'visit-request-attachments') return file;
+    if (typeof file.path !== 'string' || !file.path.startsWith(`${item.source_record_id}/`)) return {...file,url:null,path:null};
+    const {data,error} = await admin.storage.from('visit-request-attachments').createSignedUrl(file.path,3600);
+    if (error) return {...file,url:null,path:null};
+    return {...file,url:data.signedUrl};
+  }));
+  return {...item,attachments};
+}
 async function syncWebsiteRequests(admin: ReturnType<typeof createClient>) {
   if (!publicIntakeUrl || !publicIntakeKey) throw new Error('Website intake connection is not configured.');
   for (let offset = 0; ; offset += 500) {
@@ -56,7 +67,7 @@ Deno.serve(async request => {
         requests.push(...(data || []));
         if (!data || data.length < 500) break;
       }
-      return requests;
+      return Promise.all(requests.map(item => withAttachmentLinks(admin,item)));
       });
       return reply(result);
     }
@@ -70,7 +81,7 @@ Deno.serve(async request => {
     } else return reply({error:'Unsupported action.'},400);
     const {data,error} = await admin.from('admin_visit_requests').update(updates).eq('id',body.id).select().single();
     if (error) throw error;
-    return reply({request:data});
+    return reply({request:await withAttachmentLinks(admin,data)});
   } catch (error) {
     console.error('Visit request operation failed', error instanceof Error ? error.message : String((error as {code?: string})?.code || 'database error'));
     return reply({error:error instanceof Error ? error.message : 'Request processing failed. Refresh and try again.'},400);

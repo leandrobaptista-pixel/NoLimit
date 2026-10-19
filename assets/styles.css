@@ -1834,3 +1834,14 @@ p,.hint,.card p,.process span,.catalog-info p{font-size:clamp(.98rem,1.1vw,1.03r
     grid-template-columns:1fr;
   }
 }
+
+/* Optional visit request attachments */
+#visitAttachments { width:100%; min-width:0; padding:14px; border:1px dashed var(--line, #d8cbbb); border-radius:12px; background:#fff; }
+#visitAttachments::file-selector-button { padding:10px 14px; margin-right:12px; border:1px solid #d8cbbb; border-radius:8px; background:#f7f2eb; color:#332c26; cursor:pointer; }
+.visit-attachment-list { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+.visit-attachment-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; background:#f7f2eb; border-radius:8px; }
+.visit-attachment-list span { overflow-wrap:anywhere; min-width:0; }
+.visit-attachment-list button { flex-shrink:0; color:#704d31; background:white; border:1px solid #d8cbbb; border-radius:8px; padding:10px; cursor:pointer; }
+[data-field="attachments"] .field-error:empty { display:none; }
+[data-field="attachments"] .field-error { display:block; color:#a63025; }
+[data-field="attachments"] .field-help { max-height:none; opacity:1; overflow:visible; transform:none; margin:6px 0 12px; line-height:1.5; }

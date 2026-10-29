@@ -777,6 +777,31 @@ function getInitialCategory(categories) {
   return categories[0]?.slug || 'trim';
 }
 
+const GALLERY_CATEGORY_ORDER = [
+  "Wall Paneling",
+  "Trim",
+  "Wainscoting",
+  "Stairs",
+  "Ceiling",
+  "Decks",
+  "Kitchen & Vanities",
+  "Fireplaces & Bars",
+  "Outside Doors & Windows",
+  "Pergola",
+  "Port & Portal",
+  "Commercial",
+  "Trash Container"
+];
+
+function orderGalleryCategories(galleryData) {
+  const rank = new Map(GALLERY_CATEGORY_ORDER.map((name, index) => [slugify(name), index]));
+  galleryData.categories.sort((a, b) =>
+    (rank.get(a.slug) ?? GALLERY_CATEGORY_ORDER.length) -
+    (rank.get(b.slug) ?? GALLERY_CATEGORY_ORDER.length)
+  );
+  return galleryData;
+}
+
 const GALLERY_CATEGORY_LABELS = {
   ceiling: 'Crown Molding · Ceiling · Coffered Ceiling'
 };
@@ -1285,7 +1310,9 @@ async function initGallery() {
   const manifest = await loadManifest();
 
   const fallbackGalleryData = buildStaticGalleryData(manifest);
-  const galleryData = hasRenderableGallery(cachedContent?.gallery) ? cachedContent.gallery : fallbackGalleryData;
+  const galleryData = orderGalleryCategories(
+    hasRenderableGallery(cachedContent?.gallery) ? cachedContent.gallery : fallbackGalleryData
+  );
 
   if (!galleryData.categories.length) {
     setGalleryHint('No published gallery items are available yet.');
@@ -1343,7 +1370,9 @@ async function initGallery() {
     if (!dynamicContent) return;
     if (dynamicContent.settings) applySiteSettings(dynamicContent.settings);
 
-    const nextGalleryData = hasRenderableGallery(dynamicContent.gallery) ? dynamicContent.gallery : fallbackGalleryData;
+    const nextGalleryData = orderGalleryCategories(
+      hasRenderableGallery(dynamicContent.gallery) ? dynamicContent.gallery : fallbackGalleryData
+    );
     writeWebsiteContentCache({
       settings: dynamicContent.settings || cachedSettings || null,
       gallery: nextGalleryData

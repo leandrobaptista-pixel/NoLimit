@@ -1574,7 +1574,7 @@ async function saveDataEntry(formData) {
   }
   const saved = await savePreviewState();
   if (!saved && stateBeforeSave) {
-    state = stateBeforeSave;
+    if (!await pullBetaWorkspace({quiet:true})) state = stateBeforeSave;
     throw new Error("The record was not saved to the shared No Limit workspace. Please retry after the cloud connection is restored.");
   }
 }

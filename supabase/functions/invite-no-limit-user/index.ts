@@ -33,8 +33,9 @@ Deno.serve(async (request) => {
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
   const { data: membership } = await admin.from("organization_members").select("role,status")
     .eq("organization_id", organizationId).eq("user_id", callerData.user.id).eq("status", "active").maybeSingle();
-  if (!membership || !["owner", "admin"].includes(membership.role)) {
-    return json(403, { error: "Only an administrator can manage user access" });
+  const {data: isOwner, error: ownerError} = await callerClient.rpc("nl_is_owner", {org: organizationId});
+  if (ownerError || !isOwner || !membership || membership.role !== "owner") {
+    return json(403, { error: "Only the Owner can manage user access" });
   }
 
   const body = await request.json().catch(() => ({}));
@@ -64,6 +65,9 @@ Deno.serve(async (request) => {
   const role = String(body.role ?? "viewer");
   const linkedPersonId = String(body.linkedPersonId ?? "").trim();
   if (!email || !fullName || !allowedRoles.has(role)) return json(400, { error: "Invalid invitation details" });
+  const {data: accessGroup,error:groupError}=await admin.from("nl_access_groups").select("scope").eq("organization_id",organizationId).eq("group_key",role).single();
+  if(groupError || !accessGroup)return json(400,{error:"Access group could not be checked."});
+  if(accessGroup.scope === "assigned" && !linkedPersonId)return json(400,{error:"Link a person or company for assigned-project access."});
 
   if (linkedPersonId) {
     const {data: workspace,error:workspaceError} = await admin.from("beta_workspaces").select("payload")
@@ -102,3 +106,4 @@ Deno.serve(async (request) => {
   await admin.from("audit_log").insert({ organization_id: organizationId, actor_user_id: callerData.user.id, action: "user_invited", entity_type: "organization_member", entity_id: invitedUser.id, new_data: { email, full_name: fullName, role, linked_person_id: linkedPersonId || null } });
   return json(200, { invited: invitationSent, accessAssigned: true, alreadyActive: false });
 });
+

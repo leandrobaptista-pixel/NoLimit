@@ -551,14 +551,14 @@ function openBusinessDocument(type, id) {
   documentDialogTitle.textContent = type === "proposal" ? "Proposal preview" : "Invoice preview";
   documentCanvas.innerHTML = renderBusinessDocument(context, false);
   documentNotice.textContent = "Nothing is sent automatically. Review the document before preparing a message.";
-  editDocumentButton.hidden = false;
+  editDocumentButton.hidden = !NoLimitAccess.can("documents", "edit");
   addDocumentItemButton.hidden = true;
   saveDocumentButton.hidden = true;
   documentDialog.showModal();
 }
 
 function setDocumentEditing(editing) {
-  if (!activeDocument) return;
+  if (!activeDocument || editing && !NoLimitAccess.can("documents","edit")) return;
   activeDocument.editing = editing;
   const context = documentContext(activeDocument.type, activeDocument.id);
   if (editing && !activeDocument.draftItems) activeDocument.draftItems = JSON.parse(JSON.stringify(context.record.items));
@@ -638,6 +638,7 @@ function prepareNewCatalogServiceForm() {
 }
 
 async function saveCustomService(formData) {
+  if (!NoLimitAccess.allows("catalogService", editingCatalogServiceId ? "edit" : "create")) throw new Error("Your group cannot change this service.");
   const existing = state.customServices.find((item) => item.id === editingCatalogServiceId);
   const name = String(formData.get("title") || "").trim();
   if (!name) throw new Error("Enter a service name.");
@@ -688,7 +689,7 @@ async function saveCustomService(formData) {
 }
 
 function openCatalogServiceForm(serviceId = "") {
-  if (!betaCanCreate("catalogService")) return;
+  if (!NoLimitAccess.allows("catalogService", serviceId ? "edit" : "create")) return;
   const service = state.customServices.find((item) => item.id === serviceId);
   editingCatalogServiceId = service?.id || "";
   pendingCustomServiceTarget = null;
@@ -708,20 +709,21 @@ function openCatalogServiceForm(serviceId = "") {
 }
 
 function archiveCatalogService(serviceId) {
-  if (!betaCanCreate("catalogService")) return;
+  if (!NoLimitAccess.allows("catalogService", "delete")) return;
   state.customServices = state.customServices.map((service) => service.id === serviceId ? { ...service, archived: true } : service);
   savePreviewState();
   renderRoute();
 }
 
 function restoreCatalogService(serviceId) {
-  if (!betaCanCreate("catalogService")) return;
+  if (!NoLimitAccess.allows("catalogService", "edit")) return;
   state.customServices = state.customServices.map((service) => service.id === serviceId ? { ...service, archived: false } : service);
   savePreviewState();
   renderRoute();
 }
 
 function saveDocumentEdits() {
+  if(!NoLimitAccess.can("documents","edit"))return;
   if (Array.from(documentCanvas.querySelectorAll('input[type="number"]')).some(input => !input.reportValidity())) {
     documentNotice.textContent = "Enter a quantity and price for every document item. A price of zero must be entered explicitly.";
     return;
@@ -779,6 +781,7 @@ function field(label, name, options = {}) {
 }
 
 function openDataEntry(type, recordId = "") {
+  if (!NoLimitAccess.allows(type, recordId ? "edit" : "create", recordId)) { window.alert("Your group does not have permission for this activity."); return; }
   pendingRecordType = type;
   pendingRecordId = recordId;
   if (ProjectControlsUI.handles(type)) { ProjectControlsUI.open(type, recordId, { projectId: selectedProjectId }); return; }
@@ -865,7 +868,7 @@ function openDataEntry(type, recordId = "") {
   dataForm.reset();
   if (type === "person" && !recordId && location.hash === "#vendors") dataForm.elements.namedItem("type").value = "Vendor";
   if (type === "projectVendor" && selectedProjectId) dataForm.elements.namedItem("projectId").value = selectedProjectId;
-  const source = type === "client" ? state.clients.find((item) => item.id === recordId) : type === "project" ? state.projects.find((item) => item.id === recordId) : type === "person" ? state.people.find((item) => item.id === recordId) : type === "estimate" ? state.estimates.find((item) => item.id === recordId) : null;
+  const source = type === "client" ? state.clients.find((item) => item.id === recordId) : type === "project" ? state.projects.find((item) => item.id === recordId) : type === "person" ? state.people.find((item) => item.id === recordId) : type === "estimate" ? state.estimates.find((item) => item.id === recordId) : type === "schedule" ? state.schedule.find(item => item.id === recordId) : null;
   if (source) {
     Object.entries(source).forEach(([name, value]) => {
       const control = dataForm.elements.namedItem(name);
@@ -887,6 +890,7 @@ function openDataEntry(type, recordId = "") {
       if (dataForm.elements.namedItem("taxPercent")) dataForm.elements.namedItem("taxPercent").value = taxPercent || "";
     }
   }
+  NoLimitAccess.protectForm(type, recordId);
   dataDialog.showModal();
   const categoryControl = dataForm.elements.namedItem("category");
   categoryControl?.addEventListener("change", () => {
@@ -944,6 +948,7 @@ function projectActualCost(project) {
 }
 
 function prepareInsuranceRenewal(personId) {
+  if(!NoLimitAccess.can("compliance","create"))return;
   const person = state.people.find((item) => item.id === personId);
   if (!person) return;
   const recipient = person.email || person.companyPhone || person.personalPhone;
@@ -1044,6 +1049,7 @@ async function pullBetaWorkspace({ quiet = false } = {}) {
     const remoteState = rows?.[0]?.payload?.state;
     if (remoteState) {
       state = normalizedSharedState(remoteState);
+      NoLimitAccess.snapshot();
       lastWorkspaceUpdatedAt = rows[0].updated_at || null;
       if (currentAuthSession?.user) await updatePresence(location.hash.replace(/^#/, "") || "overview", { syncLatencyMs: Math.round(performance.now() - startedAt) });
     } else {
@@ -1063,15 +1069,18 @@ async function pushBetaWorkspace() {
   try {
     setSyncStatus("Saving…", "saving");
     const now = new Date().toISOString();
+    const submittedState = structuredClone(state);
+    const changes = NoLimitAccess.changes();
     const startedAt = performance.now();
     const { data, error } = await window.noLimitSupabaseClient.rpc("save_admin_workspace", {
       workspace_org: betaConfig().organizationId,
       workspace_id: betaWorkspaceId,
-      workspace_payload: { state, updatedAt: now, updatedBy: currentBetaUser.name, updatedByRole: currentBetaUser.role },
+      workspace_payload: { state: submittedState, changes, updatedAt: now, updatedBy: currentBetaUser.name, updatedByRole: currentBetaUser.role },
       expected_updated_at: lastWorkspaceUpdatedAt,
     });
     if (error) throw error;
     lastWorkspaceUpdatedAt = data?.[0]?.updated_at || lastWorkspaceUpdatedAt;
+    NoLimitAccess.snapshot(submittedState);
     const latency = Math.round(performance.now() - startedAt);
     // Presence telemetry is useful, but it is never allowed to turn a
     // confirmed workspace write into a false "Cloud save failed" result.
@@ -1085,37 +1094,27 @@ async function pushBetaWorkspace() {
     return true;
   } catch (error) {
     console.error("Could not save shared workspace", error);
+    if (error?.code === "42501") { await NoLimitAccess.refresh().catch(() => {}); await pullBetaWorkspace({quiet:true}); renderRoute(); }
     const message = String(error?.message || "");
     setSyncStatus(message.includes("changed on another device") ? "Sync conflict — refresh required" : "Cloud save failed", "error");
     return false;
   }
 }
 
-function routesForBetaRole(role = "viewer") {
-  if (role === "admin") return Object.keys(routes).filter(route => route !== "website-insights" || canAccessAuditControls());
-  return ["overview", "projects", "schedule", "media", "team", "map"];
+function routesForBetaRole() {
+  return Object.keys(routes).filter(route => ["security", "website-insights"].includes(route) ? NoLimitAccess.isOwner() : NoLimitAccess.can(route));
 }
-
-function canAccessAuditControls() {
-  // The server policy is the security boundary; this keeps the interface
-  // aligned with the same Owner/Developer-only operational rule.
-  return isLocalPreview || ["owner", "developer"].includes(currentBetaUser?.membershipRole);
-}
-
-function betaCanCreate(type) {
-  if (isLocalPreview) return true;
-  if (type === "accessUser") return ["owner", "admin"].includes(currentBetaUser?.membershipRole);
-  return currentBetaUser?.role === "admin";
-}
+function canAccessAuditControls() { return NoLimitAccess.isOwner(); }
+function betaCanCreate(type) { return NoLimitAccess.allows(type, "create"); }
 
 function canStartCreate(type) {
   // During a session refresh the shell can render before the membership lookup
   // returns. Keep the action available to the signed-in user, then re-check the
   // real membership immediately before opening the form or writing anything.
-  return betaCanCreate(type) || Boolean(!currentBetaUser && currentAuthSession?.user);
+  return betaCanCreate(type);
 }
 
-async function confirmCreateAccess(type) {
+async function confirmCreateAccess(type, action = "create", id = "") {
   if (!currentBetaUser && currentAuthSession?.user && window.noLimitSupabaseClient) {
     const { data: { session } } = await window.noLimitSupabaseClient.auth.getSession();
     const user = session ? await userFromSession(session) : null;
@@ -1125,7 +1124,7 @@ async function confirmCreateAccess(type) {
       applyBetaAccess();
     }
   }
-  if (betaCanCreate(type)) return true;
+  if (NoLimitAccess.allows(type, action, id)) return true;
   window.alert("Your account can view assigned records. Contact the office to request changes.");
   return false;
 }
@@ -1136,9 +1135,7 @@ function applyBetaAccess() {
   nav.querySelectorAll("a[data-route]").forEach((link) => { link.hidden = !allowedRoutes.has(link.dataset.route); });
   content.querySelectorAll("[data-create]").forEach((button) => { button.hidden = !canStartCreate(button.dataset.create); });
   content.querySelectorAll("[data-import-catalog-services], [data-add-catalog-service], [data-edit-catalog-service], [data-remove-catalog-service], [data-restore-catalog-service]").forEach((button) => { button.hidden = !canStartCreate("catalogService"); });
-  if (role !== "admin") {
-    content.querySelectorAll("[data-edit-client], [data-edit-project], [data-edit-estimate], [data-convert-estimate], [data-edit-person], [data-renewal-person]").forEach((button) => { button.hidden = true; });
-  }
+  NoLimitAccess.apply();
   document.querySelectorAll("[data-report-access]").forEach(link => { link.hidden = !canAccessAuditControls(); });
   const name = currentBetaUser?.name || "No Limit user";
   const initials = name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
@@ -1147,7 +1144,7 @@ function applyBetaAccess() {
   const strong = profileButton?.querySelector("strong");
   const small = profileButton?.querySelector("small");
   if (strong) strong.textContent = name;
-  if (small) small.textContent = formatStatus(role);
+  if (small) small.textContent = NoLimitAccess.isOwner() ? "Owner" : formatStatus(currentBetaUser?.membershipRole || role);
 }
 
 async function activateBetaUser(user, session = currentAuthSession) {
@@ -1181,7 +1178,7 @@ async function loadCloudAccessUsers() {
     cloudAccessUsers = state.accessUsers;
     return true;
   }
-  if (!currentAuthSession || currentBetaUser?.role !== "admin") return false;
+  if (!currentAuthSession || !NoLimitAccess.isOwner()) return false;
   const config = betaConfig();
   const membersQuery = new URLSearchParams({ select: "user_id,role,status,linked_person_id", organization_id: `eq.${config.organizationId}` });
   const profilesQuery = new URLSearchParams({ select: "id,email,full_name" });
@@ -1249,6 +1246,13 @@ async function refreshWorkspaceIfChanged() {
   const endpoint = betaEndpoint();
   if (!endpoint) return;
   try {
+    const accessChanged = await NoLimitAccess.refresh();
+    if (accessChanged) {
+      visitIntake.items=[];visitIntake.loaded=false;websiteInsights.data=null;
+      dataDialog.close();documentDialog.close();
+      if(await pullBetaWorkspace({quiet:true})) renderRoute();
+      return;
+    }
     const {data: rows,error} = await window.noLimitSupabaseClient.rpc("read_operational_workspace", {
       workspace_org: betaConfig().organizationId, workspace_id: betaWorkspaceId
     });
@@ -1259,6 +1263,7 @@ async function refreshWorkspaceIfChanged() {
     }
   } catch (error) {
     console.error("Could not refresh shared workspace", error);
+    if(error?.code === "42501") { state=emptyOperationalState();currentBetaUser=null;currentAuthSession=null;visitIntake.items=[];websiteInsights.data=null;content.replaceChildren();document.body.classList.add("auth-required");authStatus.textContent="Your access has changed. Sign in again or contact the Owner."; }
     setSyncStatus("Cloud sync failed", "error");
   }
 }
@@ -1335,12 +1340,15 @@ async function userFromSession(session) {
     client.from("organization_members").select("role,status").eq("organization_id", betaConfig().organizationId).eq("user_id", session.user.id).eq("status", "active").single(),
   ]);
   if (profileError || membershipError || !membership) return null;
+  const {data: access, error: accessError} = await client.rpc("nl_access_context", {org: betaConfig().organizationId});
+  if (accessError || !access) throw new Error("Secure access rules could not be loaded. Please retry.");
   return {
     id: session.user.id,
     username: profile?.email || session.user.email,
     name: profile?.full_name || session.user.email?.split("@")[0] || "No Limit user",
     role: mappedBetaRole(membership.role),
     membershipRole: membership.role,
+    access,
   };
 }
 
@@ -1389,7 +1397,7 @@ async function startBeta() {
 }
 
 async function saveDataEntry(formData) {
-  if (!betaCanCreate(pendingRecordType)) throw new Error("Your account can view assigned records. Contact the office to request changes.");
+  if (!NoLimitAccess.allows(pendingRecordType, pendingRecordId ? "edit" : "create", pendingRecordId)) throw new Error("Your group does not have permission for this activity.");
   if (ProjectControlsUI.handles(pendingRecordType)) {
     const prior = state;
     const result = window.NoLimitProjectControls.apply(state, pendingRecordType, formData, pendingRecordId, currentBetaUser?.id || currentBetaUser?.name || "office");
@@ -1428,14 +1436,17 @@ async function saveDataEntry(formData) {
     else state.estimates.unshift(record);
   }
   if (pendingRecordType === "project") {
-    const client = state.clients.find((item) => item.id === formData.get("clientId"));
     const existingProject = state.projects.find((item) => item.id === pendingRecordId);
+    const client = state.clients.find((item) => item.id === formData.get("clientId")) || (!NoLimitAccess.can("clients") && existingProject ? {id:"",name:""} : null);
+    if(!client)throw new Error("Select a client. Client view permission is required when creating a project.");
     const submittedStartDate = String(formData.get("startDate") || "");
     const project = { materialTakeoffs: existingProject?.materialTakeoffs || [], id: pendingRecordId || nextId(state.projects, "PR"), name: formData.get("name"), clientId: client.id, clientName: client.name, status: formData.get("status"), service: formData.get("service"), siteStreet: formData.get("siteStreet"), siteCity: formData.get("siteCity"), siteState: formData.get("siteState"), sitePostalCode: formData.get("sitePostalCode"), startDate: submittedStartDate ? readableDate(submittedStartDate) : existingProject?.startDate || "To be scheduled", progress: Number(formData.get("progress")), contractValue: Number(formData.get("contractValue")), cost: Number(formData.get("cost")), outstanding: Number(formData.get("outstanding")), managerId: existingProject?.managerId || "" };
     if (pendingRecordId) state.projects = state.projects.map((item) => item.id === pendingRecordId ? project : item);
     else state.projects.unshift(project);
-    state.clients.forEach((item) => { item.projectIds = (item.projectIds || []).filter((id) => id !== project.id); });
-    client.projectIds = [...new Set([...(client.projectIds || []), project.id])];
+    if(NoLimitAccess.can("clients","edit")){
+      state.clients.forEach((item) => { item.projectIds = (item.projectIds || []).filter((id) => id !== project.id); });
+      client.projectIds = [...new Set([...(client.projectIds || []), project.id])];
+    }
   }
   if (pendingRecordType === "transaction") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
@@ -1519,7 +1530,7 @@ async function saveDataEntry(formData) {
       status = "invited";
     }
     if (isLocalPreview) state.accessUsers.unshift({ id: nextId(state.accessUsers, "USR"), name: formData.get("name"), email, role, linkedPersonId, status, invitedAt: readableDate() });
-    else await loadCloudAccessUsers();
+    else { await loadCloudAccessUsers(); await NoLimitAccess.refresh(); }
   }
   if (pendingRecordType === "receipt") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
@@ -1537,7 +1548,8 @@ async function saveDataEntry(formData) {
   if (pendingRecordType === "schedule") {
     const person = state.people.find((item) => item.id === formData.get("personId"));
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
-    state.schedule.unshift({ id: nextId(state.schedule, "SCH"), personId: person.id, personName: person.name, personType: person.type, projectId: project.id, projectName: project.name, workDate: readableDate(formData.get("workDate")), shift: formData.get("shift"), instructions: formData.get("instructions"), status: formData.get("status") });
+    const record = { ...(state.schedule.find(r => r.id === pendingRecordId) || {}), id: pendingRecordId || nextId(state.schedule, "SCH"), personId: person.id, personName: person.name, personType: person.type, projectId: project.id, projectName: project.name, workDate: readableDate(formData.get("workDate")), shift: formData.get("shift"), instructions: formData.get("instructions"), status: formData.get("status") };
+    if (pendingRecordId) state.schedule=state.schedule.map(r=>r.id===pendingRecordId?record:r); else state.schedule.unshift(record);
   }
   if (pendingRecordType === "media") {
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
@@ -1595,7 +1607,7 @@ function metric(label, value, note, route) {
 }
 
 function renderOverview() {
-  if (currentBetaUser && currentBetaUser.role !== "admin") return `<section class="page">${pageHead({kicker:"Your workspace",heading:"Your assigned projects and schedule",description:"The office shares your assignments and approved documents here. Contact the office to request changes."})}<div class="metric-grid">${metric("Projects",state.projects.length,"Projects assigned to your account.","projects")}${metric("Assignments",state.schedule.length,"Your work schedule.","schedule")}${metric("Shared files",state.media.length,"Approved files for your projects.","media")}</div></section>`;
+  if (!NoLimitAccess.can("financial")) return `<section class="page">${pageHead({kicker:"Your workspace",heading:"Your assigned projects and schedule",description:"The office shares your assignments and approved documents here. Contact the office to request changes."})}<div class="metric-grid">${metric("Projects",state.projects.length,"Projects assigned to your account.","projects")}${metric("Assignments",state.schedule.length,"Your work schedule.","schedule")}${metric("Shared files",state.media.length,"Approved files for your projects.","media")}</div></section>`;
   const active = state.projects.filter(item => item.status === "active").length;
   const pending = visitIntake.items.filter(item => !item.discarded_at && ["to_contact","waiting_reply","in_progress"].includes(item.status));
   return `<section class="page">${pageHead(routes.overview,'<a class="button" href="#requests">Review website requests</a><a class="button secondary" href="#reports">Build a report</a>')}<div class="metric-grid">${metric("Requests to review",visitIntake.loaded?pending.length:"—",visitIntake.error?"Open Visit Requests to retry.":"Shared website requests.","requests")}${metric("Active projects",active,"Projects currently in execution.","projects")}${metric("Clients",state.clients.length,"Client records in the shared workspace.","clients")}${metric("People & companies",state.people.length,"Team members, vendors and subcontractors.","team")}</div>${ProjectControlsUI.attention()}
@@ -1698,7 +1710,7 @@ function previewTakeoff(project, takeoff) {
 }
 
 async function openTakeoffEditor(projectId, takeoffId='') {
-  if(!await confirmCreateAccess('takeoff'))return;
+  if(!await confirmCreateAccess('project', 'edit'))return;
   const project=state.projects.find(item=>item.id===projectId);if(!project)return;
   let draft=NoLimitTakeoff.clone((project.materialTakeoffs||[]).find(item=>item.id===takeoffId)||NoLimitTakeoff.template());
   let dialog=document.getElementById('takeoffEditor');
@@ -1718,7 +1730,7 @@ async function openTakeoffEditor(projectId, takeoffId='') {
       event.preventDefault();if(saving)return;const form=event.currentTarget;if(!form.reportValidity())return;
       const status=dialog.querySelector('#takeoffSaveStatus');
       try {
-        if(!await confirmCreateAccess('takeoff'))return;
+        if(!await confirmCreateAccess('project', 'edit'))return;
         const record=NoLimitTakeoff.normalize(collect());
         if(!Object.values(NoLimitTakeoff.totals(record).net).some(value=>value>0))throw new Error('Enter at least one measurement or count before saving.');
         record.id=takeoffId||`TK-${crypto.randomUUID()}`;record.updatedAt=new Date().toISOString();
@@ -1741,7 +1753,7 @@ function bindTakeoffEvents() {
   content.querySelectorAll('[data-preview-takeoff]').forEach(button=>button.onclick=()=>{const project=state.projects.find(item=>item.id===button.dataset.takeoffProject);previewTakeoff(project,project?.materialTakeoffs?.find(item=>item.id===button.dataset.previewTakeoff));});
   content.querySelectorAll('[data-preview-attached]').forEach(button=>button.onclick=()=>{const estimate=state.estimates.find(item=>item.id===button.dataset.previewAttached);previewTakeoff(state.projects.find(item=>item.id===estimate?.projectId),estimate?.materialTakeoff);});
   content.querySelectorAll('[data-attach-takeoff],[data-detach-takeoff]').forEach(button=>button.onclick=async()=>{
-    if(!await confirmCreateAccess('takeoff'))return;
+    if(!await confirmCreateAccess('documents', 'edit'))return;
     const id=button.dataset.attachTakeoff||button.dataset.detachTakeoff,estimate=state.estimates.find(item=>item.id===id);if(!estimate)return;
     const project=state.projects.find(item=>item.id===estimate.projectId),selection=content.querySelector(`[data-takeoff-for="${CSS.escape(id)}"]`)?.value;
     const takeoff=button.dataset.detachTakeoff?null:project?.materialTakeoffs?.find(item=>item.id===selection);
@@ -1764,7 +1776,7 @@ function renderProjects() {
     const projectMaterials = state.materials.filter((item) => item.projectId === selectedProject.id);
     const materialVendorIds = new Set(projectMaterials.map((item) => item.vendorId).filter(Boolean));
     const projectVendors = state.people.filter((person) => ((person.projectIds || []).includes(selectedProject.id) || materialVendorIds.has(person.id) || state.schedule.some(row => row.personId === person.id && row.projectId === selectedProject.id)));
-    const canViewFinancials = (currentBetaUser?.role || "admin") === "admin";
+    const canViewFinancials = NoLimitAccess.can("financial");
     const invoiced = projectInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
     const paid = window.NoLimitProjectControls.dollars(window.NoLimitProjectControls.clientCash(state, selectedProject.id).total);
     const changeOrderValue = projectChanges.reduce((sum, item) => sum + Number(item.amount || 0), 0);
@@ -1781,7 +1793,7 @@ function renderProjects() {
           ${canViewFinancials ? `<div><span>Contract value</span><strong>${formatCurrency(selectedProject.contractValue)}</strong></div><div><span>Actual cost</span><strong>${formatCurrency(projectActualCost(selectedProject))}</strong></div>` : ""}
         </div>
         ${ProjectControlsUI.project(selectedProject)}
-        ${canViewFinancials ? renderProjectTakeoffs(selectedProject) : ""}
+        ${NoLimitAccess.can("documents") ? renderProjectTakeoffs(selectedProject) : ""}
         ${canViewFinancials ? `
           <div class="metric-grid project-financial-metrics">
             ${metric("Invoiced", formatCurrency(invoiced), `${projectInvoices.length} invoice${projectInvoices.length === 1 ? "" : "s"} for this project.`, "projects")}
@@ -1984,7 +1996,7 @@ function renderVendors() {
 }
 
 function renderSchedule() {
-  return `<section class="page">${pageHead(routes.schedule, currentBetaUser?.role === "admin" ? '<button class="button" type="button" data-pc="engagement">Link provider & terms</button>' : "")}${ProjectControlsUI.schedule()}<article class="panel"><h2>Individual access</h2><p>Each partner sees only their shared assignments. Financial terms and payment reports are restricted to authorized office accounts.</p></article></section>`;
+  return `<section class="page">${pageHead(routes.schedule, NoLimitAccess.allows("engagement", "create") ? '<button class="button" type="button" data-pc="engagement">Link provider & terms</button>' : "")}${ProjectControlsUI.schedule()}<article class="panel"><h2>Individual access</h2><p>Each partner sees only their shared assignments. Financial terms and payment reports are restricted to authorized office accounts.</p></article></section>`;
 }
 
 function renderMedia() {
@@ -2059,8 +2071,8 @@ function renderSecurity() {
   const items = [
     ["Dedicated No Limit workspace", "The private workspace remains separate from TAG and the public website.", "Active"],
     ["Individual authentication", "Every authorized person signs in with a separate account.", "Active"],
-    ["Role-based permissions", "Routes and creation rights are limited by the assigned role.", "Active"],
-    ["Administrator invitations", "Only an administrator can prepare and send a user invitation.", "Active"],
+    ["Role-based permissions", "View, create, edit and delete rights are enforced on the server by group.", "Active"],
+    ["Owner invitations", "Only the Owner can send invitations or change account permissions.", "Active"],
     ["Two-factor authentication", "Account enrollment is shown in Website Insights. Mandatory enforcement has not been verified.", "Not verified"],
     ["Audit history", "Important changes are recorded with the user, time, area, and affected record.", "Active"],
     ["Work-hour location controls", "Explicit check-in consent, project-area verification, and automatic stop at 6:00 PM.", "Planned"],
@@ -2069,23 +2081,16 @@ function renderSecurity() {
   return `
     <section class="page">
       ${pageHead(routes.security, '<button class="button" data-create="accessUser" type="button">Invite user</button>')}
-      <article class="panel">
-        <div class="panel-head"><div><h2>User access</h2><p>Create access by invitation, choose the role, and link the account to the correct person or company. Public self-registration stays disabled.</p></div></div>
-        ${demoTable(["User", "Email", "Role", "Linked record", "Status", "Prepared", "Access"], (isLocalPreview ? state.accessUsers : cloudAccessUsers).map((item) => {
-          const linked = state.people.find((person) => person.id === item.linkedPersonId);
-          return `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.role)}</td><td>${escapeHtml(linked?.name || "Not linked")}</td><td><span class="status-pill ${item.status === "active" ? "green" : "amber"}">${escapeHtml(formatStatus(item.status))}</span></td><td>${escapeHtml(item.invitedAt || "—")}</td><td><button class="text-button" type="button" data-resend-access-email="${escapeHtml(item.email)}">Send access reset</button></td></tr>`;
-        }))}
-        <p class="privacy-note">For security, the browser never receives an administrative Supabase key. New invitations use a protected server function; access resets use Supabase’s secure password-recovery flow and do not change the user’s role.</p>
-      </article>
+      ${NoLimitAccess.render()}
       ${auditControls ? `<article class="panel">
         <div class="panel-head"><div><h2>Active users and device health</h2><p>Presence is limited to the No Limit Admin. The table records device class, operating system, browser, viewport, and the last confirmed cloud-sync time; active workspaces check for shared updates every 15 seconds. It never records precise location or personal browsing history.</p></div></div>
         <div id="presenceMonitor"><p>Loading user activity…</p></div>
       </article>
       <article class="panel">
-        <div class="panel-head"><div><h2>Audit history and recovery</h2><p>Owner and Developer controls. Changes are retained without passwords, reset links, or private message content.</p></div></div>
+        <div class="panel-head"><div><h2>Audit history and recovery</h2><p>Owner controls. Changes are retained without passwords, reset links, or private message content.</p></div></div>
         <div id="auditMonitor"><p>Loading audit history…</p></div>
       </article>` : `<article class="panel">
-        <div class="panel-head"><div><h2>Audit history and recovery</h2><p>This protected control center is available only to the Owner and approved Developers.</p></div></div>
+        <div class="panel-head"><div><h2>Audit history and recovery</h2><p>This protected control center is available only to the Owner.</p></div></div>
         <p class="privacy-note">Your role continues to receive the operational information authorized for it. Audit logs, device monitoring, account intervention, and record recovery stay restricted.</p>
       </article>`}
       <div class="content-grid">
@@ -2108,7 +2113,7 @@ function renderSecurity() {
 }
 
 function renderWebsiteInsights() {
-  if (!canAccessAuditControls()) return `<section class="page"><article class="panel"><h1>Restricted report</h1><p>Only the Owner and approved Developers can view website insights and security audit information.</p></article></section>`;
+  if (!canAccessAuditControls()) return `<section class="page"><article class="panel"><h1>Restricted report</h1><p>Only the Owner can view website insights and security audit information.</p></article></section>`;
   return `<section class="page insights-page">${window.NoLimitSiteInsights.render(websiteInsights,{preview:isLocalPreview})}</section>`;
 }
 async function refreshWebsiteInsights() {
@@ -2170,6 +2175,7 @@ function contractSendLink(contract) {
 }
 
 function convertEstimateToContract(estimateId) {
+  if(!NoLimitAccess.can("documents","create") || !NoLimitAccess.can("documents","edit"))return;
   const estimate = state.estimates.find((item) => item.id === estimateId);
   if (!estimate || estimate.contractId) return;
   const client = state.clients.find((item) => item.id === estimate.clientId);
@@ -2252,6 +2258,7 @@ function convertEstimateToContract(estimateId) {
 }
 
 function prepareContractSend(contractId) {
+  if(!NoLimitAccess.can("documents","edit"))return;
   const contract = state.contracts.find((item) => item.id === contractId);
   if (!contract) return;
   contract.status = "ready-to-send";
@@ -2400,7 +2407,7 @@ async function openMediaAsset(mediaId) {
 }
 
 async function refreshVisitRequests() {
-  if (visitIntake.loading) return;
+  if (visitIntake.loading || !NoLimitAccess.can("requests")) return;
   visitIntake.loading = true; visitIntake.error = ""; visitIntake.warning = "";
   if (["#requests","#overview", ""].includes(location.hash)) renderRoute();
   try {
@@ -2428,6 +2435,7 @@ async function refreshVisitRequests() {
   finally { visitIntake.loading = false; if (["requests","overview"].includes(location.hash.replace(/^#/, "") || "overview")) renderRoute(); }
 }
 async function saveVisitRequestReview(id) {
+  if(!NoLimitAccess.can("requests","edit"))return;
   const request=visitIntake.items.find((item)=>item.id===id); if(!request)return;
   const status=document.querySelector(`[data-visit-status="${CSS.escape(id)}"]`)?.value||request.status;
   const internalNote=document.querySelector(`[data-visit-note="${CSS.escape(id)}"]`)?.value||"";
@@ -2436,6 +2444,7 @@ async function saveVisitRequestReview(id) {
   if(error||data?.error)return window.alert(data?.error||error?.message||"The request could not be updated."); Object.assign(request,data.request||{status,internal_note:internalNote});renderRoute();
 }
 async function toggleVisitRequestDiscarded(id) {
+  if(!NoLimitAccess.can("requests","delete"))return;
   const request=visitIntake.items.find((item)=>item.id===id); if(!request)return; const discarded=!request.discarded_at;
   if(!window.confirm(discarded?"Move this request to the discarded list? It can be restored later.":"Restore this request to the active review list?"))return;
   if(isLocalPreview){request.discarded_at=discarded?new Date().toISOString():null;renderRoute();return;}
@@ -2445,6 +2454,7 @@ async function toggleVisitRequestDiscarded(id) {
 
 function bindPageEvents(routeName) {
   ProjectControlsUI.bind();
+  NoLimitAccess.bind();
   if(routeName==='website-insights' && canAccessAuditControls()) {
     content.querySelector('[data-refresh-insights]')?.addEventListener('click',()=>void refreshWebsiteInsights());
     content.querySelector('#insightsPeriod')?.addEventListener('change',event=>{websiteInsights.period=event.target.value;void refreshWebsiteInsights();});
@@ -2464,13 +2474,13 @@ function bindPageEvents(routeName) {
     if (await confirmCreateAccess("catalogService")) openCatalogServiceForm();
   }));
   content.querySelectorAll("[data-edit-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
-    if (await confirmCreateAccess("catalogService")) openCatalogServiceForm(button.dataset.editCatalogService);
+    if (await confirmCreateAccess("catalogService", "edit")) openCatalogServiceForm(button.dataset.editCatalogService);
   }));
   content.querySelectorAll("[data-remove-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
-    if (await confirmCreateAccess("catalogService")) archiveCatalogService(button.dataset.removeCatalogService);
+    if (await confirmCreateAccess("catalogService", "delete")) archiveCatalogService(button.dataset.removeCatalogService);
   }));
   content.querySelectorAll("[data-restore-catalog-service]").forEach((button) => button.addEventListener("click", async () => {
-    if (await confirmCreateAccess("catalogService")) restoreCatalogService(button.dataset.restoreCatalogService);
+    if (await confirmCreateAccess("catalogService", "edit")) restoreCatalogService(button.dataset.restoreCatalogService);
   }));
   content.querySelectorAll("[data-view-document]").forEach((button) => button.addEventListener("click", () => openBusinessDocument(button.dataset.viewDocument, button.dataset.documentId)));
   content.querySelectorAll("[data-convert-estimate]").forEach((button) => button.addEventListener("click", () => convertEstimateToContract(button.dataset.convertEstimate)));
@@ -2520,7 +2530,9 @@ function closeNavigation() {
 function renderRoute() {
   const requestedHash = location.hash.replace(/^#/, "") || "overview";
   const requested = requestedHash === "services" ? "materials" : requestedHash;
-  const routeName = requested === "website-insights" ? "website-insights" : routes[requested] && (!currentBetaUser || routesForBetaRole(currentBetaUser.role).includes(requested)) ? requested : "overview";
+  const allowed = routesForBetaRole();
+  const routeName = routes[requested] && allowed.includes(requested) ? requested : allowed[0];
+  if (!routeName) { topbarTitle.textContent="No departments assigned";content.innerHTML='<section class="page"><article class="panel"><h1>No departments assigned</h1><p>Contact the Owner to request access.</p></article></section>';applyBetaAccess();return; }
   const enteringInsights=routeName === "website-insights" && lastRenderedRoute !== "website-insights";
   lastRenderedRoute=routeName;
   if(enteringInsights && !isLocalPreview){websiteInsights.data=null;websiteInsights.error="";}
@@ -2557,7 +2569,7 @@ function renderRoute() {
   updatePresence(routeName);
   // An unsuccessful load must stay visible as a single actionable error. Retrying
   // automatically after a failure would re-render this route indefinitely.
-  if (["requests","overview"].includes(routeName) && (isLocalPreview || currentBetaUser?.role === "admin") && (isLocalPreview || currentAuthSession) && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
+  if (["requests","overview"].includes(routeName) && NoLimitAccess.can("requests") && (isLocalPreview || currentAuthSession) && !visitIntake.loaded && !visitIntake.loading && !visitIntake.error) void refreshVisitRequests();
   if (routeName === "security" && canAccessAuditControls()) refreshSecurityMonitor();
   if(routeName === "website-insights" && canAccessAuditControls() && !isLocalPreview && currentAuthSession && !websiteInsights.data && !websiteInsights.loading && !websiteInsights.error) void refreshWebsiteInsights();
   closeNavigation();
@@ -2616,7 +2628,7 @@ cancelCustomServiceButton.addEventListener("click", closeCustomServiceDialog);
 customServiceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (catalogSaveBusy) return;
-  if (!customServiceForm.reportValidity() || !await confirmCreateAccess("catalogService")) return;
+  if (!customServiceForm.reportValidity() || !await confirmCreateAccess("catalogService", editingCatalogServiceId ? "edit" : "create")) return;
   const button = customServiceForm.querySelector('[type="submit"]');
   catalogSaveBusy = true;
   button.disabled = true;

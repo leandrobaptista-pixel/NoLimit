@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { allowedStaffRoles, bearerToken, mapWebsiteRequest, listWithOptionalSync } from './intake.ts';
+import { bearerToken, mapWebsiteRequest, listWithOptionalSync } from './intake.ts';
 
 const adminUrl = Deno.env.get('SUPABASE_URL')!;
 const adminServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -56,8 +56,12 @@ Deno.serve(async request => {
     const {data:member,error:memberError} = await admin.from('organization_members').select('role,status')
       .eq('organization_id',organizationId).eq('user_id',user.id).eq('status','active').maybeSingle();
     if (memberError) throw memberError;
-    if (!member || !allowedStaffRoles.has(member.role)) return reply({error:'Your account is not authorized to review website requests.'},403);
+    if (!member) return reply({error:'Your account is not authorized to review website requests.'},403);
     const body = await request.json();
+    const operation=body.action==='sync_and_list'?'view':body.action==='discard'?'delete':'edit';
+    const {data:allowed,error:permissionError}=await admin.rpc('nl_intake_permission_for',{org:organizationId,actor:user.id,operation});
+    if(permissionError)throw permissionError;
+    if(!allowed)return reply({error:'Your group does not have permission for this activity.'},403);
     if (body.action === 'sync_and_list') {
       const result = await listWithOptionalSync(() => syncWebsiteRequests(admin), async () => {
       const requests = [];
@@ -87,3 +91,4 @@ Deno.serve(async request => {
     return reply({error:error instanceof Error ? error.message : 'Request processing failed. Refresh and try again.'},400);
   }
 });
+

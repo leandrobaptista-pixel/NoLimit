@@ -2570,6 +2570,7 @@ const NoLimitDemoCleanup = (() => {
       if(r.managerId&&removed.has('people:'+r.managerId)){r.managerId='';changes.push(c+':'+r.id+' manager link');}
       for(const [field,col] of Object.entries(refs)){
         if(field==='managerId')continue;
+        if(field==='requestId' && c==='estimates' && r[field] && removed.has(col+':'+r[field])){r[field]='';changes.push(c+':'+r.id+' obsolete request link');continue;}
         if(r[field]&&removed.has(col+':'+r[field]))throw new Error('Keep or reassign '+c+' / '+label(r)+' ('+r.id+') before removing its '+field+'.');
       }
     }

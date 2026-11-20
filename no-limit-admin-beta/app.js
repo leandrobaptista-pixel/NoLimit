@@ -2531,7 +2531,88 @@ async function toggleVisitRequestDiscarded(id) {
   if(error||data?.error)return window.alert(data?.error||error?.message||"The request could not be updated."); Object.assign(request,data.request||{discarded_at:discarded?new Date().toISOString():null});renderRoute();
 }
 
+
+// Owner-only review of disposable operational examples. Live state is authoritative.
+const NoLimitDemoCleanup = (() => {
+  const collections=['requests','siteVisits','estimates','contracts','invoices','payments','changeOrders','expenseReceipts','insuranceRenewals','clients','projects','transactions','people','media','materials','schedule','attendance','compliance','consents','customServices','projectEngagements','providerMilestones','providerPayments','accessUsers'];
+  const refs={projectId:'projects',clientId:'clients',personId:'people',vendorId:'people',managerId:'people',requestId:'requests',estimateId:'estimates',contractId:'contracts',invoiceId:'invoices',scheduleId:'schedule',engagementId:'projectEngagements'};
+  const marked=v=>/\bdemo\b|\bteste\b|^(?:test|testing|sample|example)(?:\s|[-—_:])/i.test(String(v||''));
+  const label=r=>r.name||r.title||r.clientName||r.personName||r.description||r.document||r.requirement||r.projectName||r.id;
+  const key=(c,r)=>c+':'+r.id;
+  function plan(snapshot,seeds={}) {
+    const entries=[];
+    for(const c of collections)for(const r of snapshot[c]||[]){
+      const seed=(seeds[c]||[]).find(s=>s.id===r.id);
+      const explicit=['name','title','clientName','personName','vendor','party','contactName','reference'].some(k=>marked(r[k])) || /@(?:[^@]+\.)?example\.invalid$/i.test(r.email||'');
+      const untouched=seed && c!=='accessUsers' && c!=='customServices' && !Object.keys(r).some(k=>/Path$/.test(k)&&r[k]) && Object.entries(seed).every(([k,v])=>JSON.stringify(r[k])===JSON.stringify(v));
+      // A DEMO id alone is never proof: records can have been reused for real work.
+      if(explicit||untouched)entries.push({collection:c,id:r.id,label:label(r),record:r,reason:explicit?'Explicit test / demo label':'Unchanged original example',selected:true});
+    }
+    const targets=new Set(entries.map(e=>e.collection+':'+e.id));
+    // Linked rows are shown for review, never silently cascaded into the deletion.
+    for(const c of collections)for(const r of snapshot[c]||[]){
+      if(targets.has(key(c,r)))continue;
+      const linked=Object.entries(refs).filter(([k,col])=>r[k]&&targets.has(col+':'+r[k]));
+      if(linked.length)entries.push({collection:c,id:r.id,label:label(r),record:r,reason:'Linked to test data — review before selecting',selected:false});
+    }
+    return entries;
+  }
+  function apply(snapshot,selected) {
+    const next=structuredClone(snapshot),removed=new Set(selected.map(e=>e.collection+':'+e.id)),changes=[];
+    for(const c of collections)next[c]=(next[c]||[]).filter(r=>!removed.has(key(c,r)));
+    for(const c of collections)for(const r of next[c]){
+      if(Array.isArray(r.projectIds)){
+        const kept=r.projectIds.filter(id=>!removed.has('projects:'+id));
+        if(kept.length!==r.projectIds.length){changes.push(c+':'+r.id+' project links');r.projectIds=kept;}
+      }
+      // Contact assignment to a removed demo manager is optional.
+      if(r.managerId&&removed.has('people:'+r.managerId)){r.managerId='';changes.push(c+':'+r.id+' manager link');}
+      for(const [field,col] of Object.entries(refs)){
+        if(field==='managerId')continue;
+        if(r[field]&&removed.has(col+':'+r[field]))throw new Error('Keep or reassign '+c+' / '+label(r)+' ('+r.id+') before removing its '+field+'.');
+      }
+    }
+    return {state:next,changes};
+  }
+  return {plan,apply};
+})();
+let demoCleanupBusy=false;
+function openDemoCleanup() {
+  if(!NoLimitAccess.isOwner()||isLocalPreview)return;
+  let dialog=document.getElementById('demoCleanupDialog');
+  if(dialog)dialog.remove();
+  const reviewState=structuredClone(state),reviewVersion=lastWorkspaceUpdatedAt,entries=NoLimitDemoCleanup.plan(reviewState,defaultState);
+  dialog=document.createElement('dialog');dialog.id='demoCleanupDialog';dialog.style.cssText='max-width:1100px;width:94vw;max-height:88vh;overflow:auto;padding:24px;border-radius:16px';
+  dialog.innerHTML='<h2>Review test data cleanup</h2><p>Only selected records will be removed from the live workspace. Records linked to tests require review. Real accounts, permissions, audit history and uploaded file bytes are preserved. Reusable service prices are kept unless explicitly labeled as tests.</p><p><strong>'+entries.length+' records to review.</strong> Expand Details to inspect each full record. Clear any record that must remain.</p><form id="demoCleanupForm"><div style="overflow:auto">'+demoTable(['Remove','Section','Record','Reason','Details'],entries.map((e,i)=>'<tr><td><input type="checkbox" name="entry" value="'+i+'" aria-label="'+escapeHtml('Remove '+e.collection+' '+e.label)+'" '+(e.selected?'checked':'')+'></td><td>'+escapeHtml(e.collection)+'</td><td>'+escapeHtml(e.label)+'<small class="record-id">'+escapeHtml(e.id)+'</small></td><td>'+escapeHtml(e.reason)+'</td><td><details><summary>Details</summary><pre style="max-width:450px;white-space:pre-wrap">'+escapeHtml(JSON.stringify(e.record,null,2))+'</pre></details></td></tr>'))+'</div><p id="demoCleanupStatus" role="status"></p><label>Type REMOVE TEST DATA to confirm<input name="confirmation" autocomplete="off" required></label><p>This removes operational records permanently. Existing server snapshots remain subject to the system retention policy. Website intake requests are reviewed separately in Visit Requests.</p><button class="button secondary" type="button" id="cancelDemoCleanup">Cancel</button> <button class="button" type="submit">Remove selected test records</button></form>';
+  document.body.append(dialog);
+  dialog.querySelector('#cancelDemoCleanup').addEventListener('click',()=>{if(!demoCleanupBusy)dialog.close();});
+  dialog.addEventListener('cancel',e=>{if(demoCleanupBusy)e.preventDefault();});
+  dialog.querySelector('form').addEventListener('submit',async event=>{
+    event.preventDefault();if(demoCleanupBusy||!NoLimitAccess.isOwner())return;
+    const form=new FormData(event.target),status=dialog.querySelector('#demoCleanupStatus');
+    if(form.get('confirmation')!=='REMOVE TEST DATA'){status.textContent='Type REMOVE TEST DATA exactly.';return;}
+    if(lastWorkspaceUpdatedAt!==reviewVersion||JSON.stringify(state)!==JSON.stringify(reviewState)){status.textContent='The workspace changed. Cancel and reopen this review before deleting.';return;}
+    const chosen=form.getAll('entry').map(i=>entries[Number(i)]).filter(Boolean);
+    if(!chosen.length){status.textContent='Select at least one test record.';return;}
+    let result;
+    try{result=NoLimitDemoCleanup.apply(reviewState,chosen);}catch(error){status.textContent=error.message;return;}
+    if(!window.confirm('Permanently remove '+chosen.length+' selected test records from the live No Limit workspace? '+result.changes.length+' obsolete assignment links will also be cleared.'))return;
+    demoCleanupBusy=true;dialog.querySelectorAll('button,input').forEach(e=>e.disabled=true);
+    status.textContent='Removing selected test records…';
+    try{
+      state=result.state;
+      if(!await savePreviewState())throw new Error('Cleanup was not saved. Refresh the workspace and review before trying again.');
+      selectedClientId='';selectedProjectId='';
+      try{await recordActivity('test_data_cleanup','workspace','shared-v1',{removed:chosen.map(e=>({collection:e.collection,id:e.id})),clearedLinks:result.changes});}catch(error){console.warn('Cleanup saved; audit notification failed',error);}
+      dialog.close();renderRoute();window.alert(chosen.length+' test records removed and synchronized.');
+    }catch(error){state=reviewState;status.textContent=error.message;dialog.querySelectorAll('button,input').forEach(e=>e.disabled=false);}
+    finally{demoCleanupBusy=false;}
+  });
+  dialog.showModal();
+}
+
 function bindPageEvents(routeName) {
+  content.querySelector('[data-review-demo-cleanup]')?.addEventListener('click',openDemoCleanup);
   ProjectControlsUI.bind();
   NoLimitAccess.bind();
   if(routeName==='website-insights' && canAccessAuditControls()) {
@@ -2625,6 +2706,7 @@ function renderRoute() {
     console.error(`Could not render ${routeName}`, error);
     content.innerHTML = `<section class="page"><article class="panel"><h1>${escapeHtml(route.title)}</h1><p>This view could not be loaded because one or more older records need to be refreshed. The rest of the workspace remains unchanged.</p><button class="button" type="button" data-retry-route>Try again</button></article></section>`;
   }
+  if(routeName==='security' && NoLimitAccess.isOwner() && !isLocalPreview)content.insertAdjacentHTML('afterbegin','<article class="panel"><h2>Test data cleanup</h2><p>Review and remove demo records from the live workspace while preserving real records and accounts.</p><button class="button secondary" type="button" data-review-demo-cleanup>Review test data</button></article>');
   content.focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "instant" });
   bindPageEvents(routeName);

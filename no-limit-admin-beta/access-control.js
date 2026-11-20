@@ -109,6 +109,7 @@ const NoLimitAccess = (() => {
     if(type==='project'&&id&&!can('clients')){const e=dataForm.elements.namedItem('clientId');if(e){e.disabled=true;e.required=false;e.closest('label').hidden=true;}}
     if(type==='project')for(const k of ['contractValue','cost','outstanding']){const el=dataForm.elements.namedItem(k);if(el&&!can('financial',id?'edit':'create')){el.disabled=true;el.required=false;el.closest('label').hidden=true;}}
     if(type==='person'){
+      const rate=dataForm.elements.namedItem('dailyRate');if(rate&&!can('financial',id?'edit':'create')){rate.disabled=true;rate.required=false;rate.closest('label').hidden=true;}
       const el=dataForm.elements.namedItem('type');if(el){for(const o of el.options)o.disabled=!can(o.value==='Vendor'?'vendors':'team',id?'edit':'create');if(el.selectedOptions[0]?.disabled)el.value=[...el.options].find(o=>!o.disabled)?.value||'';}
       if(context()?.scope==='assigned'){const p=dataForm.elements.namedItem('projectId');if(p){p.disabled=true;p.required=false;}}
       if(!can('compliance'))for(const k of ['w9File','insuranceFile','policyNumber','coverageAmount']){const e=dataForm.elements.namedItem(k);if(e){e.disabled=true;e.required=false;e.closest('label').hidden=true;}}

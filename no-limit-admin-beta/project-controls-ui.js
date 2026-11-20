@@ -47,6 +47,11 @@ const ProjectControlsUI = (() => {
       if(type!=='engagement'&&!old.id)dataForm.elements.namedItem('engagementId')?.addEventListener('change',event=>{const values=Object.fromEntries(new FormData(dataForm));engagementId=event.target.value;fields(values);});
       if(type==='engagement'){
         const update=()=>{const basis=dataForm.elements.namedItem('basis').value,mode=dataForm.elements.namedItem('progressMode').value;for(const n of ['dailyRate','plannedDays','contractAmount','scopeProgress']){const el=dataForm.elements.namedItem(n);el.required=n==='scopeProgress'?mode==='scope':n==='contractAmount'?basis==='fixed':basis==='daily';el.closest('label').hidden=n==='scopeProgress'?mode!=='scope':n==='contractAmount'?basis!=='fixed':basis!=='daily';}dataForm.elements.namedItem('scopeProgress').max='100';};
+        if(!old.id){
+          const person=dataForm.elements.namedItem('personId'),rate=dataForm.elements.namedItem('dailyRate');
+          const suggestRate=()=>{rate.value=state.people.find(p=>p.id===person.value)?.dailyRate??'';};
+          person.addEventListener('change',suggestRate);suggestRate();
+        }
         dataForm.elements.namedItem('basis').addEventListener('change',update);dataForm.elements.namedItem('progressMode').addEventListener('change',update);update();
       }
     }

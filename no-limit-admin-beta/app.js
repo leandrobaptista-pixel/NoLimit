@@ -2546,7 +2546,8 @@ const NoLimitDemoCleanup = (() => {
       const explicit=['name','title','clientName','personName','vendor','party','contactName','reference'].some(k=>marked(r[k])) || /@(?:[^@]+\.)?example\.invalid$/i.test(r.email||'');
       const untouched=seed && c!=='accessUsers' && c!=='customServices' && !Object.keys(r).some(k=>/Path$/.test(k)&&r[k]) && Object.entries(seed).every(([k,v])=>JSON.stringify(r[k])===JSON.stringify(v));
       // A DEMO id alone is never proof: records can have been reused for real work.
-      if(explicit||untouched)entries.push({collection:c,id:r.id,label:label(r),record:r,reason:explicit?'Explicit test / demo label':'Unchanged original example',selected:true});
+      const originalExampleProject=c==='projects' && seed && r.name===seed.name && r.siteStreet===seed.siteStreet && r.sitePostalCode==='00000';
+      if(explicit||untouched||originalExampleProject)entries.push({collection:c,id:r.id,label:label(r),record:r,reason:explicit?'Explicit test / demo label':originalExampleProject?'Original example project and placeholder address':'Unchanged original example',selected:true});
     }
     const targets=new Set(entries.map(e=>e.collection+':'+e.id));
     // Linked rows are shown for review, never silently cascaded into the deletion.

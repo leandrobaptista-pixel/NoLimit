@@ -44,7 +44,7 @@ test('editing retains import metadata and rolls back catalog on rejected cloud s
   const existing = {id:'SVC-1',title:'Old',product:'Door',type:'Service',unitPrice:22,importSource:{file:'source.xlsx'},extraLegacy:'retain'};
   const originalDocument = {items:[{title:'Old',unitPrice:22}]};
   const form = new Map([['title','New'],['category','Door'],['product','Base'],['type','Customized'],['unit',''],['unitPrice',''],['description','']]);
-  const ctx = vm.createContext({NoLimitServiceCatalog:api,state:{customServices:[existing]},editingCatalogServiceId:'SVC-1',pendingCustomServiceTarget:null,customServiceDialog:{close(){}},location:{hash:'#materials'},renderRoute(){},savePreviewState:async()=>true,nextId:()=> 'SVC-new',documentRecord:originalDocument});
+  const ctx = vm.createContext({NoLimitAccess:{allows:()=>true},NoLimitServiceCatalog:api,state:{customServices:[existing]},editingCatalogServiceId:'SVC-1',pendingCustomServiceTarget:null,customServiceDialog:{close(){}},location:{hash:'#materials'},renderRoute(){},savePreviewState:async()=>true,nextId:()=> 'SVC-new',documentRecord:originalDocument});
   vm.runInContext(source.slice(source.indexOf('async function saveCustomService('),source.indexOf('\nfunction openCatalogServiceForm(')),ctx);
   await ctx.saveCustomService(form);
   assert.equal(ctx.state.customServices[0].importSource.file,'source.xlsx');

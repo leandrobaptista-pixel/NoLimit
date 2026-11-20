@@ -776,15 +776,38 @@ function field(label, name, options = {}) {
   if (options.multiline) {
     return `<label class="field-wide">${escapeHtml(label)}<textarea name="${escapeHtml(name)}" ${options.placeholder ? `placeholder="${escapeHtml(options.placeholder)}"` : ""} ${required}></textarea></label>`;
   }
-  const isMoney = ["unitPrice", "discount", "contractValue", "cost", "outstanding", "amount", "coverageAmount"].includes(name);
-  return `<label>${escapeHtml(label)}<input name="${escapeHtml(name)}" type="${escapeHtml(options.type || "text")}" ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} ${isMoney ? 'step="0.01" inputmode="decimal" placeholder="$0.00"' : options.placeholder ? `placeholder="${escapeHtml(options.placeholder)}"` : ""} ${required} /></label>`;
+  const isMoney = ["unitPrice", "discount", "contractValue", "cost", "outstanding", "amount", "coverageAmount", "unitCost"].includes(name);
+  return `<label>${escapeHtml(label)}<input name="${escapeHtml(name)}" type="${escapeHtml(options.type || "text")}" ${options.min !== undefined ? `min="${options.min}"` : ""} ${options.max !== undefined ? `max="${options.max}"` : ""} ${options.type === "number" && !isMoney ? 'step="any"' : ""} ${isMoney ? 'step="0.01" inputmode="decimal" placeholder="$0.00"' : options.placeholder ? `placeholder="${escapeHtml(options.placeholder)}"` : ""} ${required} /></label>`;
 }
 
-function openDataEntry(type, recordId = "") {
+function bindInvoiceEntryForm() {
+  const lines = document.getElementById("invoiceEntryLines"), total = document.getElementById("invoiceEntryTotal");
+  const projectSelect = dataForm.elements.namedItem("projectId"), clientSelect = dataForm.elements.namedItem("clientId");
+  const update = () => {
+    const rows=[...lines.querySelectorAll("[data-invoice-entry-line]")];
+    const cents=rows.reduce((sum,row)=>sum+Math.round(Number(row.querySelector('[name="itemQuantity"]').value||0)*window.NoLimitProjectControls.cents(row.querySelector('[name="itemPrice"]').value)),0);
+    total.textContent=`Invoice total: ${formatCurrency(cents/100)} · No deposit`;
+  };
+  const add = () => {
+    const row=document.createElement("fieldset"); row.dataset.invoiceEntryLine=""; row.className="invoice-entry-line";
+    row.innerHTML='<legend>Invoice line</legend>'+field("Service / floor","itemTitle")+field("Detailed scope / quantities","itemDescription",{required:false,multiline:true})+field("Quantity","itemQuantity",{type:"number",min:0.01})+field("Unit price ($)","itemPrice",{type:"number",min:0})+'<button type="button" class="text-button" data-remove-invoice-line>Remove line</button>';
+    lines.append(row); row.querySelector('[name="itemQuantity"]').value='1'; row.querySelector('[name="itemPrice"]').step='0.01';
+    row.querySelector('[data-remove-invoice-line]').addEventListener('click',()=>{if(lines.children.length>1){row.remove();update();}}); row.addEventListener('input',update); update();
+  };
+  document.getElementById("addInvoiceEntryLine").addEventListener("click",add);
+  projectSelect.addEventListener("change",()=>{const project=state.projects.find(p=>p.id===projectSelect.value);if(project){clientSelect.value=project.clientId;for(const option of projectSelect.options)option.hidden=false;}});
+  clientSelect.addEventListener("change",()=>{const project=state.projects.find(p=>p.id===projectSelect.value);if(project&&project.clientId!==clientSelect.value)projectSelect.value='';for(const option of projectSelect.options){const p=state.projects.find(p=>p.id===option.value);option.hidden=!!p&&p.clientId!==clientSelect.value;}});
+  dataForm.elements.namedItem("issueDate").value=window.NoLimitProjectControls.today();
+  const due=new Date(window.NoLimitProjectControls.today()+'T12:00:00Z');due.setUTCDate(due.getUTCDate()+30);dataForm.elements.namedItem("dueDate").value=due.toISOString().slice(0,10);
+  dataForm.elements.namedItem("terms").value='Net 30';
+  add();
+}
+
+function openDataEntry(type, recordId = "", options = {}) {
   if (!NoLimitAccess.allows(type, recordId ? "edit" : "create", recordId)) { window.alert("Your group does not have permission for this activity."); return; }
   pendingRecordType = type;
   pendingRecordId = recordId;
-  if (ProjectControlsUI.handles(type)) { ProjectControlsUI.open(type, recordId, { projectId: selectedProjectId }); return; }
+  if (ProjectControlsUI.handles(type) && !options.simpleSchedule) { ProjectControlsUI.open(type, recordId, { projectId: selectedProjectId }); return; }
   const statusOptions = (items) => items.map((item) => `<option value="${item}">${formatStatus(item)}</option>`).join("");
   const forms = {
     request: {
@@ -797,7 +820,7 @@ function openDataEntry(type, recordId = "") {
     },
     estimate: {
       title: recordId ? "Edit proposal" : "Add proposal",
-      fields: field("Estimate request", "requestId", { options: requestOptions() }) + field("Client", "clientId", { options: clientOptions() }) + field("Related project", "projectId", { required: false, options: '<option value="">Not assigned yet</option>' + projectOptions() }) + field("Issue date", "issueDate", { type: "date" }) + field("Service category", "category", { options: serviceOptions() }) + field("Service title", "title", { placeholder: "Door installation, custom stair, drop ceiling..." }) + field("Line item description", "description", { placeholder: "Detailed scope of work" }) + field("Quantity", "quantity", { type: "number", min: 0 }) + field("Unit price", "unitPrice", { type: "number", min: 0 }) + field("Discount", "discount", { required: false, type: "number", min: 0 }) + field("Tax %", "taxPercent", { required: false, type: "number", min: 0 }) + field("Valid until", "validUntil", { type: "date" }) + field("Status", "status", { options: statusOptions(["draft", "sent", "approved", "declined"]) }) + field("Proposal notes and terms", "notes", { required: false, multiline: true, placeholder: "Scope, exclusions, payment stages, and approval notes" }),
+      fields: field("Estimate request (optional)", "requestId", { required: false, options: '<option value="">Direct client / project estimate</option>' + requestOptions() }) + field("Client", "clientId", { options: clientOptions() }) + field("Related project", "projectId", { required: false, options: '<option value="">Not assigned yet</option>' + projectOptions() }) + field("Issue date", "issueDate", { type: "date" }) + field("Service category", "category", { options: serviceOptions() }) + field("Service title", "title", { placeholder: "Door installation, custom stair, drop ceiling..." }) + field("Line item description", "description", { placeholder: "Detailed scope of work" }) + field("Quantity", "quantity", { type: "number", min: 0 }) + field("Unit price", "unitPrice", { type: "number", min: 0 }) + field("Discount", "discount", { required: false, type: "number", min: 0 }) + field("Tax %", "taxPercent", { required: false, type: "number", min: 0 }) + field("Valid until", "validUntil", { type: "date" }) + field("Status", "status", { options: statusOptions(["draft", "sent", "approved", "declined"]) }) + field("Proposal notes and terms", "notes", { required: false, multiline: true, placeholder: "Scope, exclusions, payment stages, and approval notes" }),
     },
     client: {
       title: recordId ? "Edit client" : "Add client",
@@ -809,7 +832,11 @@ function openDataEntry(type, recordId = "") {
     },
     transaction: {
       title: "Add financial transaction",
-      fields: field("Project", "projectId", { options: projectOptions() }) + field("Transaction type", "type", { options: '<option value="receivable">Client receivable</option><option value="cost">Project cost</option>' }) + field("Category", "category", { placeholder: "Materials, labor, payment..." }) + field("Related party", "party", { placeholder: "Demo client or vendor" }) + field("Amount", "amount", { type: "number", min: 0 }) + field("Status", "status", { options: statusOptions(["open", "due", "paid"]) }),
+      fields: field("Project", "projectId", { options: projectOptions() }) + field("Transaction type", "type", { options: '<option value="cost">Project cost</option><option value="receivable">Client receivable</option>' }) + field("Category", "category", { placeholder: "Materials, labor, payment..." }) + field("Related party", "party", { placeholder: "Demo client or vendor" }) + field("Amount", "amount", { type: "number", min: 0 }) + field("Status", "status", { options: statusOptions(["open", "due", "paid"]) }),
+    },
+    invoice: {
+      title: "Create project invoice",
+      fields: field("Client", "clientId", { options: '<option value="">Select client</option>' + clientOptions() }) + field("Project", "projectId", { options: '<option value="">Select project</option>' + projectOptions() }) + field("Invoice date", "issueDate", { type: "date" }) + field("Due date", "dueDate", { type: "date" }) + field("Reference (optional; e.g. QuickBooks invoice number)", "reference", { required:false }) + field("Payment terms", "terms", { required:false }) + '<div class="field-wide" id="invoiceEntryLines"></div><button class="button secondary" id="addInvoiceEntryLine" type="button">Add invoice line</button><p class="privacy-note field-wide" id="invoiceEntryTotal"></p>' + field("Invoice notes and scope", "notes", { required:false, multiline:true }) + '<p class="privacy-note field-wide">Saved as a draft. No deposit, payment, expense or contract is created. Record project costs separately.</p>',
     },
     invoiceItem: {
       title: "Add invoice item",
@@ -837,7 +864,7 @@ function openDataEntry(type, recordId = "") {
     },
     receipt: {
       title: "Add project receipt or expense",
-      fields: field("Project", "projectId", { options: projectOptions() }) + field("Vendor or store", "vendor", { placeholder: "Company or person paid" }) + field("Expense category", "category", { options: '<option>Materials</option><option>Job supplies</option><option>Equipment rental</option><option>Subcontractor</option><option>Permits and fees</option><option>Travel and delivery</option><option>Other</option>' }) + field("Purchase date", "purchaseDate", { type: "date" }) + field("Amount", "amount", { type: "number", min: 0 }) + field("Payment method", "paymentMethod", { options: '<option>Company card</option><option>Check</option><option>Cash</option><option>ACH / Bank transfer</option><option>Other</option>' }) + field("Receipt or reference number", "reference", { required: false }) + field("Upload receipt", "receiptFile", { required: false, type: "file" }) + field("Notes", "notes", { required: false, multiline: true, placeholder: "What this expense covered" }),
+      fields: field("Project", "projectId", { options: projectOptions() }) + field("Vendor or store", "vendor", { placeholder: "Company or person paid" }) + field("Expense category", "category", { options: '<option>Materials</option><option>Job supplies</option><option>Equipment rental</option><option>Employee labor</option><option>Subcontractor</option><option>Permits and fees</option><option>Travel and delivery</option><option>Other</option>' }) + field("Purchase date", "purchaseDate", { type: "date" }) + field("Amount", "amount", { type: "number", min: 0 }) + field("Payment method", "paymentMethod", { options: '<option>Company card</option><option>Check</option><option>Cash</option><option>ACH / Bank transfer</option><option>Other</option>' }) + field("Receipt or reference number", "reference", { required: false }) + field("Upload receipt", "receiptFile", { required: false, type: "file" }) + field("Notes", "notes", { required: false, multiline: true, placeholder: "What this expense covered" }),
     },
     material: {
       title: "Add project material",
@@ -866,7 +893,17 @@ function openDataEntry(type, recordId = "") {
   dialogFields.innerHTML = config.fields;
   saveRecord.textContent = type === "accessUser" ? "Send invitation" : "Save record";
   dataForm.reset();
+  if (type === "invoice") bindInvoiceEntryForm();
+  if (type === "schedule" && !recordId) {
+    dataForm.elements.namedItem("workDate").value = options.workDate || window.NoLimitProjectControls.today();
+    if (options.projectId || selectedProjectId) dataForm.elements.namedItem("projectId").value = options.projectId || selectedProjectId;
+    dialogFields.insertAdjacentHTML("beforeend",'<p class="privacy-note field-wide">Schedule only: no cost is invented. Link provider terms to record the completed daily cost.</p>');
+  }
   if (type === "person" && !recordId && location.hash === "#vendors") dataForm.elements.namedItem("type").value = "Vendor";
+  if (["receipt","invoice"].includes(type) && selectedProjectId) {
+    dataForm.elements.namedItem("projectId").value=selectedProjectId;
+    dataForm.elements.namedItem("projectId").dispatchEvent(new Event("change"));
+  }
   if (type === "projectVendor" && selectedProjectId) dataForm.elements.namedItem("projectId").value = selectedProjectId;
   const source = type === "client" ? state.clients.find((item) => item.id === recordId) : type === "project" ? state.projects.find((item) => item.id === recordId) : type === "person" ? state.people.find((item) => item.id === recordId) : type === "estimate" ? state.estimates.find((item) => item.id === recordId) : type === "schedule" ? state.schedule.find(item => item.id === recordId) : null;
   if (source) {
@@ -944,7 +981,7 @@ function projectReceiptTotal(projectId) {
 }
 
 function projectActualCost(project) {
-  return Number(project.cost || 0) + projectReceiptTotal(project.id) + window.NoLimitProjectControls.dollars(window.NoLimitProjectControls.projectSummary(state, project).earned);
+  return window.NoLimitProjectControls.dollars(window.NoLimitProjectControls.costBreakdown(state,project).total);
 }
 
 function prepareInsuranceRenewal(personId) {
@@ -1354,7 +1391,7 @@ async function userFromSession(session) {
 
 async function startBeta() {
   if (isLocalPreview && new URLSearchParams(location.search).get("local-demo") === "1") {
-    currentBetaUser = { id: "local-preview", username: "local", name: "Leandro", role: "admin" };
+    currentBetaUser = { id: "local-preview", username: "local", name: "Leandro", role: "admin", access:{owner:true} };
     document.body.classList.remove("auth-required");
     setSyncStatus("Local preview");
     renderRoute();
@@ -1398,11 +1435,20 @@ async function startBeta() {
 
 async function saveDataEntry(formData) {
   if (!NoLimitAccess.allows(pendingRecordType, pendingRecordId ? "edit" : "create", pendingRecordId)) throw new Error("Your group does not have permission for this activity.");
-  if (ProjectControlsUI.handles(pendingRecordType)) {
+  if (ProjectControlsUI.handles(pendingRecordType) && !(pendingRecordType === "schedule" && !formData.get("engagementId"))) {
     const prior = state;
     const result = window.NoLimitProjectControls.apply(state, pendingRecordType, formData, pendingRecordId, currentBetaUser?.id || currentBetaUser?.name || "office");
     state = result.state;
     try { if (!(await savePreviewState())) throw new Error("The record was not saved to the shared workspace. Restore the connection and retry."); }
+    catch (error) { state = prior; throw error; }
+    pendingRecordId = result.record.id;
+    return;
+  }
+  if (pendingRecordType === "invoice") {
+    const prior = state;
+    const result = window.NoLimitInvoiceControls.create(state, formData, nextId(state.invoices,"INV"), currentBetaUser?.id || "office");
+    state = result.state;
+    try { if (!await savePreviewState()) throw new Error("Invoice was not saved. Check the connection and retry."); }
     catch (error) { state = prior; throw error; }
     pendingRecordId = result.record.id;
     return;
@@ -1423,6 +1469,9 @@ async function saveDataEntry(formData) {
   }
   if (pendingRecordType === "estimate") {
     const client = state.clients.find((item) => item.id === formData.get("clientId"));
+    const linkedProject = state.projects.find(p=>p.id===formData.get("projectId"));
+    const linkedRequest = state.requests.find(r=>r.id===formData.get("requestId"));
+    if (!client || (linkedProject && linkedProject.clientId !== client.id) || (linkedRequest?.clientId && linkedRequest.clientId !== client.id)) throw new Error("Client, project and request must belong together.");
     const quantity = Number(formData.get("quantity"));
     const savedService = customServiceFromSelection(formData.get("category"));
     const category = savedService ? savedService.category : formData.get("category");
@@ -1432,6 +1481,13 @@ async function saveDataEntry(formData) {
     const taxable = Math.max(0, quantity * unitPrice - discount);
     const existing = state.estimates.find((item) => item.id === pendingRecordId);
     const record = { ...(existing?.projectId === formData.get("projectId") && existing?.materialTakeoff ? { materialTakeoff: existing.materialTakeoff } : {}), id: pendingRecordId || nextId(state.estimates, "EST"), requestId: formData.get("requestId"), clientId: client.id, clientName: client.name, projectId: formData.get("projectId"), issueDate: readableDate(formData.get("issueDate")), status: formData.get("status"), revision: existing ? Number(existing.revision || 1) + 1 : 1, validUntil: readableDate(formData.get("validUntil")), discount, tax: taxable * taxPercent / 100, items: [{ category, product: savedService?.product || "", type: savedService?.type || "", unit: savedService?.unit || "", customServiceId: savedService?.id || "", title: formData.get("title") || savedService?.title || category, description: formData.get("description") || savedService?.description || "", quantity, unitPrice }], total: taxable * (1 + taxPercent / 100), contractId: existing?.contractId || "", notes: formData.get("notes") };
+    if (existing?.items?.length > 1) {
+      record.items = [record.items[0], ...existing.items.slice(1)];
+      const subtotal = record.items.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.unitPrice),0);
+      const net = Math.max(0,subtotal-discount);
+      record.tax = Math.round(net*taxPercent)/100;
+      record.total = Math.round((net+record.tax)*100)/100;
+    }
     if (pendingRecordId) state.estimates = state.estimates.map((item) => item.id === pendingRecordId ? record : item);
     else state.estimates.unshift(record);
   }
@@ -1449,8 +1505,9 @@ async function saveDataEntry(formData) {
     }
   }
   if (pendingRecordType === "transaction") {
+    if(!Number.isFinite(Number(formData.get("amount")))||Number(formData.get("amount"))<=0)throw new Error("Enter a positive cost or receivable amount.");
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
-    state.transactions.unshift({ id: nextId(state.transactions, "TX"), projectId: project.id, projectName: project.name, date: readableDate(), type: formData.get("type"), category: formData.get("category"), party: formData.get("party"), amount: Number(formData.get("amount")), status: formData.get("status") });
+    state.transactions.unshift({ source: "project-cost-entry", id: nextId(state.transactions, "TX"), projectId: project.id, projectName: project.name, date: readableDate(), type: formData.get("type"), category: formData.get("category"), party: formData.get("party"), amount: Number(formData.get("amount")), status: formData.get("status") });
   }
   if (pendingRecordType === "invoiceItem") {
     const invoice = state.invoices.find((item) => item.id === formData.get("invoiceId"));
@@ -1533,7 +1590,11 @@ async function saveDataEntry(formData) {
     else { await loadCloudAccessUsers(); await NoLimitAccess.refresh(); }
   }
   if (pendingRecordType === "receipt") {
+    if(!Number.isFinite(Number(formData.get("amount")))||Number(formData.get("amount"))<=0)throw new Error("Enter a positive expense amount.");
+    const purchaseDay=window.NoLimitProjectControls.day(formData.get("purchaseDate"));
+    if(!purchaseDay||purchaseDay>window.NoLimitProjectControls.today())throw new Error("Record only an expense already incurred; use Materials for future quotes or orders.");
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
+    if(!project)throw new Error("Select the project for this expense.");
     const receiptFile = formData.get("receiptFile");
     const receiptUpload = await uploadWorkspaceFile(receiptFile,"project-files",`receipts/${project.id}`);
     state.expenseReceipts.unshift({ id: nextId(state.expenseReceipts, "RCP"), projectId: project.id, projectName: project.name, vendor: formData.get("vendor"), category: formData.get("category"), purchaseDate: formData.get("purchaseDate"), amount: Number(formData.get("amount")), paymentMethod: formData.get("paymentMethod"), reference: formData.get("reference"), receiptFileName: receiptFile?.name || "", receiptFilePath: receiptUpload?.path || "", notes: formData.get("notes") });
@@ -1548,7 +1609,15 @@ async function saveDataEntry(formData) {
   if (pendingRecordType === "schedule") {
     const person = state.people.find((item) => item.id === formData.get("personId"));
     const project = state.projects.find((item) => item.id === formData.get("projectId"));
+    const oldWork = state.schedule.find(r=>r.id===pendingRecordId);
+    const workDay = window.NoLimitProjectControls.day(formData.get("workDate"));
+    const workStatus = formData.get("status");
+    if (!person || !project || !workDay || !["scheduled","confirmed","completed","cancelled"].includes(workStatus)) throw new Error("Select a person, project, work date and status.");
+    if (workStatus === "completed" && workDay > window.NoLimitProjectControls.today()) throw new Error("Future work cannot be marked completed.");
+    if (oldWork?.engagementId && (oldWork.personId!==person.id || oldWork.projectId!==project.id)) throw new Error("Linked cost terms cannot move to another person or project.");
+    if (state.schedule.some(r=>r.id!==pendingRecordId && r.personId===person.id && r.projectId===project.id && window.NoLimitProjectControls.day(r.workDate)===workDay && r.shift===formData.get("shift") && r.status!=="cancelled" && workStatus!=="cancelled")) throw new Error("This person already has an assignment for this project, date and shift.");
     const record = { ...(state.schedule.find(r => r.id === pendingRecordId) || {}), id: pendingRecordId || nextId(state.schedule, "SCH"), personId: person.id, personName: person.name, personType: person.type, projectId: project.id, projectName: project.name, workDate: readableDate(formData.get("workDate")), shift: formData.get("shift"), instructions: formData.get("instructions"), status: formData.get("status") };
+    if (oldWork?.engagementId && (oldWork.status!==record.status || window.NoLimitProjectControls.day(oldWork.workDate)!==workDay)) throw new Error("Use Edit / complete on the priced assignment to change its work date or cost status.");
     if (pendingRecordId) state.schedule=state.schedule.map(r=>r.id===pendingRecordId?record:r); else state.schedule.unshift(record);
   }
   if (pendingRecordType === "media") {
@@ -1645,7 +1714,7 @@ function renderRequests() { const records=filteredVisitRequests(), totals=Object
 function renderDocuments() {
   return `
     <section class="page">
-      ${pageHead(routes.documents, '<button class="button" data-create="estimate" type="button">New estimate</button><button class="button secondary" data-create="changeOrder" type="button">New work / change order</button>')}
+      ${pageHead(routes.documents, '<button class="button secondary" data-create="invoice" type="button">Create invoice</button><button class="button" data-create="estimate" type="button">New estimate</button><button class="button secondary" data-create="changeOrder" type="button">New work / change order</button>')}
       <article class="panel">
         <div class="panel-head"><div><h2>Proposals and revisions</h2><p>Save drafts, revise quantities and prices, preview the branded document, then approve it to create the contract and invoice.</p></div></div>
         ${demoTable(["Proposal", "Request", "Client", "Revision", "Valid until", "Total", "Status", "Document", "Next step"], state.estimates.map((estimate) => `<tr><td><strong>${escapeHtml(estimate.id)}</strong><small class="record-id">${estimate.items.length} line item${estimate.items.length === 1 ? "" : "s"}</small></td><td>${escapeHtml(estimate.requestId)}</td><td><a href="#clients">${escapeHtml(estimate.clientName)}</a></td><td>R${estimate.revision}</td><td>${escapeHtml(estimate.validUntil)}</td><td>${formatCurrency(estimate.total)}</td><td><span class="status-pill ${statusClass(estimate.status)}">${escapeHtml(formatStatus(estimate.status))}</span></td><td><button class="text-button" data-view-document="proposal" data-document-id="${escapeHtml(estimate.id)}" type="button">Preview / send</button><small class="record-id"><button class="text-button" data-edit-estimate="${escapeHtml(estimate.id)}" type="button">Edit details</button></small></td><td>${estimate.contractId ? `<a href="#documents">${escapeHtml(estimate.contractId)}</a>` : `<button class="text-button" data-convert-estimate="${escapeHtml(estimate.id)}" type="button">Approve & generate</button>`}</td></tr>`))}
@@ -1849,16 +1918,16 @@ function renderFinancial() {
   const outstanding = state.transactions.filter((item) => item.type === "receivable" && item.status !== "paid").reduce((sum, item) => sum + Number(item.amount || 0), 0);
   return `
     <section class="page">
-      ${pageHead(routes.financial, '<button class="button" data-create="payment" type="button">Record client receipt</button><button class="button secondary" data-create="invoiceItem" type="button">Add invoice item</button><button class="button secondary" data-create="transaction" type="button">Add expense</button>')}
+      ${pageHead(routes.financial, '<button class="button" data-create="payment" type="button">Record client receipt</button><button class="button secondary" data-create="invoice" type="button">Create invoice</button><button class="button secondary" data-create="invoiceItem" type="button">Add invoice item</button><button class="button secondary" data-create="transaction" type="button">Add expense</button>')}
       <div class="metric-grid">
         ${metric("Contracted value", formatCurrency(contracted), "Total value of current project contracts.", "financial")}
         ${metric("Received", formatCurrency(received), "Client payments received.", "financial")}
-        ${metric("Actual cost", formatCurrency(actualCost), "Manual cost baseline + receipts + earned provider work.", "financial")}
+        ${metric("Actual cost", formatCurrency(actualCost), "Manual baseline + recorded expenses + earned provider work.", "financial")}
         ${metric("Outstanding", formatCurrency(outstanding), "Open client balances.", "financial")}
       </div>
       ${ProjectControlsUI.financial()}
       <article class="panel">
-        <div class="panel-head"><div><h2>Invoices and payment stages</h2><p>Invoices are generated from contracts and remain itemized by service.</p></div><a class="button secondary" href="#reports">Invoice report</a></div>
+        <div class="panel-head"><div><h2>Invoices and payment stages</h2><p>Create an invoice directly for a client project, or generate one from a contract. Job expenses stay separate.</p></div><a class="button secondary" href="#reports">Invoice report</a></div>
         ${demoTable(["Invoice", "Contract", "Client", "Project", "Items", "Total", "Paid", "Balance", "Status", "Document"], state.invoices.map((invoice) => `<tr><td><strong>${escapeHtml(invoice.id)}</strong><small class="record-id">Issued ${escapeHtml(invoice.issueDate)}</small></td><td><a href="#documents">${escapeHtml(invoice.contractId)}</a></td><td>${escapeHtml(invoice.clientName)}</td><td><a href="#projects">${escapeHtml(invoice.projectId || "Pending project")}</a></td><td>${invoice.items.length}</td><td>${formatCurrency(invoice.total)}</td><td>${formatCurrency(invoice.paid)}</td><td>${formatCurrency(invoice.balance)}</td><td><span class="status-pill ${statusClass(invoice.status)}">${escapeHtml(formatStatus(invoice.status))}</span></td><td><button class="text-button" data-view-document="invoice" data-document-id="${escapeHtml(invoice.id)}" type="button">Preview / send</button></td></tr>`))}
         <div class="panel-head subsection-head"><div><h3 class="subsection-title">Document line items</h3><p>These are historical copies saved on each invoice.</p></div><a class="button secondary compact-button" href="#materials">Open Materials / Services</a></div>
         ${demoTable(["Invoice", "Service category", "Description", "Quantity", "Unit price", "Line total"], state.invoices.flatMap((invoice) => invoice.items.map((item) => `<tr><td>${escapeHtml(invoice.id)}</td><td>${escapeHtml(item.category)}</td><td>${escapeHtml(item.description)}</td><td>${Number(item.quantity).toLocaleString("en-US")}</td><td>${formatCurrency(item.unitPrice)}</td><td>${formatCurrency(Number(item.quantity) * Number(item.unitPrice))}</td></tr>`)))}
@@ -2581,6 +2650,7 @@ menuButton.addEventListener("click", () => {
 });
 nav.querySelector('a[data-route="projects"]')?.addEventListener("click", () => { selectedProjectId = ""; });
 mobileOverlay.addEventListener("click", closeNavigation);
+dataForm.querySelectorAll('[data-cancel-entry]').forEach(button=>button.addEventListener("click",()=>dataDialog.close()));
 dataForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (event.submitter?.value === "cancel") {

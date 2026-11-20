@@ -92,6 +92,34 @@
     if(legacy.length)alerts.push({level:'info',code:'unlinked-work',text:`${legacy.length} older assignment(s) have no provider agreement / rate. Review them; costs were not invented.`,amount:null});
     return {providers,paid,due,earned,received:received.total,clientEarned,alerts,committed:providers.reduce((n,e)=>n+e.budget,0),committedUnpaid:providers.reduce((n,e)=>n+e.committedUnpaid,0),undated:received.undated};
   }
+  function costBreakdown(s,p,asOf=today()){
+    // All values in cents. A payment settles a cost; it never incurs it again.
+    const result={employees:0,subcontractors:0,materials:0,other:0,baseline:cents(p.cost),legacyUnreconciled:0,total:0,billed:0,rows:[]};
+    const bucket=(value)=>/subcontract|^subs?$/.test(String(value||'').toLowerCase())?'subcontractors':/employee|team member|payroll|^labor$|^labour$/.test(String(value||'').toLowerCase())?'employees':/material|suppl/.test(String(value||'').toLowerCase())?'materials':'other';
+    const add=(category,amount,row)=>{result[category]+=amount;result.rows.push({...row,category,amount});};
+    for(const e of list(s,'projectEngagements').filter(e=>e.projectId===p.id)){
+      const person=list(s,'people').find(person=>person.id===e.personId);
+      const sum=engagementSummary(s,e,asOf);
+      add(bucket(person?.type),sum.earned,{id:e.id,label:e.personName||person?.name||'Provider',source:e.basis==='daily'?'Completed daily work':'Fixed-contract earned work'});
+    }
+    for(const r of list(s,'expenseReceipts').filter(r=>r.projectId===p.id&&!['void','cancelled'].includes(r.status)&&(!day(r.purchaseDate)||day(r.purchaseDate)<=asOf))){
+      // Explicit links avoid double posting: provider work and material receipts
+      // use one cost source; payment history remains separate.
+      if(r.engagementId&&list(s,'projectEngagements').some(e=>e.id===r.engagementId&&e.projectId===p.id))continue;
+      add(bucket(r.category),cents(r.amount),{id:r.id,label:r.vendor||r.category,source:'Expense receipt',date:day(r.purchaseDate)});
+    }
+    for(const r of list(s,'transactions').filter(r=>r.projectId===p.id&&r.type==='cost'&&!['void','cancelled'].includes(r.status)&&(!day(r.date)||day(r.date)<=asOf))){
+      if(r.source!=='project-cost-entry'){result.legacyUnreconciled+=cents(r.amount);continue;}
+      if(r.expenseReceiptId&&list(s,'expenseReceipts').some(e=>e.id===r.expenseReceiptId&&e.projectId===p.id))continue;
+      if(r.engagementId&&list(s,'projectEngagements').some(e=>e.id===r.engagementId&&e.projectId===p.id))continue;
+      add(bucket(r.category),cents(r.amount),{id:r.id,label:r.party||r.category,source:'Cost entry',date:day(r.date)});
+    }
+    // Procurement quotes/orders are not expense receipts. Invoice line items
+    // are revenue and must never enter the expense ledger.
+    result.billed=list(s,'invoices').filter(i=>i.projectId===p.id&&!['void','cancelled'].includes(i.status)).reduce((n,i)=>n+cents(i.total),0);
+    result.total=result.baseline+result.employees+result.subcontractors+result.materials+result.other;
+    return result;
+  }
   function weekly(s,week=today(),projectId='all'){
     const range=bounds(week),within=v=>day(v)>=range.start&&day(v)<=range.end;
     return { ...range,projects:list(s,'projects').filter(p=>projectId==='all'||p.id===projectId).map(p=>{
@@ -137,6 +165,7 @@
         const workDate=date(get('workDate'),'work date'),status=get('status');
         if(!['scheduled','confirmed','completed','cancelled'].includes(status))throw new Error('Choose a valid work status.');
         if(status==='completed'&&workDate>asOf)throw new Error('Future work cannot be marked completed.');
+        if(s.schedule.some(r=>r.id!==id&&r.engagementId===e.id&&day(r.workDate)===workDate&&r.shift===text('shift',200)&&r.status!=='cancelled'&&status!=='cancelled'))throw new Error('This provider already has work for the same date and shift. Edit the existing assignment.');
         const units=e.basis==='daily'?number(get('units'),'billable days / units',{min:.01,max:1000}):1;
         const dailyRate=e.basis==='daily'?(old?.dailyRate??e.dailyRate):0;
         const workAmount=e.basis==='fixed'?(text('workValue')?number(get('workValue'),'daily contract work value'):status==='completed'?number('', 'daily contract work value'):0):0;
@@ -178,5 +207,5 @@
     for(const p of report.projects){for(const receipt of p.receipts)rows.push(['Client receipt',p.project.name,receipt.date,'Client',dollars(receipt.amount).toFixed(2),receipt.method,receipt.reference]);for(const payment of p.payments)rows.push(['Provider payment',p.project.name,day(payment.date),p.providers.find(e=>e.agreement.id===payment.engagementId)?.agreement.personName||payment.personId,Number(payment.amount).toFixed(2),payment.method,payment.reference]);}
     return '\uFEFF'+rows.map(row=>row.map(v=>{let t=String(v??'');if(/^[\s]*[=+@-]/.test(t)&&!/^-[0-9]+(?:\.[0-9]+)?$/.test(t))t="'"+t;return '"'+t.replace(/"/g,'""')+'"';}).join(',')).join('\r\n');
   }
-  window.NoLimitProjectControls={list,cents,dollars,today,day,bounds,budget,charges,workValue,engagementSummary,clientCash,projectSummary,weekly,apply,csv};
+  window.NoLimitProjectControls={list,cents,dollars,today,day,bounds,budget,charges,workValue,engagementSummary,clientCash,projectSummary,costBreakdown,weekly,apply,csv};
 })();

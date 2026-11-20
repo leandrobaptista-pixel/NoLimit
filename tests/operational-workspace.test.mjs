@@ -11,7 +11,8 @@ test('missing cloud collections never fall back to sample records',()=>{
  assert.equal(result.people.length,0);assert.equal(result.projects[0].id,'real');
 });
 test('partner routes exclude finance, requests and account administration',()=>{
- const context=vm.createContext({routes:{overview:1,security:1,financial:1,requests:1},currentBetaUser:{role:'vendor'},isLocalPreview:false});
+ const context=vm.createContext({routes:{overview:1,security:1,financial:1,requests:1},currentBetaUser:{role:'vendor',access:{owner:false,permissions:{overview:{view:true},projects:{view:true},schedule:{view:true}}}},isLocalPreview:false,window:{},state:{people:[]},location:{hash:''}});
+ vm.runInContext(readFileSync(new URL('../no-limit-admin-beta/access-control.js',import.meta.url),'utf8'),context);
  vm.runInContext(section('function routesForBetaRole(', '\nfunction canAccessAuditControls(')+section('function betaCanCreate(', '\nfunction applyBetaAccess('),context);
  for(const role of ['vendor','subcontractor','collaborator','viewer']){
   context.role=role;const routes=vm.runInContext('routesForBetaRole(role)',context);

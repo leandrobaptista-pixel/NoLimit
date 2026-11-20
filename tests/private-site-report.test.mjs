@@ -38,10 +38,10 @@ test('the icon access rule follows membership role, not the broad Admin interfac
  assert.equal(ui.canView(null),false);assert.equal(ui.canView({membershipRole:'owner'}),true);assert.equal(ui.canView({membershipRole:'developer'}),true);
  const source=readFileSync(new URL('../no-limit-admin-beta/app.js',import.meta.url),'utf8');
  const fn=source.slice(source.indexOf('function routesForBetaRole'),source.indexOf('function betaCanCreate'));
- const ctx={isLocalPreview:false,currentBetaUser:{membershipRole:'admin'},routes:{overview:{},'website-insights':{}}};
- vm.createContext(ctx);vm.runInContext(fn,ctx);
+ const ctx={isLocalPreview:false,currentBetaUser:{membershipRole:'admin',access:{owner:false}},window:{},routes:{overview:{},'website-insights':{}}};
+ vm.createContext(ctx);vm.runInContext(readFileSync(new URL('../no-limit-admin-beta/access-control.js',import.meta.url),'utf8'),ctx);vm.runInContext(fn,ctx);
  assert.equal(vm.runInContext("routesForBetaRole('admin').includes('website-insights')",ctx),false);
- ctx.currentBetaUser.membershipRole='owner';assert.equal(vm.runInContext("routesForBetaRole('admin').includes('website-insights')",ctx),true);
+ ctx.currentBetaUser.membershipRole='owner';ctx.currentBetaUser.access.owner=true;assert.equal(vm.runInContext("routesForBetaRole('admin').includes('website-insights')",ctx),true);
 });
 test('report output escapes account activity and distinguishes missing data and incomplete safeguards',()=>{
  const unloaded=ui.render({period:'today',data:null,loading:true,error:''});assert.ok(unloaded.includes('Reading the protected report'));assert.ok(unloaded.includes('—'));

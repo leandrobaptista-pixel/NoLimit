@@ -7,7 +7,7 @@ function helpers() {
  const source=readFileSync(new URL('../supabase/functions/manage-visit-requests/index.ts',import.meta.url),'utf8').replace(/^import .*\n/gm,'');
  let handler;
  const calls=[];
- const admin={storage:{from:bucket=>({createSignedUrl:async(path,seconds)=>{calls.push({bucket,path,seconds});return {data:{signedUrl:'https://example.invalid/private-signed-link'},error:null};}})},auth:{getUser:async()=>({data:{user:{id:'staff-id'}}})},from:()=>({select:()=>({eq(){return this;},maybeSingle:async()=>({data:{role:'client',status:'active'}})})})};
+ const admin={rpc:async()=>({data:false,error:null}),storage:{from:bucket=>({createSignedUrl:async(path,seconds)=>{calls.push({bucket,path,seconds});return {data:{signedUrl:'https://example.invalid/private-signed-link'},error:null};}})},auth:{getUser:async()=>({data:{user:{id:'staff-id'}}})},from:()=>({select:()=>({eq(){return this;},maybeSingle:async()=>({data:{role:'client',status:'active'}})})})};
  const ctx={Response,Request,console,createClient:()=>admin,allowedStaffRoles:new Set(['admin','manager']),bearerToken:value=>value?.replace(/^Bearer /,''),Deno:{env:{get:()=> 'configured'},serve:fn=>{handler=fn;}}};
  vm.createContext(ctx); vm.runInContext(stripTypeScriptTypes(source),ctx);
  return {ctx,admin,calls,handler};

@@ -675,3 +675,7 @@ textarea { min-height: 104px; resize: vertical; line-height: 1.5; }
 @media(max-width:520px){.pc-filters{align-items:stretch;flex-direction:column}.pc-filters label{width:100%}.pc-metrics{gap:8px}.pc-metrics>div{padding:12px}.pc-metrics strong{font-size:1.15rem}.pc-panel .pc-actions{width:100%}.pc-alert{overflow-wrap:anywhere}}
 /* Keep wide ledgers inside their horizontal table scroller on small screens. */
 .page{grid-template-columns:minmax(0,1fr);min-width:0}.page>*{min-width:0}.page-head>div{min-width:0}.page-head .button-row{flex-wrap:wrap;max-width:100%}.pc-panel .table-shell{min-width:0;max-width:100%}.pc-filters input,.pc-filters select{width:100%;min-width:0}
+
+.invoice-entry-line {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;border:1px solid var(--line,#ddd);border-radius:12px;padding:1rem;margin:0 0 1rem;min-width:0;}
+.invoice-entry-line legend{font-weight:600;padding:0 .4rem;}
+@media(max-width:640px){.invoice-entry-line{grid-template-columns:1fr;}}

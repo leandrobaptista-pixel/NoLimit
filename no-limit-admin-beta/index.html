@@ -98,12 +98,12 @@
             <p class="page-kicker">Private workspace entry</p>
             <h2 id="dialogTitle">Add record</h2>
           </div>
-          <button class="icon-button" value="cancel" aria-label="Close form" type="submit">×</button>
+          <button class="icon-button" value="cancel" aria-label="Close form" data-cancel-entry type="button">×</button>
         </div>
         <div class="form-grid" id="dialogFields"></div>
         <p class="dialog-note">This record is stored in the private No Limit workspace. It is not connected to TAG or the public website.</p>
         <div class="button-row dialog-actions">
-          <button class="button secondary" value="cancel" type="submit">Cancel</button>
+          <button class="button secondary" value="cancel" data-cancel-entry type="button">Cancel</button>
           <button class="button" id="saveRecord" value="default" type="submit">Save record</button>
         </div>
       </form>
@@ -186,6 +186,7 @@
     <script src="takeoff.js?v=__RELEASE__" defer></script>
     <script src="site-insights.js?v=__RELEASE__" defer></script>
     <script src="project-controls.js?v=__RELEASE__" defer></script>
+    <script src="invoice-controls.js?v=__RELEASE__" defer></script>
     <script src="access-control.js?v=__RELEASE__" defer></script>
     <script src="project-controls-ui.js?v=__RELEASE__-project-controls" defer></script>
     <script src="app.js?v=__RELEASE__" defer></script>

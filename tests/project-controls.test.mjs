@@ -69,7 +69,7 @@ test('standalone receipts preserve legacy cash and remain additive to invoice ba
 test('a failed shared save rolls back all project ledgers and does not claim success',async()=>{
  const app=readFileSync(new URL('../no-limit-admin-beta/app.js',import.meta.url),'utf8');
  const start=app.indexOf('async function saveDataEntry('),end=app.indexOf('\nfunction pageHead(',start);
- const ctx=vm.createContext({state:base(),window:{NoLimitProjectControls:C},ProjectControlsUI:{handles:()=>true},betaCanCreate:()=>true,pendingRecordType:'engagement',pendingRecordId:'',currentBetaUser:{id:'office'},savePreviewState:async()=>false});
+ const ctx=vm.createContext({state:base(),window:{NoLimitProjectControls:C},ProjectControlsUI:{handles:()=>true},betaCanCreate:()=>true,NoLimitAccess:{allows:()=>true},pendingRecordType:'engagement',pendingRecordId:'',currentBetaUser:{id:'office'},savePreviewState:async()=>false});
  vm.runInContext(app.slice(start,end),ctx);ctx.input=terms;
  await assert.rejects(vm.runInContext('saveDataEntry(input)',ctx),/not saved/);
  assert.equal(ctx.state.projectEngagements.length,0);assert.equal(ctx.state.people[0].projectIds.length,0);

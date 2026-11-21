@@ -190,6 +190,7 @@ function savePreviewState() {
 }
 
 const routes = {
+  credit: { title:"Cards & Financing" },
   "website-insights": { title:"Website Insights", kicker:"Private website report", heading:"Website Insights & Security", description:"Anonymous audience totals and private account audit." },
   overview: {
     title: "Overview",
@@ -1139,7 +1140,7 @@ async function pushBetaWorkspace() {
 }
 
 function routesForBetaRole() {
-  return Object.keys(routes).filter(route => ["security", "website-insights"].includes(route) ? NoLimitAccess.isOwner() : NoLimitAccess.can(route));
+  return Object.keys(routes).filter(route => route === "credit" ? Boolean(currentAuthSession && currentBetaUser?.privateCredit) : ["security", "website-insights"].includes(route) ? NoLimitAccess.isOwner() : NoLimitAccess.can(route));
 }
 function canAccessAuditControls() { return NoLimitAccess.isOwner(); }
 function betaCanCreate(type) { return NoLimitAccess.allows(type, "create"); }
@@ -1185,6 +1186,7 @@ function applyBetaAccess() {
 }
 
 async function activateBetaUser(user, session = currentAuthSession) {
+  window.NoLimitCredit.reset();
   websiteInsights = {period:"today",data:null,loading:false,error:"",requestId:websiteInsights.requestId+1};
   currentBetaUser = user;
   currentAuthSession = session;
@@ -1206,7 +1208,7 @@ async function activateBetaUser(user, session = currentAuthSession) {
   presenceHeartbeat = window.setInterval(() => updatePresence(location.hash.replace(/^#/, "") || "overview"), 60000);
   window.clearInterval(workspaceRefreshTimer);
   workspaceRefreshTimer = window.setInterval(() => {
-    if (!document.getElementById("takeoffEditor")?.open && !dataDialog.open && !documentDialog.open && !customServiceDialog.open && !document.getElementById("serviceImportDialog").open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
+    if (location.hash !== "#credit" && !document.getElementById("takeoffEditor")?.open && !dataDialog.open && !documentDialog.open && !customServiceDialog.open && !document.getElementById("serviceImportDialog").open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
   }, 15000);
 }
 
@@ -1379,7 +1381,10 @@ async function userFromSession(session) {
   if (profileError || membershipError || !membership) return null;
   const {data: access, error: accessError} = await client.rpc("nl_access_context", {org: betaConfig().organizationId});
   if (accessError || !access) throw new Error("Secure access rules could not be loaded. Please retry.");
+  // A missing migration or any error leaves the private module inaccessible.
+  const { data: privateCredit, error: creditError } = await client.rpc("nl_credit_allowed");
   return {
+    privateCredit: !creditError && privateCredit === true,
     id: session.user.id,
     username: profile?.email || session.user.email,
     name: profile?.full_name || session.user.email?.split("@")[0] || "No Limit user",
@@ -1410,8 +1415,19 @@ async function startBeta() {
   // automatic refresh cycle. Without this subscription the UI could retain an
   // expired token and report a misleading cloud-sync failure after an hour.
   window.noLimitSupabaseClient.auth.onAuthStateChange((_event, refreshedSession) => {
+    if (refreshedSession && currentBetaUser && refreshedSession.user.id !== currentBetaUser.id) {
+      window.NoLimitCredit.reset();
+      currentBetaUser = null;
+      document.querySelector('a[data-route="credit"]').hidden = true;
+      if(location.hash === '#credit') content.replaceChildren();
+      document.body.classList.add('auth-required');
+    }
     currentAuthSession = refreshedSession || null;
     if (!refreshedSession) {
+      window.NoLimitCredit.reset();
+      currentBetaUser = null;
+      document.querySelector('a[data-route="credit"]').hidden = true;
+      if(location.hash === '#credit') content.replaceChildren();
       websiteInsights = {period:"today",data:null,loading:false,error:"",requestId:websiteInsights.requestId+1};
       document.querySelectorAll('[data-report-access]').forEach(link => { link.hidden=true; });
       if(location.hash === '#website-insights') content.replaceChildren();
@@ -2214,6 +2230,7 @@ async function refreshWebsiteInsights() {
 }
 
 const renderers = {
+  credit: () => window.NoLimitCredit.render(),
   overview: renderOverview,
   requests: renderRequests,
   documents: renderDocuments,
@@ -2712,6 +2729,10 @@ function renderRoute() {
   content.focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "instant" });
   bindPageEvents(routeName);
+  if(routeName === "credit") {
+    window.NoLimitCredit.configure({client:window.noLimitSupabaseClient,allowed:()=>Boolean(currentAuthSession && currentBetaUser?.privateCredit),rerender:()=>{if(location.hash === "#credit") renderRoute();}});
+    window.NoLimitCredit.bind(content);
+  }
   content.querySelector("[data-retry-route]")?.addEventListener("click", renderRoute);
   if (routeName === "requests" && new URLSearchParams(location.search).has("visit")) {
     const notice = document.createElement("div");
@@ -2928,6 +2949,7 @@ resetPasswordButton.addEventListener("click", async () => {
 });
 
 profileButton.addEventListener("click", async () => {
+  window.NoLimitCredit.reset();
   if (window.noLimitSupabaseClient) await window.noLimitSupabaseClient.auth.signOut();
   currentBetaUser = null;
   currentAuthSession = null;
@@ -2940,3 +2962,4 @@ profileButton.addEventListener("click", async () => {
 
 renderRoute();
 void startBeta();
+

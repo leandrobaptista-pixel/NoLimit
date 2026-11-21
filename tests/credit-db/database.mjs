@@ -1,0 +1,52 @@
+import {PGlite} from '@electric-sql/pglite';
+import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const db=new PGlite();
+const ids={leandro:'10000000-0000-4000-8000-000000000001',geanniny:'10000000-0000-4000-8000-000000000002',owner:'10000000-0000-4000-8000-000000000003',other:'10000000-0000-4000-8000-000000000004'};
+await db.exec(`create role anon;create role authenticated;create schema auth;
+create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+grant usage on schema auth to authenticated,anon;grant execute on function auth.uid() to authenticated,anon;
+create table public.organization_members(organization_id uuid,user_id uuid,status text,role text);
+insert into auth.users values ${Object.values(ids).map(id=>`('${id}')`).join(',')};
+insert into organization_members select '00000000-0000-4000-8000-000000000001',id,'active','owner' from auth.users;`);
+await db.exec(await readFile(new URL('../../supabase/migrations/20261121010000_private_credit_control.sql',import.meta.url),'utf8'));
+await db.exec(`insert into nl_credit_members values('leandro','${ids.leandro}'),('geanniny','${ids.geanniny}');`);
+const as=async(id,role='authenticated')=>{await db.exec('reset role');await db.query(`select set_config('request.jwt.claim.sub',$1,false)`,[id||'']);await db.exec(`set role ${role}`);};
+const call=async(fn,args=[])=>{const r=await db.query(`select public.${fn}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as result`,args);return r.rows[0].result;};
+const write=(op,item)=>call('nl_credit_write',[op,JSON.stringify(item)]);
+for(const id of [ids.owner,ids.other,'']){
+  await as(id);assert.equal(await call('nl_credit_allowed'),false);
+  await assert.rejects(call('nl_credit_read'),/denied/);
+  await assert.rejects(write('budget',{budget:1,revision:1}),/denied/);
+  await assert.rejects(db.query('select * from nl_credit_debts'),/permission denied/);
+}
+await as('', 'anon');await assert.rejects(call('nl_credit_allowed'),/permission denied/);
+for(const id of [ids.leandro,ids.geanniny]){await as(id);assert.equal(await call('nl_credit_allowed'),true);assert.equal((await call('nl_credit_read')).debts.length,0);await assert.rejects(db.query('select * from nl_credit_members'),/permission denied/);}
+await as(ids.leandro);
+const document={format:'nolimit-credit-v1',budget:1500,debts:[{name:'Card A',kind:'card',opening_balance:1000,apr:0.2,minimum:null}],entries:[]};
+await call('nl_credit_import',[JSON.stringify(document)]);
+await assert.rejects(call('nl_credit_import',[JSON.stringify(document)]),/empty/);
+let data=await call('nl_credit_read');assert.equal(data.debts.length,1);assert.equal(data.settings.budget,1500);
+const debt=data.debts[0];
+await assert.rejects(write('debt',{...debt,revision:99}),/changed/);
+await assert.rejects(write('budget',{budget:5,revision:99}),/changed/);
+await assert.rejects(write('budget',{budget:'NaN',revision:data.settings.revision}),/check constraint/);
+await assert.rejects(write('entry',{debt_id:debt.id,posted_on:'2099-01-01',payment:1}),/completed/);
+await assert.rejects(write('entry',{debt_id:debt.id,posted_on:'2026-01-01',payment:-1}),/check constraint/);
+await assert.rejects(write('entry',{debt_id:debt.id,posted_on:'2026-01-01'}),/check constraint/);
+const payload={request_id:'20000000-0000-4000-8000-000000000001',debt_id:debt.id,posted_on:'2026-01-01',payment:100,interest:10,charges:1};
+const entry=await write('entry',payload);
+assert.equal(await write('entry',payload),entry);
+await assert.rejects(write('entry',{...payload,payment:101}),/already posted/);
+await as(ids.geanniny);data=await call('nl_credit_read');assert.equal(data.entries.length,1);assert.equal(data.entries[0].payment,100);
+await write('void',{id:entry});await assert.rejects(write('void',{id:entry}),/already voided/);
+await db.exec('reset role');await db.exec(`update organization_members set status='inactive' where user_id='${ids.leandro}';`);
+await as(ids.leandro);assert.equal(await call('nl_credit_allowed'),false);await assert.rejects(call('nl_credit_read'),/denied/);
+await db.exec('reset role');assert.equal((await db.query('select count(*)::int as n from nl_credit_audit')).rows[0].n,4);
+// A malformed import must roll back its budget and preceding inserted debts.
+await db.exec('truncate nl_credit_audit,nl_credit_entries,nl_credit_debts');
+await as(ids.geanniny);
+await assert.rejects(call('nl_credit_import',[JSON.stringify({...document,budget:1,debts:[document.debts[0],{...document.debts[0],name:'Bad',opening_balance:-1}]})]),/check constraint/);
+data=await call('nl_credit_read');assert.equal(data.debts.length,0);assert.equal(data.settings.budget,1500);
+console.log('Database checks passed: exact account grants, anon/other-owner denial, no direct table access, active membership, atomic import, revisions, validation and void history.');
+await db.close();

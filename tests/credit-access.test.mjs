@@ -1,0 +1,32 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
+test('an Owner role alone never reveals the credit route',()=>{
+  const app=read('../no-limit-admin-beta/app.js');
+  const fn=app.slice(app.indexOf('function routesForBetaRole()'),app.indexOf('\nfunction canAccessAuditControls()'));
+  const context=vm.createContext({routes:{credit:1,overview:1,security:1},currentAuthSession:{user:{id:'owner'}},currentBetaUser:{privateCredit:false},NoLimitAccess:{isOwner:()=>true,can:()=>true}});
+  vm.runInContext(fn,context);
+  assert.equal(vm.runInContext('routesForBetaRole().includes("credit")',context),false);
+  context.currentBetaUser.privateCredit=true;
+  assert.equal(vm.runInContext('routesForBetaRole().includes("credit")',context),true);
+  context.currentAuthSession=null;
+  assert.equal(vm.runInContext('routesForBetaRole().includes("credit")',context),false);
+});
+test('late server responses cannot repopulate sensitive data after sign-out',async()=>{
+  let resolveRead;let isAllowed=true;
+  const scope={window:{},Intl,Date,Number,String,console};
+  vm.createContext(scope);
+  vm.runInContext(read('../no-limit-admin-beta/credit-math.js'),scope);
+  vm.runInContext(read('../no-limit-admin-beta/credit-control.js'),scope);
+  const control=scope.window.NoLimitCredit;
+  control.configure({client:{rpc:()=>new Promise(resolve=>{resolveRead=resolve;})},rerender:()=>{},allowed:()=>isAllowed});
+  control.bind({querySelectorAll:()=>[],querySelector:()=>null});
+  isAllowed=false;control.reset();
+  resolveRead({data:{settings:{budget:1},debts:[{name:'PRIVATE SENTINEL'}],entries:[]},error:null});
+  await Promise.resolve();await Promise.resolve();
+  assert.ok(!control.render().includes('PRIVATE SENTINEL'));
+  isAllowed=true;
+  assert.ok(!control.render().includes('PRIVATE SENTINEL'));
+});

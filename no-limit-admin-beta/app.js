@@ -1186,6 +1186,7 @@ function applyBetaAccess() {
 }
 
 async function activateBetaUser(user, session = currentAuthSession) {
+  document.getElementById("smartTakeoffEditor")?.remove();
   window.NoLimitCredit.reset();
   websiteInsights = {period:"today",data:null,loading:false,error:"",requestId:websiteInsights.requestId+1};
   currentBetaUser = user;
@@ -1208,7 +1209,7 @@ async function activateBetaUser(user, session = currentAuthSession) {
   presenceHeartbeat = window.setInterval(() => updatePresence(location.hash.replace(/^#/, "") || "overview"), 60000);
   window.clearInterval(workspaceRefreshTimer);
   workspaceRefreshTimer = window.setInterval(() => {
-    if (location.hash !== "#credit" && !document.getElementById("takeoffEditor")?.open && !dataDialog.open && !documentDialog.open && !customServiceDialog.open && !document.getElementById("serviceImportDialog").open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
+    if (location.hash !== "#credit" && !document.getElementById("smartTakeoffEditor")?.open && !document.getElementById("takeoffEditor")?.open && !dataDialog.open && !documentDialog.open && !customServiceDialog.open && !document.getElementById("serviceImportDialog").open && !cloudSaveTimer) void refreshWorkspaceIfChanged();
   }, 15000);
 }
 
@@ -1791,7 +1792,7 @@ let takeoffAttachmentBusy = false;
 
 function renderProjectTakeoffs(project) {
   const takeoffs=project.materialTakeoffs||[],proposals=state.estimates.filter(item=>item.projectId===project.id);
-  return `<article class="panel" id="projectTakeoffs"><div class="panel-head"><div><h2>Material takeoffs</h2><p>Prepare quantities by floor, calculate waste, and save a takeoff for this project.</p></div><button class="button" type="button" data-new-takeoff="${escapeHtml(project.id)}">New takeoff</button></div>${takeoffs.length?demoTable(['Takeoff','Waste','Updated','Actions'],takeoffs.map(item=>`<tr><td><strong>${escapeHtml(item.title)}</strong></td><td>${Number(item.wastePercent)}%</td><td>${escapeHtml(readableDate(item.updatedAt?.slice(0,10)))}</td><td><div class="button-row"><button class="button secondary compact-button" type="button" data-edit-takeoff="${escapeHtml(item.id)}" data-takeoff-project="${escapeHtml(project.id)}">Edit</button><button class="button secondary compact-button" type="button" data-preview-takeoff="${escapeHtml(item.id)}" data-takeoff-project="${escapeHtml(project.id)}">Preview / PDF</button></div></td></tr>`)):'<p>No takeoffs saved yet. Start with the No Limit trim template.</p>'}<h3>Proposal attachments</h3><p>A proposal receives its own saved copy. Editing a project takeoff does not change a previously attached copy.</p>${proposals.length?demoTable(['Proposal','Takeoff copy','Actions'],proposals.map(proposal=>`<tr><td><strong>${escapeHtml(proposal.id)}</strong><small class="record-id">${escapeHtml(formatStatus(proposal.status))} · R${Number(proposal.revision||1)}</small></td><td>${escapeHtml(proposal.materialTakeoff?.title||'None attached')}<label class="takeoff-choose">Select saved takeoff<select aria-label="Takeoff for ${escapeHtml(proposal.id)}" data-takeoff-for="${escapeHtml(proposal.id)}"><option value="">Choose takeoff</option>${takeoffs.map(item=>`<option value="${escapeHtml(item.id)}" ${item.id===proposal.materialTakeoff?.id?'selected':''}>${escapeHtml(item.title)}</option>`).join('')}</select></label></td><td><div class="button-row"><button class="button secondary compact-button" type="button" data-attach-takeoff="${escapeHtml(proposal.id)}" ${takeoffs.length?'':'disabled'}>Attach / replace copy</button>${proposal.materialTakeoff?`<button class="text-button" type="button" data-preview-attached="${escapeHtml(proposal.id)}">View copy</button><button class="text-button" type="button" data-detach-takeoff="${escapeHtml(proposal.id)}">Remove attachment</button>`:''}<button class="text-button" type="button" data-view-document="proposal" data-document-id="${escapeHtml(proposal.id)}">Open proposal</button></div></td></tr>`)):'<p>Create a proposal linked to this project in Estimates &amp; Contracts. It will appear here for attachment.</p>'}</article>`;
+  return `<article class="panel" id="projectTakeoffs"><div class="panel-head"><div><h2>Material takeoffs</h2><p>Prepare quantities by floor, calculate waste, and save a takeoff for this project.</p></div><div class="button-row"><button class="button" type="button" data-smart-takeoff="${escapeHtml(project.id)}">Smart takeoff</button><button class="button secondary" type="button" data-new-takeoff="${escapeHtml(project.id)}">Manual summary</button></div></div>${takeoffs.length?demoTable(['Takeoff','Waste','Updated','Actions'],takeoffs.map(item=>`<tr><td><strong>${escapeHtml(item.title)}</strong></td><td>${Number(item.wastePercent)}%</td><td>${escapeHtml(readableDate(item.updatedAt?.slice(0,10)))}</td><td><div class="button-row"><button class="button secondary compact-button" type="button" data-edit-takeoff="${escapeHtml(item.id)}" data-takeoff-project="${escapeHtml(project.id)}">Edit</button><button class="button secondary compact-button" type="button" data-preview-takeoff="${escapeHtml(item.id)}" data-takeoff-project="${escapeHtml(project.id)}">Preview / PDF</button></div></td></tr>`)):'<p>No takeoffs saved yet. Start with the No Limit trim template.</p>'}<h3>Proposal attachments</h3><p>A proposal receives its own saved copy. Editing a project takeoff does not change a previously attached copy.</p>${proposals.length?demoTable(['Proposal','Takeoff copy','Actions'],proposals.map(proposal=>`<tr><td><strong>${escapeHtml(proposal.id)}</strong><small class="record-id">${escapeHtml(formatStatus(proposal.status))} · R${Number(proposal.revision||1)}</small></td><td>${escapeHtml(proposal.materialTakeoff?.title||'None attached')}<label class="takeoff-choose">Select saved takeoff<select aria-label="Takeoff for ${escapeHtml(proposal.id)}" data-takeoff-for="${escapeHtml(proposal.id)}"><option value="">Choose takeoff</option>${takeoffs.map(item=>`<option value="${escapeHtml(item.id)}" ${item.id===proposal.materialTakeoff?.id?'selected':''}>${escapeHtml(item.title)}</option>`).join('')}</select></label></td><td><div class="button-row"><button class="button secondary compact-button" type="button" data-attach-takeoff="${escapeHtml(proposal.id)}" ${takeoffs.length?'':'disabled'}>Attach / replace copy</button>${proposal.materialTakeoff?`<button class="text-button" type="button" data-preview-attached="${escapeHtml(proposal.id)}">View copy</button><button class="text-button" type="button" data-detach-takeoff="${escapeHtml(proposal.id)}">Remove attachment</button>`:''}<button class="text-button" type="button" data-view-document="proposal" data-document-id="${escapeHtml(proposal.id)}">Open proposal</button></div></td></tr>`)):'<p>Create a proposal linked to this project in Estimates &amp; Contracts. It will appear here for attachment.</p>'}</article>`;
 }
 
 function previewTakeoff(project, takeoff) {
@@ -1805,6 +1806,7 @@ function previewTakeoff(project, takeoff) {
 }
 
 async function openTakeoffEditor(projectId, takeoffId='') {
+  if (state.projects.find(p=>p.id===projectId)?.materialTakeoffs?.find(t=>t.id===takeoffId)?.schemaVersion===2) return openSmartTakeoff(projectId,takeoffId);
   if(!await confirmCreateAccess('project', 'edit'))return;
   const project=state.projects.find(item=>item.id===projectId);if(!project)return;
   let draft=NoLimitTakeoff.clone((project.materialTakeoffs||[]).find(item=>item.id===takeoffId)||NoLimitTakeoff.template());
@@ -1842,7 +1844,17 @@ async function openTakeoffEditor(projectId, takeoffId='') {
   dialog.oncancel=event=>{if(saving)event.preventDefault();};draw();dialog.showModal();
 }
 
+function openSmartTakeoff(projectId,takeoffId='') {
+  return NoLimitSmartTakeoff.open({
+    project:id=>state.projects.find(p=>p.id===id), media:()=>state.media,
+    config:betaConfig, headers:betaRequestHeaders, client:()=>window.noLimitSupabaseClient,
+    userId:()=>currentAuthSession?.user?.id, can:(area,action)=>NoLimitAccess.can(area,action),
+    access:confirmCreateAccess, save:savePreviewState, render:renderRoute, preview:previewTakeoff
+  },projectId,takeoffId);
+}
+
 function bindTakeoffEvents() {
+  content.querySelectorAll("[data-smart-takeoff]").forEach(button=>button.onclick=()=>void openSmartTakeoff(button.dataset.smartTakeoff));
   content.querySelectorAll('[data-new-takeoff]').forEach(button=>button.onclick=()=>void openTakeoffEditor(button.dataset.newTakeoff));
   content.querySelectorAll('[data-edit-takeoff]').forEach(button=>button.onclick=()=>void openTakeoffEditor(button.dataset.takeoffProject,button.dataset.editTakeoff));
   content.querySelectorAll('[data-preview-takeoff]').forEach(button=>button.onclick=()=>{const project=state.projects.find(item=>item.id===button.dataset.takeoffProject);previewTakeoff(project,project?.materialTakeoffs?.find(item=>item.id===button.dataset.previewTakeoff));});
@@ -2962,4 +2974,5 @@ profileButton.addEventListener("click", async () => {
 
 renderRoute();
 void startBeta();
+
 

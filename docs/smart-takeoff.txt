@@ -1,0 +1,14 @@
+Smart takeoff — No Limit production integration
+
+The project Materials takeoff panel now offers Smart takeoff and keeps Manual summary.
+Inputs: pasted notes; PDF/JPG/PNG/TXT attachments; editable measurement items.
+Deterministic calculation: LF, SF, EA; four-side and three-side opening perimeter; item waste; excluded manufacturer-supplied materials; pending vs zero.
+PDF: existing No Limit logo/letterhead/watermark and print/save PDF workflow, grouped by floor with separate material/profile summary and provenance. PDF is downloaded through the existing browser print workflow; a binary PDF is not automatically uploaded to storage.
+Original source files are uploaded privately to media-library on successful project save (requires media-create permission). Pasted notes and takeoff revisions are saved with project workspace data. Proposal attachments retain immutable copies. Existing proposal attachment UI remains. Pricing/conversion to new proposal or invoice line items is not added by this release.
+
+AI backend: analyze-takeoff Supabase function; authenticates the caller, checks project editing + document view, and confirms the project is in the caller-filtered workspace. Paid AI is initially Owner-only. Requires protected server secrets OPENAI_API_KEY, NO_LIMIT_TAKEOFF_MODEL and NO_LIMIT_TAKEOFF_AI_ENABLED=true. No credentials are embedded in frontend. Currently these settings are absent; do not claim AI works or submit paid analyses until configured with the Owner. The chosen model must support Responses, structured output and PDF/image input.
+The API receives only user-submitted notes/files, not client financial or credit-module data. Response storage is disabled. Quotas in the Edge isolate are a backstop only, not a global hard spending cap; configure the provider project's usage/budget controls before enabling. Uploaded docs are treated as data, never instructions; no remote URLs or tools are accepted. The AI extracts primitives, deterministic math recalculates values and each item requires human review.
+
+Validation: syntax checks do not run the local application. Live Edge GET checks fixed synthetic quantity/pending/exclusion/notes-parser invariants without writing customer data. Other live validation includes method/CORS/auth denial, published asset parity, current backend health and existing HTTP suite. UI save/upload/print and AI calls cannot be declared verified without an available authenticated production browser and AI configuration. No local functional test is a substitute.
+
+Rollback: restore original app.js, index.html and takeoff.js from the source revision recorded in base-commit.json; remove the three smart frontend assets. Smart project records have schemaVersion=2; preserve them and re-enable this reader to view them. Keep source attachments and backups. No database schema or permission changes were made.
